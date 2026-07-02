@@ -166,6 +166,8 @@ private:
     void noteOn(int note, int velocity);
     void noteOff(int note);
     void allNotesOff();
+    bool isMidiUiNoteHeld(int note) const;
+    void repaintKeyboardAsync();
 
     void handleIncomingMidiMessage(juce::MidiInput* source, const juce::MidiMessage& message) override;
     void comboBoxChanged(juce::ComboBox* comboBoxThatHasChanged) override;

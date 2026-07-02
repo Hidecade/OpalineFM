@@ -93,6 +93,7 @@ const juce::Colour kValueText { 0xffffd52b };
 const juce::Colour kTeal { 0xff25d9c4 };
 const juce::Colour kGreen { 0xff35e87e };
 const juce::Colour kEnvelope { 0xffead39c };
+std::array<std::atomic<bool>, 128> gMidiUiHeldNotes {};
 } // namespace
 
 MainComponent::Dx21LookAndFeel::Dx21LookAndFeel()
@@ -595,7 +596,7 @@ void MainComponent::KeyboardComponent::paint(juce::Graphics& g)
         const int note = kFirstKeyboardNote + i;
         const auto keyArea = juce::Rectangle<float>(area.getX() + keyWidth * i, area.getY(), keyWidth - 1.0f, area.getHeight());
         const bool black = isBlackKey(note);
-        const bool held = note == heldNote;
+        const bool held = note == heldNote || owner.isMidiUiNoteHeld(note);
         g.setColour(held ? juce::Colour(0xff6fd4ff) : (black ? juce::Colour(0xff202020) : juce::Colour(0xffefefef)));
         g.fillRoundedRectangle(keyArea.reduced(1.0f), 3.0f);
         g.setColour(black ? juce::Colour(0xff050505) : juce::Colour(0xff303030));
@@ -794,7 +795,7 @@ MainComponent::MainComponent()
     applySelectedVoice();
     populateAudioOutputSelect();
     populateMidiInputSelect();
-    connectMidiInputs();
+    midiStatus = "MIDI: off";
     refreshStatus();
 
     setSize(1280, 760);
@@ -1130,9 +1131,10 @@ void MainComponent::populateMidiInputSelect()
 {
     midiInputDevices = juce::MidiInput::getAvailableDevices();
     midiInputSelect.clear(juce::dontSendNotification);
-    midiInputSelect.addItem("MIDI: All Inputs", 1);
+    midiInputSelect.addItem("MIDI: Off", 1);
+    midiInputSelect.addItem("MIDI: All Inputs", 2);
 
-    int id = 2;
+    int id = 3;
     for (const auto& device : midiInputDevices)
         midiInputSelect.addItem("MIDI: " + device.name, id++);
 
@@ -1253,6 +1255,13 @@ void MainComponent::connectMidiInputs()
 
     midiInputDevices = juce::MidiInput::getAvailableDevices();
     const auto selectedId = midiInputSelect.getSelectedId();
+
+    if (selectedId <= 1)
+    {
+        midiStatus = "MIDI: off";
+        return;
+    }
+
     const auto connectDevice = [this](const juce::MidiDeviceInfo& device)
     {
         if (auto input = juce::MidiInput::openDevice(device.identifier, this))
@@ -1262,9 +1271,9 @@ void MainComponent::connectMidiInputs()
         }
     };
 
-    if (selectedId >= 2)
+    if (selectedId >= 3)
     {
-        const int index = selectedId - 2;
+        const int index = selectedId - 3;
         if (juce::isPositiveAndBelow(index, midiInputDevices.size()))
             connectDevice(midiInputDevices[index]);
     }
@@ -1280,8 +1289,8 @@ void MainComponent::connectMidiInputs()
         return;
     }
 
-    if (selectedId >= 2 && midiInputs.size() == 1)
-        midiStatus = "MIDI: " + midiInputDevices[selectedId - 2].name;
+    if (selectedId >= 3 && midiInputs.size() == 1)
+        midiStatus = "MIDI: " + midiInputDevices[selectedId - 3].name;
     else
     {
         midiStatus = "MIDI: " + juce::String(static_cast<int>(midiInputs.size())) + " input";
@@ -1307,8 +1316,34 @@ void MainComponent::noteOff(const int note)
 
 void MainComponent::allNotesOff()
 {
+    for (auto& held : gMidiUiHeldNotes)
+        held.store(false, std::memory_order_relaxed);
+    repaintKeyboardAsync();
+
     std::lock_guard<std::mutex> lock(engineMutex);
     engine.panic();
+}
+
+bool MainComponent::isMidiUiNoteHeld(const int note) const
+{
+    if (!juce::isPositiveAndBelow(note, static_cast<int>(gMidiUiHeldNotes.size())))
+        return false;
+
+    return gMidiUiHeldNotes[static_cast<std::size_t>(note)].load(std::memory_order_relaxed);
+}
+
+void MainComponent::repaintKeyboardAsync()
+{
+    if (juce::MessageManager::getInstance()->isThisTheMessageThread())
+    {
+        keyboard.repaint();
+        return;
+    }
+
+    juce::MessageManager::callAsync([this]
+    {
+        keyboard.repaint();
+    });
 }
 
 void MainComponent::handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage& message)
@@ -1317,6 +1352,12 @@ void MainComponent::handleIncomingMidiMessage(juce::MidiInput*, const juce::Midi
     {
         const int note = message.getNoteNumber();
         const int velocity = static_cast<int>(message.getVelocity() * 127.0f);
+        if (juce::isPositiveAndBelow(note, static_cast<int>(gMidiUiHeldNotes.size())))
+        {
+            gMidiUiHeldNotes[static_cast<std::size_t>(note)].store(true, std::memory_order_relaxed);
+            repaintKeyboardAsync();
+        }
+
         if (!powerOn)
         {
             juce::MessageManager::callAsync([this, note, velocity]
@@ -1329,16 +1370,41 @@ void MainComponent::handleIncomingMidiMessage(juce::MidiInput*, const juce::Midi
         noteOn(note, velocity);
     }
     else if (message.isNoteOff())
-        noteOff(message.getNoteNumber());
+    {
+        const int note = message.getNoteNumber();
+        if (juce::isPositiveAndBelow(note, static_cast<int>(gMidiUiHeldNotes.size())))
+        {
+            gMidiUiHeldNotes[static_cast<std::size_t>(note)].store(false, std::memory_order_relaxed);
+            repaintKeyboardAsync();
+        }
+
+        noteOff(note);
+    }
     else if (message.isPitchWheel())
     {
+        const double value = juce::jlimit(-1.0,
+                                          1.0,
+                                          (static_cast<double>(message.getPitchWheelValue()) - 8192.0) / 8192.0);
         std::lock_guard<std::mutex> lock(engineMutex);
-        engine.setPitchBend((static_cast<double>(message.getPitchWheelValue()) - 8192.0) / 8192.0);
+        engine.setPitchBend(value);
+        juce::MessageManager::callAsync([this, value]
+        {
+            pitchWheelSlider.setValue(value, juce::dontSendNotification);
+        });
     }
     else if (message.isController() && message.getControllerNumber() == 1)
     {
+        const double value = static_cast<double>(message.getControllerValue()) / 127.0;
         std::lock_guard<std::mutex> lock(engineMutex);
-        engine.setModWheel(static_cast<double>(message.getControllerValue()) / 127.0);
+        engine.setModWheel(value);
+        juce::MessageManager::callAsync([this, value]
+        {
+            modWheelSlider.setValue(value, juce::dontSendNotification);
+        });
+    }
+    else if (message.isAllNotesOff())
+    {
+        allNotesOff();
     }
 }
 
