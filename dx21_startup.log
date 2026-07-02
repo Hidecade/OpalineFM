@@ -1,0 +1,11 @@
+
+MainComponent ctor begin
+voices loaded
+voice applied
+audio outputs populated
+midi inputs populated
+midi connected
+MainComponent ctor end
+MainComponent first paint
+MainComponent dtor begin
+MainComponent dtor end
