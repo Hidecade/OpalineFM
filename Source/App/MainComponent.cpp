@@ -9,7 +9,37 @@
 namespace
 {
 constexpr int kFirstKeyboardNote = 48;
-constexpr int kKeyboardNoteCount = 25;
+constexpr int kKeyboardNoteCount = 37;
+constexpr int kPcKeyboardTranspose = 12;
+constexpr int kPreferredAudioBufferSize = 128;
+constexpr int kMaxLowLatencyAudioBufferSize = 128;
+constexpr std::array<int, 4> kLowLatencyAudioBufferSizes { 32, 64, 96, 128 };
+constexpr float kAsioOutputTrim = 0.50f;
+
+struct PcKeyNote
+{
+    int keyCode;
+    int note;
+};
+
+constexpr std::array<PcKeyNote, 41> kPcKeyboardMap {{
+    { 'z', 36 }, { 'x', 38 }, { 'c', 40 }, { 'v', 41 }, { 'b', 43 }, { 'n', 45 }, { 'm', 47 },
+    { ',', 48 }, { '.', 50 }, { '/', 52 }, { '\\', 53 },
+    { 's', 37 }, { 'd', 39 }, { 'g', 42 }, { 'h', 44 }, { 'j', 46 }, { 'l', 49 }, { ';', 51 }, { ':', 51 },
+    { 'q', 48 }, { 'w', 50 }, { 'e', 52 }, { 'r', 53 }, { 't', 55 }, { 'y', 57 }, { 'u', 59 },
+    { 'i', 60 }, { 'o', 62 }, { 'p', 64 }, { '@', 65 }, { '[', 67 }, { ']', 67 },
+    { '2', 49 }, { '3', 51 }, { '5', 54 }, { '6', 56 }, { '7', 58 }, { '9', 61 }, { '0', 63 },
+    { '-', 66 }, { '^', 66 }
+}};
+
+bool isPcKeyCurrentlyDown(const int keyCode)
+{
+    if (keyCode >= 'a' && keyCode <= 'z')
+        return juce::KeyPress::isKeyCurrentlyDown(keyCode)
+            || juce::KeyPress::isKeyCurrentlyDown(keyCode - 'a' + 'A');
+
+    return juce::KeyPress::isKeyCurrentlyDown(keyCode);
+}
 
 std::vector<std::uint8_t> readBinaryFile(const juce::File& file)
 {
@@ -41,6 +71,86 @@ bool isBlackKey(int midiNote)
             return false;
     }
 }
+
+int whiteKeyIndexForNote(const int midiNote)
+{
+    int index = 0;
+    for (int note = kFirstKeyboardNote; note < midiNote; ++note)
+    {
+        if (!isBlackKey(note))
+            ++index;
+    }
+
+    return index;
+}
+
+int noteForWhiteKeyIndex(const int whiteIndex)
+{
+    int index = 0;
+    for (int note = kFirstKeyboardNote; note < kFirstKeyboardNote + kKeyboardNoteCount; ++note)
+    {
+        if (isBlackKey(note))
+            continue;
+
+        if (index == whiteIndex)
+            return note;
+
+        ++index;
+    }
+
+    return kFirstKeyboardNote + kKeyboardNoteCount - 1;
+}
+
+juce::String midiNoteName(const int note)
+{
+    static constexpr std::array<const char*, 12> names { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+    const int safeNote = juce::jlimit(0, 127, note);
+    return juce::String(names[static_cast<std::size_t>(safeNote % 12)]) + juce::String(safeNote / 12 - 1);
+}
+
+#if JUCE_WINDOWS
+bool isWasapiTypeName(const juce::String& typeName)
+{
+    return typeName.startsWith("Windows Audio");
+}
+
+bool isStrictLowLatencyTypeName(const juce::String& typeName)
+{
+    return isWasapiTypeName(typeName);
+}
+
+bool isUnsafeAsioDeviceName(const juce::String& deviceName)
+{
+    const auto name = deviceName.toLowerCase();
+    return name.contains("built-in")
+        || name.contains("generic")
+        || name.contains("low latency")
+        || name.contains("低レイテンシ");
+}
+
+std::vector<juce::String> wasapiLowLatencyTypeOrder(const juce::String& requestedTypeName)
+{
+    std::vector<juce::String> types;
+
+    auto addType = [&types](const juce::String& typeName)
+    {
+        if (typeName.isNotEmpty()
+            && std::find(types.begin(), types.end(), typeName) == types.end())
+        {
+            types.push_back(typeName);
+        }
+    };
+
+    if (requestedTypeName == "Windows Audio (Exclusive Mode)")
+        addType(requestedTypeName);
+    else
+        addType("Windows Audio (Exclusive Mode)");
+
+    addType(requestedTypeName);
+    addType("Windows Audio (Low Latency Mode)");
+    return types;
+}
+#endif
 
 juce::String lfoWaveName(const int wave)
 {
@@ -84,7 +194,7 @@ const juce::Colour kAppBackground { 0xff020405 };
 const juce::Colour kPanelTop { 0xff29261f };
 const juce::Colour kPanelBottom { 0xff14130f };
 const juce::Colour kPanelBorder { 0xff343126 };
-const juce::Colour kPanelBorderOn { 0xff19d982 };
+const juce::Colour kPanelBorderOn { 0xff6f726a };
 const juce::Colour kControlWell { 0xff050606 };
 const juce::Colour kControlBorder { 0xff282820 };
 const juce::Colour kTextPrimary { 0xffedf4f3 };
@@ -94,6 +204,100 @@ const juce::Colour kTeal { 0xff25d9c4 };
 const juce::Colour kGreen { 0xff35e87e };
 const juce::Colour kEnvelope { 0xffead39c };
 std::array<std::atomic<bool>, 128> gMidiUiHeldNotes {};
+std::array<std::atomic<int>, 128> gMidiUiHeldVelocities {};
+
+constexpr const char* kMidiInputIdentifierSetting = "midiInputIdentifier";
+constexpr const char* kAudioOutputTypeSetting = "audioOutputType";
+constexpr const char* kAudioOutputDeviceSetting = "audioOutputDevice";
+
+juce::PropertiesFile::Options settingsOptions()
+{
+    juce::PropertiesFile::Options options;
+    options.applicationName = "DX21 Native";
+    options.filenameSuffix = ".settings";
+    options.folderName = "DX21 Native";
+    options.osxLibrarySubFolder = "Application Support";
+    options.storageFormat = juce::PropertiesFile::storeAsXML;
+    options.millisecondsBeforeSaving = 0;
+    return options;
+}
+
+std::array<std::uint8_t, 5> lcdGlyph(juce::juce_wchar character)
+{
+    switch (character)
+    {
+        case '0': return { 0x3e, 0x51, 0x49, 0x45, 0x3e };
+        case '1': return { 0x00, 0x42, 0x7f, 0x40, 0x00 };
+        case '2': return { 0x42, 0x61, 0x51, 0x49, 0x46 };
+        case '3': return { 0x21, 0x41, 0x45, 0x4b, 0x31 };
+        case '4': return { 0x18, 0x14, 0x12, 0x7f, 0x10 };
+        case '5': return { 0x27, 0x45, 0x45, 0x45, 0x39 };
+        case '6': return { 0x3c, 0x4a, 0x49, 0x49, 0x30 };
+        case '7': return { 0x01, 0x71, 0x09, 0x05, 0x03 };
+        case '8': return { 0x36, 0x49, 0x49, 0x49, 0x36 };
+        case '9': return { 0x06, 0x49, 0x49, 0x29, 0x1e };
+        case 'A': return { 0x7e, 0x11, 0x11, 0x11, 0x7e };
+        case 'B': return { 0x7f, 0x49, 0x49, 0x49, 0x36 };
+        case 'C': return { 0x3e, 0x41, 0x41, 0x41, 0x22 };
+        case 'D': return { 0x7f, 0x41, 0x41, 0x22, 0x1c };
+        case 'E': return { 0x7f, 0x49, 0x49, 0x49, 0x41 };
+        case 'F': return { 0x7f, 0x09, 0x09, 0x09, 0x01 };
+        case 'G': return { 0x3e, 0x41, 0x49, 0x49, 0x7a };
+        case 'H': return { 0x7f, 0x08, 0x08, 0x08, 0x7f };
+        case 'I': return { 0x00, 0x41, 0x7f, 0x41, 0x00 };
+        case 'J': return { 0x20, 0x40, 0x41, 0x3f, 0x01 };
+        case 'K': return { 0x7f, 0x08, 0x14, 0x22, 0x41 };
+        case 'L': return { 0x7f, 0x40, 0x40, 0x40, 0x40 };
+        case 'M': return { 0x7f, 0x02, 0x0c, 0x02, 0x7f };
+        case 'N': return { 0x7f, 0x04, 0x08, 0x10, 0x7f };
+        case 'O': return { 0x3e, 0x41, 0x41, 0x41, 0x3e };
+        case 'P': return { 0x7f, 0x09, 0x09, 0x09, 0x06 };
+        case 'Q': return { 0x3e, 0x41, 0x51, 0x21, 0x5e };
+        case 'R': return { 0x7f, 0x09, 0x19, 0x29, 0x46 };
+        case 'S': return { 0x46, 0x49, 0x49, 0x49, 0x31 };
+        case 'T': return { 0x01, 0x01, 0x7f, 0x01, 0x01 };
+        case 'U': return { 0x3f, 0x40, 0x40, 0x40, 0x3f };
+        case 'V': return { 0x1f, 0x20, 0x40, 0x20, 0x1f };
+        case 'W': return { 0x3f, 0x40, 0x38, 0x40, 0x3f };
+        case 'X': return { 0x63, 0x14, 0x08, 0x14, 0x63 };
+        case 'Y': return { 0x07, 0x08, 0x70, 0x08, 0x07 };
+        case 'Z': return { 0x61, 0x51, 0x49, 0x45, 0x43 };
+        case 'a': return { 0x20, 0x54, 0x54, 0x54, 0x78 };
+        case 'b': return { 0x7f, 0x48, 0x44, 0x44, 0x38 };
+        case 'c': return { 0x38, 0x44, 0x44, 0x44, 0x20 };
+        case 'd': return { 0x38, 0x44, 0x44, 0x48, 0x7f };
+        case 'e': return { 0x38, 0x54, 0x54, 0x54, 0x18 };
+        case 'f': return { 0x08, 0x7e, 0x09, 0x01, 0x02 };
+        case 'g': return { 0x0c, 0x52, 0x52, 0x52, 0x3e };
+        case 'h': return { 0x7f, 0x08, 0x04, 0x04, 0x78 };
+        case 'i': return { 0x00, 0x44, 0x7d, 0x40, 0x00 };
+        case 'j': return { 0x20, 0x40, 0x44, 0x3d, 0x00 };
+        case 'k': return { 0x7f, 0x10, 0x28, 0x44, 0x00 };
+        case 'l': return { 0x00, 0x41, 0x7f, 0x40, 0x00 };
+        case 'm': return { 0x7c, 0x04, 0x18, 0x04, 0x78 };
+        case 'n': return { 0x7c, 0x08, 0x04, 0x04, 0x78 };
+        case 'o': return { 0x38, 0x44, 0x44, 0x44, 0x38 };
+        case 'p': return { 0x7c, 0x14, 0x14, 0x14, 0x08 };
+        case 'q': return { 0x08, 0x14, 0x14, 0x18, 0x7c };
+        case 'r': return { 0x7c, 0x08, 0x04, 0x04, 0x08 };
+        case 's': return { 0x48, 0x54, 0x54, 0x54, 0x20 };
+        case 't': return { 0x04, 0x3f, 0x44, 0x40, 0x20 };
+        case 'u': return { 0x3c, 0x40, 0x40, 0x20, 0x7c };
+        case 'v': return { 0x1c, 0x20, 0x40, 0x20, 0x1c };
+        case 'w': return { 0x3c, 0x40, 0x30, 0x40, 0x3c };
+        case 'x': return { 0x44, 0x28, 0x10, 0x28, 0x44 };
+        case 'y': return { 0x0c, 0x50, 0x50, 0x50, 0x3c };
+        case 'z': return { 0x44, 0x64, 0x54, 0x4c, 0x44 };
+        case '-': return { 0x08, 0x08, 0x08, 0x08, 0x08 };
+        case '_': return { 0x40, 0x40, 0x40, 0x40, 0x40 };
+        case '/': return { 0x20, 0x10, 0x08, 0x04, 0x02 };
+        case '.': return { 0x00, 0x60, 0x60, 0x00, 0x00 };
+        case ':': return { 0x00, 0x36, 0x36, 0x00, 0x00 };
+        case '>': return { 0x41, 0x22, 0x14, 0x08, 0x00 };
+        case '<': return { 0x08, 0x14, 0x22, 0x41, 0x00 };
+        default: return { 0x00, 0x00, 0x00, 0x00, 0x00 };
+    }
+}
 } // namespace
 
 MainComponent::Dx21LookAndFeel::Dx21LookAndFeel()
@@ -183,10 +387,92 @@ void MainComponent::Dx21LookAndFeel::drawLinearSlider(juce::Graphics& g,
         return;
     }
 
-    const auto bounds = juce::Rectangle<float>(static_cast<float>(x),
-                                              static_cast<float>(y),
-                                              static_cast<float>(width),
-                                              static_cast<float>(height)).reduced(8.0f, 3.0f);
+    auto bounds = juce::Rectangle<float>(static_cast<float>(x),
+                                         static_cast<float>(y),
+                                         static_cast<float>(width),
+                                         static_cast<float>(height)).reduced(8.0f, 3.0f);
+    if (slider.getName() == "wheelFader")
+        bounds = juce::Rectangle<float>(static_cast<float>(x),
+                                        static_cast<float>(y),
+                                        static_cast<float>(width),
+                                        static_cast<float>(height)).reduced(4.0f, 0.0f);
+
+    if (slider.getName() == "mainFader")
+    {
+        bounds = juce::Rectangle<float>(static_cast<float>(x),
+                                        static_cast<float>(y),
+                                        static_cast<float>(width),
+                                        static_cast<float>(height)).reduced(8.0f, 1.0f);
+        const auto panel = bounds.reduced(1.0f);
+        g.setGradientFill(juce::ColourGradient(juce::Colour(0xff08060a),
+                                               panel.getX(),
+                                               panel.getY(),
+                                               juce::Colour(0xff010101),
+                                               panel.getX(),
+                                               panel.getBottom(),
+                                               false));
+        g.fillRoundedRectangle(panel, 3.0f);
+        g.setColour(juce::Colour(0xff14110f));
+        g.drawRoundedRectangle(panel, 3.0f, 1.0f);
+
+        const float slotX = panel.getX() + panel.getWidth() * 0.32f;
+        const auto slot = juce::Rectangle<float>(slotX, panel.getY() + 24.0f, 7.0f, panel.getHeight() - 48.0f);
+        g.setColour(juce::Colour(0xff010101));
+        g.fillRoundedRectangle(slot, 2.0f);
+
+        const float tickX = panel.getX() + panel.getWidth() * 0.62f;
+        g.setColour(juce::Colour(0xffaaa8b8).withAlpha(0.55f));
+        for (int i = 0; i < 9; ++i)
+        {
+            const float yPos = slot.getY() + static_cast<float>(i) * slot.getHeight() / 8.0f;
+            const float tickWidth = (i % 4 == 0) ? 20.0f : 15.0f;
+            g.drawLine(tickX, yPos, tickX + tickWidth, yPos, 1.5f);
+        }
+
+        g.setColour(kTextPrimary);
+        g.setFont(juce::FontOptions(11.0f, juce::Font::bold));
+        const auto topText = slider.getMaximum() > 1.0 ? "+24" : "MAX";
+        const auto bottomText = slider.getMaximum() > 1.0 ? "-24" : "MIN";
+        g.drawText(topText, panel.withTrimmedLeft(panel.getWidth() * 0.55f).withHeight(20.0f), juce::Justification::centred);
+        g.drawText(bottomText,
+                   panel.withTrimmedLeft(panel.getWidth() * 0.55f).withTrimmedTop(panel.getHeight() - 22.0f),
+                   juce::Justification::centred);
+
+        const auto valueY = juce::jlimit(slot.getY() + 10.0f, slot.getBottom() - 10.0f, sliderPos);
+        const auto grip = juce::Rectangle<float>(panel.getX() + 2.0f, valueY - 9.0f, panel.getWidth() * 0.44f, 18.0f);
+        g.setGradientFill(juce::ColourGradient(juce::Colour(0xffeef6ff),
+                                               grip.getX(),
+                                               grip.getY(),
+                                               juce::Colour(0xff838890),
+                                               grip.getX(),
+                                               grip.getBottom(),
+                                               false));
+        g.fillRoundedRectangle(grip, 2.0f);
+        g.setColour(juce::Colour(0xff252832).withAlpha(0.6f));
+        g.drawRoundedRectangle(grip, 2.0f, 1.0f);
+        g.setColour(juce::Colour(0xffffffff).withAlpha(0.45f));
+        g.drawLine(grip.getX() + 3.0f, grip.getCentreY(), grip.getRight() - 3.0f, grip.getCentreY(), 1.0f);
+
+        juce::String valueText;
+        if (slider.getMaximum() <= 1.0)
+            valueText = juce::String(static_cast<int>(std::round(slider.getValue() * 100.0)));
+        else
+            valueText = juce::String(static_cast<int>(std::round(slider.getValue())));
+
+        const auto valueBox = juce::Rectangle<float>(tickX + 10.0f - 10.0f,
+                                                     panel.getCentreY() - 8.0f,
+                                                     20.0f,
+                                                     16.0f);
+        g.setColour(juce::Colour(0xff030607));
+        g.fillRoundedRectangle(valueBox, 2.0f);
+        g.setColour(kValueText.withAlpha(0.85f));
+        g.drawRoundedRectangle(valueBox, 2.0f, 1.0f);
+        g.setColour(kValueText);
+        g.setFont(juce::FontOptions(9.0f, juce::Font::bold));
+        g.drawText(valueText, valueBox, juce::Justification::centred);
+        return;
+    }
+
     const auto slot = bounds.withSizeKeepingCentre(juce::jmin(bounds.getWidth(), 46.0f),
                                                    bounds.getHeight());
     g.setColour(juce::Colour(0xff030303));
@@ -194,7 +480,8 @@ void MainComponent::Dx21LookAndFeel::drawLinearSlider(juce::Graphics& g,
     g.setColour(juce::Colour(0xff24231e));
     g.drawRoundedRectangle(slot, 3.0f, 1.4f);
 
-    const auto wheel = slot.reduced(7.0f, 8.0f);
+    const auto wheel = slider.getName() == "wheelFader" ? slot.reduced(7.0f, 2.0f)
+                                                        : slot.reduced(7.0f, 8.0f);
     g.setGradientFill(juce::ColourGradient(juce::Colour(0xff10100e),
                                            wheel.getCentreX(),
                                            wheel.getY(),
@@ -244,6 +531,115 @@ void MainComponent::Dx21LookAndFeel::drawLinearSlider(juce::Graphics& g,
     g.fillRoundedRectangle(slot.reduced(1.5f).withTrimmedTop(slot.getHeight() * 0.72f), 3.0f);
 }
 
+void MainComponent::Dx21LookAndFeel::drawButtonBackground(juce::Graphics& g,
+                                                          juce::Button& button,
+                                                          const juce::Colour& backgroundColour,
+                                                          const bool shouldDrawButtonAsHighlighted,
+                                                          const bool shouldDrawButtonAsDown)
+{
+    if (button.getName() != "opEnableButton")
+    {
+        juce::LookAndFeel_V4::drawButtonBackground(g, button, backgroundColour, shouldDrawButtonAsHighlighted, shouldDrawButtonAsDown);
+        return;
+    }
+
+    auto bounds = button.getLocalBounds().toFloat().reduced(1.0f);
+    const bool on = button.getToggleState();
+    const auto top = on ? juce::Colour(0xff35d8bd) : juce::Colour(0xff45443d);
+    const auto bottom = on ? juce::Colour(0xff07876e) : juce::Colour(0xff22221e);
+    const auto outline = on ? juce::Colour(0xff55e6d0) : kControlBorder;
+
+    if (shouldDrawButtonAsDown)
+        bounds.translate(0.0f, 1.0f);
+
+    g.setColour(juce::Colours::black.withAlpha(0.38f));
+    g.fillRoundedRectangle(bounds.translated(0.0f, 3.0f), 4.0f);
+    g.setGradientFill(juce::ColourGradient(top, bounds.getX(), bounds.getY(), bottom, bounds.getX(), bounds.getBottom(), false));
+    g.fillRoundedRectangle(bounds, 4.0f);
+
+    if (shouldDrawButtonAsHighlighted)
+    {
+        g.setColour(juce::Colours::white.withAlpha(0.08f));
+        g.fillRoundedRectangle(bounds.reduced(2.0f), 3.0f);
+    }
+
+    g.setColour(outline.withAlpha(on ? 0.85f : 0.6f));
+    g.drawRoundedRectangle(bounds, 4.0f, 1.2f);
+}
+
+void MainComponent::Dx21LookAndFeel::drawButtonText(juce::Graphics& g,
+                                                    juce::TextButton& button,
+                                                    const bool,
+                                                    const bool shouldDrawButtonAsDown)
+{
+    if (button.getName() != "opEnableButton")
+    {
+        juce::LookAndFeel_V4::drawButtonText(g, button, false, shouldDrawButtonAsDown);
+        return;
+    }
+
+    auto bounds = button.getLocalBounds().reduced(2);
+    if (shouldDrawButtonAsDown)
+        bounds.translate(0, 1);
+
+    g.setColour(button.getToggleState() ? juce::Colours::white : kTextMuted);
+    g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
+    g.drawFittedText(button.getButtonText(), bounds, juce::Justification::centred, 1);
+}
+
+void MainComponent::Dx21LookAndFeel::drawToggleButton(juce::Graphics& g,
+                                                      juce::ToggleButton& button,
+                                                      const bool shouldDrawButtonAsHighlighted,
+                                                      const bool shouldDrawButtonAsDown)
+{
+    if (button.getName() != "lfoSyncButton")
+    {
+        juce::LookAndFeel_V4::drawToggleButton(g, button, shouldDrawButtonAsHighlighted, shouldDrawButtonAsDown);
+        return;
+    }
+
+    constexpr float fontSize = 13.0f;
+    constexpr float tickWidth = 17.0f;
+    drawTickBox(g,
+                button,
+                4.0f,
+                (static_cast<float>(button.getHeight()) - tickWidth) * 0.5f,
+                tickWidth,
+                tickWidth,
+                button.getToggleState(),
+                button.isEnabled(),
+                shouldDrawButtonAsHighlighted,
+                shouldDrawButtonAsDown);
+
+    g.setColour(button.findColour(juce::ToggleButton::textColourId));
+    g.setFont(juce::FontOptions(fontSize, juce::Font::plain));
+    if (!button.isEnabled())
+        g.setOpacity(0.5f);
+
+    g.drawFittedText(button.getButtonText(),
+                     button.getLocalBounds().withTrimmedLeft(30).withTrimmedRight(2),
+                     juce::Justification::centredLeft,
+                     1);
+}
+
+juce::Label* MainComponent::Dx21LookAndFeel::createSliderTextBox(juce::Slider& slider)
+{
+    auto* label = juce::LookAndFeel_V4::createSliderTextBox(slider);
+    label->setFont(juce::FontOptions(13.0f, juce::Font::plain));
+    label->setJustificationType(juce::Justification::centred);
+    return label;
+}
+
+juce::Font MainComponent::Dx21LookAndFeel::getComboBoxFont(juce::ComboBox&)
+{
+    return juce::Font(juce::FontOptions(13.0f, juce::Font::plain));
+}
+
+juce::Font MainComponent::Dx21LookAndFeel::getPopupMenuFont()
+{
+    return juce::Font(juce::FontOptions(13.0f, juce::Font::plain));
+}
+
 void MainComponent::LcdComponent::setLines(juce::String topLine, juce::String bottomLine)
 {
     line1 = topLine.substring(0, 16).paddedRight(' ', 16);
@@ -254,14 +650,76 @@ void MainComponent::LcdComponent::setLines(juce::String topLine, juce::String bo
 void MainComponent::LcdComponent::paint(juce::Graphics& g)
 {
     const auto area = getLocalBounds().toFloat().reduced(3.0f);
-    g.setColour(juce::Colour(0xff07111b));
+    g.setGradientFill(juce::ColourGradient(juce::Colour(0xff0b2037),
+                                           area.getX(),
+                                           area.getY(),
+                                           juce::Colour(0xff03101f),
+                                           area.getX(),
+                                           area.getBottom(),
+                                           false));
     g.fillRoundedRectangle(area, 4.0f);
-    g.setColour(juce::Colour(0xff1f6fff));
+    g.setColour(juce::Colour(0xff2462ad));
     g.drawRoundedRectangle(area, 4.0f, 1.0f);
-    g.setColour(juce::Colour(0xff89d7ff));
-    g.setFont(juce::FontOptions(18.0f, juce::Font::plain).withStyle("Monospaced"));
-    g.drawText(line1, getLocalBounds().reduced(12, 8).removeFromTop(24), juce::Justification::centredLeft);
-    g.drawText(line2, getLocalBounds().reduced(12, 8).withTrimmedTop(24), juce::Justification::centredLeft);
+
+    const auto inner = area.reduced(10.0f, 6.0f);
+    constexpr int columnsPerChar = 5;
+    constexpr int rowsPerChar = 8;
+    constexpr int characterCount = 16;
+    constexpr int lineCount = 2;
+
+    const float pitchFromWidth = inner.getWidth() / static_cast<float>(characterCount * (columnsPerChar + 1) - 1);
+    const float pitchFromHeight = inner.getHeight() / static_cast<float>(lineCount * rowsPerChar + 2);
+    const float pitch = std::min(pitchFromWidth, pitchFromHeight);
+    const float dot = juce::jmax(1.4f, pitch * 0.68f);
+    const float matrixWidth = pitch * static_cast<float>(characterCount * (columnsPerChar + 1) - 1);
+    const float matrixHeight = pitch * static_cast<float>(lineCount * rowsPerChar + 1);
+    const float startX = inner.getCentreX() - matrixWidth * 0.5f;
+    const float startY = inner.getCentreY() - matrixHeight * 0.5f;
+    const auto offDot = juce::Colour(0xff164372).withAlpha(0.42f);
+    const auto onDot = juce::Colour(0xff94e7ff);
+
+    const auto drawLine = [&](const juce::String& text, const int lineIndex)
+    {
+        const float yBase = startY + static_cast<float>(lineIndex) * pitch * static_cast<float>(rowsPerChar + 1);
+
+        for (int charIndex = 0; charIndex < characterCount; ++charIndex)
+        {
+            const auto glyph = lcdGlyph(text[charIndex]);
+            const float xBase = startX + static_cast<float>(charIndex) * pitch * static_cast<float>(columnsPerChar + 1);
+
+            for (int column = 0; column < columnsPerChar; ++column)
+            {
+                for (int row = 0; row < rowsPerChar; ++row)
+                {
+                    const bool enabled = (glyph[static_cast<std::size_t>(column)] & (1 << row)) != 0;
+                    g.setColour(enabled ? onDot : offDot);
+                    g.fillRoundedRectangle(xBase + static_cast<float>(column) * pitch,
+                                           yBase + static_cast<float>(row) * pitch,
+                                           dot,
+                                           dot,
+                                           dot * 0.22f);
+                }
+            }
+        }
+    };
+
+    drawLine(line1, 0);
+    drawLine(line2, 1);
+
+    g.setColour(juce::Colour(0xffffffff).withAlpha(0.10f));
+    g.fillRoundedRectangle(area.reduced(5.0f).withHeight(area.getHeight() * 0.24f), 3.0f);
+}
+
+void MainComponent::VoiceBadgeLabel::paint(juce::Graphics& g)
+{
+    const auto bounds = getLocalBounds().toFloat().reduced(0.5f);
+
+    g.setColour(kTextPrimary);
+    g.fillRoundedRectangle(bounds, 1.4f);
+
+    g.setColour(juce::Colour(0xff11110d));
+    g.setFont(juce::FontOptions(13.0f, juce::Font::bold));
+    g.drawText(getText(), getLocalBounds(), juce::Justification::centred);
 }
 
 void MainComponent::AlgorithmComponent::setAlgorithm(const int newAlgorithm, const int newFeedback)
@@ -273,7 +731,9 @@ void MainComponent::AlgorithmComponent::setAlgorithm(const int newAlgorithm, con
 
 void MainComponent::AlgorithmComponent::paint(juce::Graphics& g)
 {
-    const auto area = getLocalBounds().toFloat().reduced(6.0f);
+    const auto bounds = getLocalBounds().toFloat().reduced(3.0f);
+    const auto area = bounds.withSizeKeepingCentre(juce::jmin(bounds.getWidth(), bounds.getHeight()),
+                                                   juce::jmin(bounds.getWidth(), bounds.getHeight()));
     g.setGradientFill(juce::ColourGradient(kPanelTop,
                                            area.getX(),
                                            area.getY(),
@@ -281,60 +741,125 @@ void MainComponent::AlgorithmComponent::paint(juce::Graphics& g)
                                            area.getX(),
                                            area.getBottom(),
                                            false));
-    g.fillRoundedRectangle(area, 5.0f);
-    g.setColour(kPanelBorder);
-    g.drawRoundedRectangle(area, 5.0f, 1.0f);
+    g.fillRect(area);
+    g.setColour(kEnvelope);
+    g.drawRect(area, 1.0f);
 
-    const auto& algo = dx21::dx21Algorithms()[static_cast<std::size_t>(algorithm - 1)];
+    const auto px = [&](const float x) { return area.getX() + area.getWidth() * x / 100.0f; };
+    const auto py = [&](const float y) { return area.getY() + area.getHeight() * y / 100.0f; };
+    const auto point = [&](const float x, const float y) { return juce::Point<float>(px(x), py(y)); };
+
     std::array<juce::Point<float>, 4> p;
-    const float x0 = area.getX() + area.getWidth() * 0.22f;
-    const float x1 = area.getCentreX();
-    const float x2 = area.getRight() - area.getWidth() * 0.22f;
-    const float y0 = area.getY() + 24.0f;
-    const float y1 = area.getCentreY();
-    const float y2 = area.getBottom() - 26.0f;
+    juce::Path lines;
+    const auto line = [&](const float x1, const float y1, const float x2, const float y2)
+    {
+        lines.startNewSubPath(point(x1, y1));
+        lines.lineTo(point(x2, y2));
+    };
+
     switch (algorithm)
     {
-        case 1: p = { juce::Point<float>(x1, y2), { x1, y1 + 8 }, { x1, y1 - 14 }, { x1, y0 } }; break;
-        case 2: p = { juce::Point<float>(x1, y2), { x1, y1 }, { x0, y0 }, { x2, y0 } }; break;
-        case 3: p = { juce::Point<float>(x1, y2), { x1, y1 }, { x1, y0 }, { x2, y1 } }; break;
-        case 4: p = { juce::Point<float>(x0, y2), { x0, y1 }, { x2, y1 }, { x2, y0 } }; break;
-        case 5: p = { juce::Point<float>(x0, y2), { x0, y1 }, { x2, y2 }, { x2, y1 } }; break;
-        case 6: p = { juce::Point<float>(x0, y2), { x1, y2 }, { x2, y2 }, { x1, y0 } }; break;
-        case 7: p = { juce::Point<float>(x0, y2), { x1, y2 }, { x2, y2 }, { x2, y1 } }; break;
-        default: p = { juce::Point<float>(x0 - 8, y1), { x1 - 12, y1 }, { x1 + 18, y1 }, { x2 + 8, y1 } }; break;
+        case 1:
+            p = { point(50, 72), point(50, 56), point(50, 40), point(50, 24) };
+            line(50, 18, 50, 82);
+            break;
+        case 2:
+            p = { point(50, 70), point(50, 52), point(30, 34), point(50, 34) };
+            line(50, 30, 50, 82);
+            line(30, 34, 50, 52);
+            break;
+        case 3:
+            p = { point(50, 70), point(50, 52), point(50, 34), point(70, 52) };
+            line(50, 30, 50, 82);
+            line(70, 52, 50, 70);
+            break;
+        case 4:
+            p = { point(30, 70), point(30, 52), point(50, 52), point(50, 34) };
+            line(30, 52, 30, 82);
+            line(50, 34, 50, 52);
+            line(50, 52, 30, 70);
+            break;
+        case 5:
+            p = { point(30, 50), point(30, 31), point(50, 50), point(50, 31) };
+            line(30, 31, 30, 66);
+            line(30, 66, 50, 66);
+            line(50, 31, 50, 66);
+            break;
+        case 6:
+            p = { point(30, 66), point(50, 66), point(70, 66), point(50, 36) };
+            line(30, 66, 30, 80);
+            line(30, 80, 70, 80);
+            line(50, 36, 30, 66);
+            line(50, 36, 50, 80);
+            line(50, 36, 70, 66);
+            line(70, 66, 70, 80);
+            break;
+        case 7:
+            p = { point(30, 58), point(50, 58), point(70, 58), point(70, 35) };
+            line(30, 58, 30, 76);
+            line(30, 76, 70, 76);
+            line(50, 58, 50, 76);
+            line(70, 35, 70, 76);
+            break;
+        default:
+            p = { point(20, 50), point(40, 50), point(60, 50), point(80, 50) };
+            line(20, 50, 20, 76);
+            line(20, 76, 80, 76);
+            line(40, 50, 40, 76);
+            line(60, 50, 60, 76);
+            line(80, 50, 80, 76);
+            break;
     }
+
+    const float boxSize = juce::jmax(8.0f, area.getWidth() * 0.145f);
+    juce::Path feedbackPath;
+    if (feedback > 0)
+    {
+        const auto op4 = p[3];
+        const float loopInset = area.getWidth() * 0.14f;
+        const float topY = op4.y - boxSize * 0.5f - area.getHeight() * 0.07f;
+        const float rightX = op4.x + loopInset;
+        feedbackPath.startNewSubPath(op4.x, op4.y + boxSize * 0.5f);
+        feedbackPath.lineTo(rightX, op4.y + boxSize * 0.5f);
+        feedbackPath.lineTo(rightX, topY);
+        feedbackPath.lineTo(op4.x, topY);
+        feedbackPath.lineTo(op4.x, op4.y - boxSize * 0.5f);
+    }
+
+    auto illustrationBounds = lines.getBounds();
+    if (!feedbackPath.isEmpty())
+        illustrationBounds = illustrationBounds.getUnion(feedbackPath.getBounds());
+    for (const auto& pointToDraw : p)
+        illustrationBounds = illustrationBounds.getUnion(juce::Rectangle<float>(boxSize, boxSize).withCentre(pointToDraw));
+
+    const auto targetArea = area.reduced(area.getWidth() * 0.14f, area.getHeight() * 0.13f);
+    const auto offset = targetArea.getCentre() - illustrationBounds.getCentre();
+
+    g.saveState();
+    g.addTransform(juce::AffineTransform::translation(offset.x, offset.y));
 
     g.setColour(kEnvelope);
-    for (int target = 0; target < dx21::kOperatorCount; ++target)
-    {
-        for (int dep = 0; dep < algo.depCounts[static_cast<std::size_t>(target)]; ++dep)
-        {
-            const int source = algo.deps[static_cast<std::size_t>(target)][static_cast<std::size_t>(dep)];
-            g.drawLine(juce::Line<float>(p[static_cast<std::size_t>(source)], p[static_cast<std::size_t>(target)]), 1.5f);
-        }
-    }
+    g.strokePath(lines, juce::PathStrokeType(1.6f, juce::PathStrokeType::mitered, juce::PathStrokeType::butt));
+    if (!feedbackPath.isEmpty())
+        g.strokePath(feedbackPath, juce::PathStrokeType(1.4f, juce::PathStrokeType::curved, juce::PathStrokeType::butt));
 
-    g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
+    g.setFont(juce::FontOptions(juce::jmax(6.5f, boxSize * 0.62f), juce::Font::bold));
     for (int i = 0; i < dx21::kOperatorCount; ++i)
     {
-        bool carrier = false;
-        for (int c = 0; c < algo.carrierCount; ++c)
-            carrier = carrier || algo.carriers[static_cast<std::size_t>(c)] == i;
-        g.setColour(carrier ? kGreen : kTextPrimary);
         const auto box = juce::Rectangle<float>(p[static_cast<std::size_t>(i)].x - 13.0f,
                                                 p[static_cast<std::size_t>(i)].y - 10.0f,
-                                                26.0f,
-                                                20.0f);
-        g.fillRoundedRectangle(box, 3.0f);
+                                                boxSize,
+                                                boxSize).withCentre(p[static_cast<std::size_t>(i)]);
+        g.setColour(kEnvelope);
+        g.fillRect(box);
         g.setColour(juce::Colour(0xff11100d));
-        g.drawText("OP" + juce::String(i + 1), box, juce::Justification::centred);
+        g.drawText(juce::String(i + 1), box, juce::Justification::centred);
     }
+    g.restoreState();
 
-    g.setColour(kTextMuted);
-    g.drawText("ALG " + juce::String(algorithm) + "  FB " + juce::String(feedback),
-               getLocalBounds().reduced(10).removeFromBottom(18),
-               juce::Justification::centredLeft);
+    g.setColour(kValueText);
+    g.setFont(juce::FontOptions(juce::jmax(7.0f, area.getWidth() * 0.10f), juce::Font::bold));
+    g.drawText(juce::String(algorithm), area.reduced(5.0f).removeFromBottom(14.0f), juce::Justification::bottomLeft);
 }
 
 MainComponent::ScopeComponent::ScopeComponent()
@@ -380,9 +905,12 @@ MainComponent::OperatorComponent::OperatorComponent(const int operatorIndex, Cha
       onChange(std::move(callback)),
       enableButton("OP" + juce::String(operatorIndex + 1))
 {
+    enableButton.setName("opEnableButton");
+    enableButton.setLookAndFeel(&dx21LookAndFeel);
     addAndMakeVisible(enableButton);
     enableButton.addListener(this);
-    roleLabel.setJustificationType(juce::Justification::centredLeft);
+    roleLabel.setJustificationType(juce::Justification::centredRight);
+    roleLabel.setFont(juce::FontOptions(13.0f, juce::Font::plain));
     roleLabel.setColour(juce::Label::textColourId, kTextMuted);
     addAndMakeVisible(roleLabel);
 
@@ -408,6 +936,7 @@ MainComponent::OperatorComponent::OperatorComponent(const int operatorIndex, Cha
 
 MainComponent::OperatorComponent::~OperatorComponent()
 {
+    enableButton.setLookAndFeel(nullptr);
     for (auto& slider : opSliders)
         slider.setLookAndFeel(nullptr);
     for (auto& slider : egSliders)
@@ -419,7 +948,7 @@ void MainComponent::OperatorComponent::setupSlider(juce::Slider& slider, const d
     slider.setRange(min, max, step);
     slider.setValue(value, juce::dontSendNotification);
     slider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-    slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 46, 18);
+    slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 42, 16);
     slider.setLookAndFeel(&dx21LookAndFeel);
     slider.addListener(this);
 }
@@ -428,6 +957,7 @@ void MainComponent::OperatorComponent::addLabeledSlider(juce::Label& label, juce
 {
     label.setText(text, juce::dontSendNotification);
     label.setJustificationType(juce::Justification::centred);
+    label.setFont(juce::FontOptions(11.0f, juce::Font::plain));
     label.setColour(juce::Label::textColourId, kTextMuted);
     addAndMakeVisible(label);
     addAndMakeVisible(slider);
@@ -507,34 +1037,39 @@ void MainComponent::OperatorComponent::paint(juce::Graphics& g)
 
     g.setColour(kTextMuted);
     g.setFont(juce::FontOptions(10.0f, juce::Font::plain));
-    g.drawText("AR", juce::Rectangle<float>(left, graph.getY(), x1 - left, 12.0f), juce::Justification::centred);
-    g.drawText("D1", juce::Rectangle<float>(x1, graph.getY(), x2 - x1, 12.0f), juce::Justification::centred);
-    g.drawText("D2", juce::Rectangle<float>(x2, graph.getY(), x3 - x2, 12.0f), juce::Justification::centred);
-    g.drawText("RR", juce::Rectangle<float>(x3, graph.getY(), right - x3, 12.0f), juce::Justification::centred);
+    const float labelTop = graph.getY() - 14.0f;
+    g.drawText("AR", juce::Rectangle<float>(left, labelTop, x1 - left, 12.0f), juce::Justification::centred);
+    g.drawText("D1", juce::Rectangle<float>(x1, labelTop, x2 - x1, 12.0f), juce::Justification::centred);
+    g.drawText("D2", juce::Rectangle<float>(x2, labelTop, x3 - x2, 12.0f), juce::Justification::centred);
+    g.drawText("RR", juce::Rectangle<float>(x3, labelTop, right - x3, 12.0f), juce::Justification::centred);
 }
 
 void MainComponent::OperatorComponent::resized()
 {
+    constexpr int knobYOffset = 3;
     auto area = getLocalBounds().reduced(8);
-    auto top = area.removeFromTop(24);
-    enableButton.setBounds(top.removeFromLeft(78));
+    auto top = area.removeFromTop(38);
+    const auto enableBounds = top.removeFromLeft(42).withHeight(22);
+    enableButton.setBounds(enableBounds);
     top.removeFromLeft(5);
-    roleLabel.setBounds(top);
-    area.removeFromTop(52);
+    roleLabel.setBounds(top.withY(enableBounds.getY()).withHeight(enableBounds.getHeight()));
+    area.removeFromTop(50);
     auto egRow = area.removeFromTop(74);
     const int egWidth = juce::jmax(42, egRow.getWidth() / 5);
     for (int i = 0; i < 5; ++i)
     {
         auto cell = egRow.removeFromLeft(egWidth).reduced(1);
         egLabels[static_cast<std::size_t>(i)].setBounds(cell.removeFromTop(15));
+        cell.removeFromTop(knobYOffset);
         egSliders[static_cast<std::size_t>(i)].setBounds(cell);
     }
     auto opRow = area.removeFromTop(74);
-    const int opWidth = juce::jmax(42, opRow.getWidth() / 6);
+    const int opWidth = juce::jmax(36, opRow.getWidth() / 6);
     for (int i = 0; i < 6; ++i)
     {
         auto cell = opRow.removeFromLeft(opWidth).reduced(1);
-        opLabels[static_cast<std::size_t>(i)].setBounds(cell.removeFromTop(15));
+        opLabels[static_cast<std::size_t>(i)].setBounds(cell.removeFromTop(14));
+        cell.removeFromTop(knobYOffset);
         opSliders[static_cast<std::size_t>(i)].setBounds(cell);
     }
 }
@@ -587,28 +1122,122 @@ MainComponent::KeyboardComponent::KeyboardComponent(MainComponent& ownerIn)
 
 void MainComponent::KeyboardComponent::paint(juce::Graphics& g)
 {
-    const auto area = getLocalBounds().toFloat();
-    g.fillAll(juce::Colour(0xff151515));
+    const auto bounds = getLocalBounds().toFloat();
+    g.fillAll(juce::Colour(0xff060707));
 
-    const float keyWidth = area.getWidth() / static_cast<float>(kKeyboardNoteCount);
+    const auto area = bounds.reduced(4.0f, 2.0f);
+    const int whiteKeyCount = whiteKeyIndexForNote(kFirstKeyboardNote + kKeyboardNoteCount);
+    const float whiteWidth = area.getWidth() / static_cast<float>(whiteKeyCount);
+    const float blackWidth = whiteWidth * 0.66f;
+    const float blackHeight = area.getHeight() * 0.70f;
+
     for (int i = 0; i < kKeyboardNoteCount; ++i)
     {
         const int note = kFirstKeyboardNote + i;
-        const auto keyArea = juce::Rectangle<float>(area.getX() + keyWidth * i, area.getY(), keyWidth - 1.0f, area.getHeight());
-        const bool black = isBlackKey(note);
+        if (isBlackKey(note))
+            continue;
+
+        const int whiteIndex = whiteKeyIndexForNote(note);
+        const auto keyArea = juce::Rectangle<float>(area.getX() + whiteWidth * static_cast<float>(whiteIndex),
+                                                   area.getY(),
+                                                   whiteWidth - 2.0f,
+                                                   area.getHeight() - 4.0f);
         const bool held = note == heldNote || owner.isMidiUiNoteHeld(note);
-        g.setColour(held ? juce::Colour(0xff6fd4ff) : (black ? juce::Colour(0xff202020) : juce::Colour(0xffefefef)));
-        g.fillRoundedRectangle(keyArea.reduced(1.0f), 3.0f);
-        g.setColour(black ? juce::Colour(0xff050505) : juce::Colour(0xff303030));
-        g.drawRoundedRectangle(keyArea.reduced(1.0f), 3.0f, 1.0f);
+        g.setGradientFill(juce::ColourGradient(held ? juce::Colour(0xffa8ecff) : juce::Colour(0xfff4fbff),
+                                               keyArea.getX(),
+                                               keyArea.getY(),
+                                               held ? juce::Colour(0xff74d6f5) : juce::Colour(0xffdde7ec),
+                                               keyArea.getX(),
+                                               keyArea.getBottom(),
+                                               false));
+        g.fillRoundedRectangle(keyArea, 5.0f);
+        g.setColour(juce::Colour(0xff252b2f));
+        g.drawRoundedRectangle(keyArea, 5.0f, 1.0f);
+        const int velocity = note == heldNote ? 104 : owner.heldVelocityForNote(note);
+        if (held && velocity > 0)
+        {
+            const auto valueBox = keyArea.withSizeKeepingCentre(juce::jmin(34.0f, keyArea.getWidth() - 8.0f), 18.0f)
+                                    .withY(keyArea.getBottom() - 28.0f);
+            g.setColour(juce::Colour(0xff050606).withAlpha(0.82f));
+            g.fillRoundedRectangle(valueBox, 3.0f);
+            g.setColour(kValueText);
+            g.setFont(juce::FontOptions(10.5f, juce::Font::bold));
+            g.drawText(juce::String(velocity), valueBox, juce::Justification::centred);
+        }
     }
+
+    for (int i = 0; i < kKeyboardNoteCount; ++i)
+    {
+        const int note = kFirstKeyboardNote + i;
+        if (!isBlackKey(note))
+            continue;
+
+        const int nextWhiteIndex = whiteKeyIndexForNote(note);
+        const auto keyArea = juce::Rectangle<float>(area.getX() + whiteWidth * static_cast<float>(nextWhiteIndex) - blackWidth * 0.5f,
+                                                   area.getY(),
+                                                   blackWidth,
+                                                   blackHeight);
+        const bool held = note == heldNote || owner.isMidiUiNoteHeld(note);
+        g.setGradientFill(juce::ColourGradient(held ? juce::Colour(0xff253f48) : juce::Colour(0xff111821),
+                                               keyArea.getX(),
+                                               keyArea.getY(),
+                                               held ? juce::Colour(0xff0b98bd) : juce::Colour(0xff05070b),
+                                               keyArea.getX(),
+                                               keyArea.getBottom(),
+                                               false));
+        g.fillRoundedRectangle(keyArea, 4.0f);
+        g.setColour(juce::Colour(0xff020304));
+        g.drawRoundedRectangle(keyArea, 4.0f, 1.0f);
+        g.setColour(juce::Colour(0xffffffff).withAlpha(held ? 0.18f : 0.06f));
+        g.fillRoundedRectangle(keyArea.reduced(4.0f).withHeight(keyArea.getHeight() * 0.22f), 3.0f);
+        const int velocity = note == heldNote ? 104 : owner.heldVelocityForNote(note);
+        if (held && velocity > 0)
+        {
+            const auto valueBox = keyArea.withSizeKeepingCentre(juce::jmin(32.0f, keyArea.getWidth() - 6.0f), 17.0f)
+                                    .withY(keyArea.getBottom() - 24.0f);
+            g.setColour(juce::Colour(0xff050606).withAlpha(0.84f));
+            g.fillRoundedRectangle(valueBox, 3.0f);
+            g.setColour(kValueText);
+            g.setFont(juce::FontOptions(9.5f, juce::Font::bold));
+            g.drawText(juce::String(velocity), valueBox, juce::Justification::centred);
+        }
+    }
+
+    g.setColour(juce::Colour(0xff22251f));
+    g.drawRoundedRectangle(bounds.reduced(1.0f), 4.0f, 1.0f);
 }
 
 int MainComponent::KeyboardComponent::noteForPosition(const juce::Point<int> position) const
 {
-    const int width = juce::jmax(1, getWidth());
-    const int index = juce::jlimit(0, kKeyboardNoteCount - 1, position.x * kKeyboardNoteCount / width);
-    return kFirstKeyboardNote + index;
+    const auto area = getLocalBounds().toFloat().reduced(4.0f, 2.0f);
+    const int whiteKeyCount = whiteKeyIndexForNote(kFirstKeyboardNote + kKeyboardNoteCount);
+    const float whiteWidth = area.getWidth() / static_cast<float>(whiteKeyCount);
+    const float blackWidth = whiteWidth * 0.66f;
+    const float blackHeight = area.getHeight() * 0.70f;
+    const auto point = position.toFloat();
+
+    if (point.y <= area.getY() + blackHeight)
+    {
+        for (int i = 0; i < kKeyboardNoteCount; ++i)
+        {
+            const int note = kFirstKeyboardNote + i;
+            if (!isBlackKey(note))
+                continue;
+
+            const int nextWhiteIndex = whiteKeyIndexForNote(note);
+            const auto keyArea = juce::Rectangle<float>(area.getX() + whiteWidth * static_cast<float>(nextWhiteIndex) - blackWidth * 0.5f,
+                                                       area.getY(),
+                                                       blackWidth,
+                                                       blackHeight);
+            if (keyArea.contains(point))
+                return note;
+        }
+    }
+
+    const int whiteIndex = juce::jlimit(0,
+                                       whiteKeyCount - 1,
+                                       static_cast<int>((point.x - area.getX()) / whiteWidth));
+    return noteForWhiteKeyIndex(whiteIndex);
 }
 
 void MainComponent::KeyboardComponent::updateHeldNote(const int note)
@@ -649,7 +1278,7 @@ void MainComponent::KeyboardComponent::mouseExit(const juce::MouseEvent&)
 MainComponent::MainComponent()
     : keyboard(*this)
 {
-    setupLabel(titleLabel, "DX21 Web Synth");
+    setupLabel(titleLabel, "DX21 Synth");
     titleLabel.setFont(juce::FontOptions(22.0f, juce::Font::bold));
     addAndMakeVisible(titleLabel);
 
@@ -657,9 +1286,45 @@ MainComponent::MainComponent()
     statusLabel.setColour(juce::Label::textColourId, kTextMuted);
     addAndMakeVisible(statusLabel);
 
+    setupLabel(voiceALabel, "A");
+    voiceALabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(voiceALabel);
     setupComboBox(voiceSelect);
     voiceSelect.addListener(this);
     addAndMakeVisible(voiceSelect);
+
+    performanceModeSelect.addItem("SINGLE", 1);
+    performanceModeSelect.addItem("DUAL", 2);
+    performanceModeSelect.addItem("SPLIT", 3);
+    setupComboBox(performanceModeSelect);
+    performanceModeSelect.setSelectedId(1, juce::dontSendNotification);
+    performanceModeSelect.addListener(this);
+    addAndMakeVisible(performanceModeSelect);
+
+    setupLabel(voiceBLabel, "B");
+    voiceBLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(voiceBLabel);
+    setupComboBox(voiceBSelect);
+    voiceBSelect.addListener(this);
+    addAndMakeVisible(voiceBSelect);
+
+    setupLabel(dualDetuneLabel, "Detune");
+    dualDetuneLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(dualDetuneLabel);
+    setupSlider(dualDetuneSlider, -16, 16, 1, 0, juce::Slider::LinearHorizontal);
+    dualDetuneSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 32, 16);
+    dualDetuneSlider.addListener(this);
+    addAndMakeVisible(dualDetuneSlider);
+
+    setupLabel(splitPointLabel, "Split");
+    splitPointLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(splitPointLabel);
+    setupSlider(splitPointSlider, 0, 127, 1, 60, juce::Slider::LinearHorizontal);
+    splitPointSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 38, 16);
+    splitPointSlider.setScrollWheelEnabled(true);
+    splitPointSlider.setValue(60, juce::dontSendNotification);
+    splitPointSlider.addListener(this);
+    addAndMakeVisible(splitPointSlider);
 
     setupComboBox(audioOutputSelect);
     audioOutputSelect.addListener(this);
@@ -677,14 +1342,22 @@ MainComponent::MainComponent()
     addAndMakeVisible(powerButton);
 
     setupLabel(volumeLabel, "Volume");
+    volumeLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(volumeLabel);
     setupSlider(volumeSlider, 0.0, 1.0, 0.01, masterVolume, juce::Slider::LinearVertical);
+    volumeSlider.setName("mainFader");
+    volumeSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+    volumeSlider.setLookAndFeel(&dx21LookAndFeel);
     volumeSlider.addListener(this);
     addAndMakeVisible(volumeSlider);
 
     setupLabel(transposeLabel, "Transpose");
+    transposeLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(transposeLabel);
     setupSlider(transposeSlider, -24.0, 24.0, 1.0, 0.0, juce::Slider::LinearVertical);
+    transposeSlider.setName("mainFader");
+    transposeSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+    transposeSlider.setLookAndFeel(&dx21LookAndFeel);
     transposeSlider.addListener(this);
     addAndMakeVisible(transposeSlider);
 
@@ -712,11 +1385,17 @@ MainComponent::MainComponent()
     lfoWaveSelect.addListener(this);
     addAndMakeVisible(lfoWaveLabel);
     addAndMakeVisible(lfoWaveSelect);
+    lfoSyncButton.setName("lfoSyncButton");
+    lfoSyncButton.setLookAndFeel(&dx21LookAndFeel);
     lfoSyncButton.setColour(juce::ToggleButton::textColourId, kTextMuted);
     lfoSyncButton.setColour(juce::ToggleButton::tickColourId, kTeal);
     lfoSyncButton.setColour(juce::ToggleButton::tickDisabledColourId, juce::Colour(0xff555044));
     lfoSyncButton.addListener(this);
     addAndMakeVisible(lfoSyncButton);
+    lfoLeftSeparator.setColour(juce::Label::backgroundColourId, kPanelBorder.withAlpha(0.9f));
+    lfoRightSeparator.setColour(juce::Label::backgroundColourId, kPanelBorder.withAlpha(0.9f));
+    addAndMakeVisible(lfoLeftSeparator);
+    addAndMakeVisible(lfoRightSeparator);
 
     setupLabel(lfoSpeedLabel, "Speed");
     setupLabel(lfoDelayLabel, "Delay");
@@ -759,7 +1438,9 @@ MainComponent::MainComponent()
         addAndMakeVisible(*label);
 
     setupLabel(pitchWheelLabel, "Pitch");
+    pitchWheelLabel.setJustificationType(juce::Justification::centred);
     setupSlider(pitchWheelSlider, -1.0, 1.0, 0.01, 0.0, juce::Slider::LinearVertical);
+    pitchWheelSlider.setName("wheelFader");
     pitchWheelSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
     pitchWheelSlider.setScrollWheelEnabled(false);
     pitchWheelSlider.setDoubleClickReturnValue(true, 0.0);
@@ -768,7 +1449,9 @@ MainComponent::MainComponent()
     addAndMakeVisible(pitchWheelLabel);
     addAndMakeVisible(pitchWheelSlider);
     setupLabel(modWheelLabel, "Mod");
+    modWheelLabel.setJustificationType(juce::Justification::centred);
     setupSlider(modWheelSlider, 0.0, 1.0, 0.01, 0.0, juce::Slider::LinearVertical);
+    modWheelSlider.setName("wheelFader");
     modWheelSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
     modWheelSlider.setScrollWheelEnabled(false);
     modWheelSlider.setDoubleClickReturnValue(true, 0.0);
@@ -792,17 +1475,24 @@ MainComponent::MainComponent()
     }
 
     loadFactoryVoices();
+    refreshPerformanceControls();
     applySelectedVoice();
     populateAudioOutputSelect();
     populateMidiInputSelect();
     midiStatus = "MIDI: off";
+    ensureAudioStarted();
     refreshStatus();
 
-    setSize(1280, 760);
+    setWantsKeyboardFocus(true);
+    setMouseClickGrabsKeyboardFocus(true);
+    startTimerHz(60);
+
+    setSize(1024, 760);
 }
 
 MainComponent::~MainComponent()
 {
+    stopTimer();
     for (auto& input : midiInputs)
     {
         if (input)
@@ -810,14 +1500,21 @@ MainComponent::~MainComponent()
     }
     midiInputs.clear();
 
-    for (auto* slider : { &volumeSlider, &transposeSlider, &algorithmSlider, &feedbackSlider,
-                          &lfoSpeedSlider, &lfoDelaySlider, &lfoPitchDepthSlider, &lfoAmpDepthSlider,
-                          &lfoPitchSensitivitySlider, &lfoAmpSensitivitySlider,
-                          &effectReverbSlider, &effectMixSlider, &effectToneSlider, &effectChorusSlider,
-                          &effectDelaySlider, &pitchWheelSlider, &modWheelSlider })
+    const std::array<juce::Slider*, 19> sliders { &volumeSlider, &transposeSlider, &algorithmSlider, &feedbackSlider,
+                                                  &lfoSpeedSlider, &lfoDelaySlider, &lfoPitchDepthSlider, &lfoAmpDepthSlider,
+                                                  &lfoPitchSensitivitySlider, &lfoAmpSensitivitySlider,
+                                                  &effectReverbSlider, &effectMixSlider, &effectToneSlider, &effectChorusSlider,
+                                                  &effectDelaySlider, &pitchWheelSlider, &modWheelSlider,
+                                                  &dualDetuneSlider, &splitPointSlider };
+    for (auto* slider : sliders)
     {
         slider->setLookAndFeel(nullptr);
     }
+
+    for (auto* comboBox : { &voiceSelect, &performanceModeSelect, &voiceBSelect,
+                            &audioOutputSelect, &midiInputSelect, &lfoWaveSelect })
+        comboBox->setLookAndFeel(nullptr);
+    lfoSyncButton.setLookAndFeel(nullptr);
 
     if (audioStarted)
     {
@@ -833,8 +1530,11 @@ MainComponent::~MainComponent()
 void MainComponent::prepareToPlay(int, const double sampleRate)
 {
     std::lock_guard<std::mutex> lock(engineMutex);
-    engine.prepare(sampleRate);
+    audioSampleRate = sampleRate > 0.0 ? sampleRate : 44100.0;
+    engine.prepare(audioSampleRate, performanceState.mode == PerformanceMode::Single ? 8 : 4);
+    performanceEngineB.prepare(audioSampleRate, 4);
     engine.setPatch(currentPatch);
+    performanceEngineB.setPatch(patchForVoiceIndex(performanceState.voiceBIndex));
 }
 
 void MainComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferToFill)
@@ -848,12 +1548,33 @@ void MainComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo& buffer
         ? bufferToFill.buffer->getWritePointer(1, bufferToFill.startSample)
         : left;
 
+    float outputTrim = 1.0f;
+    if (audioDeviceManager != nullptr)
+    {
+        if (auto* device = audioDeviceManager->getCurrentAudioDevice())
+        {
+            if (device->getTypeName() == "ASIO")
+                outputTrim = kAsioOutputTrim;
+        }
+    }
+
+    const float outputGain = masterVolume * outputTrim;
+
     std::lock_guard<std::mutex> lock(engineMutex);
     for (int i = 0; i < bufferToFill.numSamples; ++i)
     {
-        const auto sample = engine.renderSample();
-        left[i] = sample.left * masterVolume;
-        right[i] = sample.right * masterVolume;
+        const auto sampleA = engine.renderSample();
+        auto sample = sampleA;
+        if (performanceState.mode != PerformanceMode::Single)
+        {
+            const auto sampleB = performanceEngineB.renderSample();
+            const float mixGain = performanceState.mode == PerformanceMode::Dual ? 0.72f : 1.0f;
+            sample.left = (sampleA.left + sampleB.left) * mixGain;
+            sample.right = (sampleA.right + sampleB.right) * mixGain;
+        }
+
+        left[i] = sample.left * outputGain;
+        right[i] = sample.right * outputGain;
         if ((i & 7) == 0)
             scope.pushSample(left[i]);
     }
@@ -890,76 +1611,139 @@ void MainComponent::resized()
     header.removeFromRight(12);
     statusLabel.setBounds(header);
 
-    area.removeFromTop(10);
-    auto top = area.removeFromTop(238);
-    auto patch = top.removeFromLeft(342).reduced(4);
-    voiceSelect.setBounds(patch.removeFromTop(30));
+    area.removeFromTop(4);
+    auto top = area.removeFromTop(220);
+    auto faders = top.removeFromLeft(150).reduced(4, 0);
+    auto volumeArea = faders.removeFromLeft(70);
+    volumeSlider.setBounds(volumeArea.removeFromTop(180));
+    volumeLabel.setBounds(volumeArea.removeFromTop(18).translated(0, -6));
+    faders.removeFromLeft(6);
+    auto transposeArea = faders.removeFromLeft(70);
+    transposeSlider.setBounds(transposeArea.removeFromTop(180));
+    transposeLabel.setBounds(transposeArea.removeFromTop(18).translated(0, -6));
+
+    auto patch = top.removeFromLeft(250).reduced(4);
+    auto aRow = patch.removeFromTop(28);
+    voiceALabel.setBounds(aRow.removeFromLeft(22).withSizeKeepingCentre(20, 20));
+    aRow.removeFromLeft(2);
+    voiceSelect.setBounds(aRow);
+    patch.removeFromTop(2);
+    auto perfRow = patch.removeFromTop(26);
+    performanceModeSelect.setBounds(perfRow.removeFromLeft(88));
+    perfRow.removeFromLeft(4);
+    dualDetuneLabel.setBounds(perfRow.removeFromLeft(48));
+    dualDetuneSlider.setBounds(perfRow);
+    splitPointLabel.setBounds(dualDetuneLabel.getBounds());
+    splitPointSlider.setBounds(dualDetuneSlider.getBounds());
+    patch.removeFromTop(2);
+    auto bRow = patch.removeFromTop(26);
+    voiceBLabel.setBounds(bRow.removeFromLeft(22).withSizeKeepingCentre(20, 20));
+    bRow.removeFromLeft(2);
+    voiceBSelect.setBounds(bRow);
+    patch.removeFromTop(4);
+    lcd.setBounds(patch.removeFromTop(58));
     patch.removeFromTop(6);
-    auto powerRow = patch.removeFromTop(32);
-    lcd.setBounds(powerRow.withHeight(62).withWidth(218));
-    patch.removeFromTop(8);
-    scope.setBounds(patch.removeFromTop(54).reduced(0, 3));
-    patch.removeFromTop(16);
-    auto faders = patch.removeFromTop(112);
-    volumeLabel.setBounds(faders.removeFromLeft(74).removeFromTop(20));
-    volumeSlider.setBounds(patch.getX() + 22, patch.getY() + 105, 58, 104);
-    transposeLabel.setBounds(patch.getX() + 92, patch.getY() + 85, 88, 20);
-    transposeSlider.setBounds(patch.getX() + 110, patch.getY() + 105, 58, 104);
+    scope.setBounds(patch.removeFromTop(36));
 
-    auto voice = top.removeFromLeft(260).reduced(4);
-    algorithmLabel.setBounds(voice.getX(), voice.getY(), 90, 20);
-    algorithmSlider.setBounds(voice.getX(), voice.getY() + 22, 82, 72);
-    feedbackLabel.setBounds(voice.getX() + 92, voice.getY(), 90, 20);
-    feedbackSlider.setBounds(voice.getX() + 92, voice.getY() + 22, 82, 72);
-    algorithmView.setBounds(voice.getX(), voice.getY() + 102, voice.getWidth(), 126);
+    constexpr int knobSize = 54;
+    constexpr int knobLabelHeight = 15;
+    constexpr int knobCellWidth = 60;
+    constexpr int knobCellHeight = 80;
+    auto controlsPanel = top.reduced(4, 0);
+    const auto controlsPanelBounds = controlsPanel;
+    constexpr int voicePanelWidth = 150;
+    constexpr int minimumKnobGroupWidth = 200;
+    const int sharedKnobGroupWidth = juce::jmax(minimumKnobGroupWidth,
+                                                (controlsPanel.getWidth() - voicePanelWidth) / 2);
+    auto voice = controlsPanel.removeFromLeft(voicePanelWidth);
+    auto lfo = controlsPanel.removeFromLeft(juce::jmin(sharedKnobGroupWidth, controlsPanel.getWidth()));
+    auto effects = controlsPanel;
 
-    auto lfo = top.removeFromLeft(330).reduced(4);
-    lfoWaveLabel.setBounds(lfo.removeFromTop(20));
-    auto lfoTop = lfo.removeFromTop(30);
-    lfoWaveSelect.setBounds(lfoTop.removeFromLeft(142));
+    auto lfoTop = juce::Rectangle<int>(lfo.getX() + 8,
+                                       controlsPanelBounds.getY(),
+                                       juce::jmin(254, controlsPanelBounds.getRight() - lfo.getX() - 8),
+                                       28);
+    lfoWaveLabel.setBounds(lfoTop.removeFromLeft(58));
+    lfoWaveSelect.setBounds(lfoTop.removeFromLeft(112));
     lfoTop.removeFromLeft(8);
-    lfoSyncButton.setBounds(lfoTop.removeFromLeft(74));
-    auto lfoGrid = lfo.withTrimmedTop(8);
+    lfoSyncButton.setBounds(lfoTop.removeFromLeft(76));
+
+    const int knobRow1Y = controlsPanelBounds.getY() + 36;
+    const int knobRow2Y = knobRow1Y + knobCellHeight;
+    const auto layoutKnob = [](juce::Rectangle<int> cell, juce::Label& label, juce::Slider& slider)
+    {
+        label.setJustificationType(juce::Justification::centred);
+        label.setBounds(cell.removeFromTop(knobLabelHeight));
+        auto knobArea = cell.removeFromTop(knobSize);
+        slider.setBounds(knobArea.withSizeKeepingCentre(knobSize, knobSize));
+    };
+
+    lfoLeftSeparator.setBounds(lfo.getX(), knobRow1Y - 8, 1, lfo.getBottom() - (knobRow1Y - 8));
+    lfoRightSeparator.setBounds(lfo.getRight() - 1, knobRow1Y - 8, 1, lfo.getBottom() - (knobRow1Y - 8));
+
+    auto voiceContent = voice.reduced(2, 0);
+    algorithmLabel.setBounds(voiceContent.getX(), voiceContent.getY(), voiceContent.getWidth(), 22);
+    algorithmView.setBounds(voiceContent.getX(), voiceContent.getY() + 62, 74, 86);
+    const int voiceKnobX = voiceContent.getRight() - knobCellWidth - 2;
+    layoutKnob(juce::Rectangle<int>(voiceKnobX, knobRow1Y, knobCellWidth, knobCellHeight),
+               algorithmLabel,
+               algorithmSlider);
+    layoutKnob(juce::Rectangle<int>(voiceKnobX, knobRow2Y, knobCellWidth, knobCellHeight),
+               feedbackLabel,
+               feedbackSlider);
+
+    auto lfoContent = lfo.reduced(8, 0);
+    const int lfoCellWidth = juce::jmax(knobCellWidth, lfoContent.getWidth() / 3);
     std::array<juce::Label*, 6> lfoLabels { &lfoSpeedLabel, &lfoDelayLabel, &lfoPitchDepthLabel, &lfoAmpDepthLabel, &lfoPitchSensitivityLabel, &lfoAmpSensitivityLabel };
     std::array<juce::Slider*, 6> lfoSliders { &lfoSpeedSlider, &lfoDelaySlider, &lfoPitchDepthSlider, &lfoAmpDepthSlider, &lfoPitchSensitivitySlider, &lfoAmpSensitivitySlider };
     for (int row = 0; row < 2; ++row)
     {
-        auto rowArea = lfoGrid.removeFromTop(84);
         for (int col = 0; col < 3; ++col)
         {
             const int index = row * 3 + col;
-            auto cell = rowArea.removeFromLeft(102).reduced(3);
-            lfoLabels[static_cast<std::size_t>(index)]->setBounds(cell.removeFromTop(18));
-            lfoSliders[static_cast<std::size_t>(index)]->setBounds(cell);
+            auto cell = juce::Rectangle<int>(lfoContent.getX() + col * lfoCellWidth,
+                                             row == 0 ? knobRow1Y : knobRow2Y,
+                                             lfoCellWidth,
+                                             knobCellHeight).reduced(2);
+            layoutKnob(cell, *lfoLabels[static_cast<std::size_t>(index)], *lfoSliders[static_cast<std::size_t>(index)]);
         }
     }
 
-    auto effects = top.reduced(4);
+    auto effectsContent = effects.reduced(8, 0);
+    const int effectsCellWidth = juce::jmax(knobCellWidth, effectsContent.getWidth() / 3);
     std::array<juce::Label*, 5> effectLabels { &effectReverbLabel, &effectMixLabel, &effectToneLabel, &effectChorusLabel, &effectDelayLabel };
     std::array<juce::Slider*, 5> effectSliders { &effectReverbSlider, &effectMixSlider, &effectToneSlider, &effectChorusSlider, &effectDelaySlider };
-    effects.removeFromTop(16);
-    for (int i = 0; i < 5; ++i)
+    for (int row = 0; row < 2; ++row)
     {
-        auto cell = effects.removeFromLeft(74).reduced(2);
-        effectLabels[static_cast<std::size_t>(i)]->setBounds(cell.removeFromTop(18));
-        effectSliders[static_cast<std::size_t>(i)]->setBounds(cell.removeFromTop(74));
+        for (int col = 0; col < 3; ++col)
+        {
+            const int index = row * 3 + col;
+            if (index >= static_cast<int>(effectLabels.size()))
+                continue;
+
+            auto cell = juce::Rectangle<int>(effectsContent.getX() + col * effectsCellWidth,
+                                             row == 0 ? knobRow1Y : knobRow2Y,
+                                             effectsCellWidth,
+                                             knobCellHeight).reduced(2);
+            layoutKnob(cell, *effectLabels[static_cast<std::size_t>(index)], *effectSliders[static_cast<std::size_t>(index)]);
+        }
     }
 
-    area.removeFromTop(12);
-    auto middle = area.removeFromTop(146);
-    auto pitchArea = middle.removeFromLeft(74).reduced(4);
+    area.removeFromTop(0);
+    auto middle = area.removeFromTop(151);
+    auto pitchArea = middle.removeFromLeft(58).reduced(2, 0);
     pitchWheelLabel.setBounds(pitchArea.removeFromTop(18));
     pitchWheelSlider.setBounds(pitchArea);
-    auto modArea = middle.removeFromLeft(74).reduced(4);
+    auto modArea = middle.removeFromLeft(58).reduced(2, 0);
     modWheelLabel.setBounds(modArea.removeFromTop(18));
     modWheelSlider.setBounds(modArea);
-    middle.removeFromLeft(10);
+    middle.removeFromLeft(4);
     keyboard.setBounds(middle.reduced(2));
 
     area.removeFromTop(10);
     auto ops = area;
     const int panelWidth = ops.getWidth() / dx21::kOperatorCount;
-    const int panelHeight = juce::jmin(ops.getHeight(), 246);
+    const int panelHeight = juce::jmin(ops.getHeight(), 272);
     for (int i = 0; i < dx21::kOperatorCount; ++i)
     {
         operatorPanels[static_cast<std::size_t>(i)]->setBounds(ops.getX() + i * panelWidth,
@@ -995,15 +1779,23 @@ void MainComponent::loadFactoryVoices()
         factoryVoices.push_back(dx21::Dx21PatchWithMetadata { dx21::Dx21Patch {}, "Init Voice", false, {} });
 
     voiceSelect.clear(juce::dontSendNotification);
+    voiceBSelect.clear(juce::dontSendNotification);
     for (int i = 0; i < static_cast<int>(factoryVoices.size()); ++i)
+    {
         voiceSelect.addItem(displayNameForVoice(i, factoryVoices[static_cast<std::size_t>(i)]), i + 1);
+        voiceBSelect.addItem(displayNameForVoice(i, factoryVoices[static_cast<std::size_t>(i)]), i + 1);
+    }
 
     voiceSelect.setSelectedId(1, juce::dontSendNotification);
+    performanceState.voiceAIndex = 0;
+    performanceState.voiceBIndex = juce::jmin(16, static_cast<int>(factoryVoices.size()) - 1);
+    voiceBSelect.setSelectedId(performanceState.voiceBIndex + 1, juce::dontSendNotification);
 }
 
 void MainComponent::applySelectedVoice()
 {
     const int index = juce::jlimit(0, static_cast<int>(factoryVoices.size()) - 1, voiceSelect.getSelectedId() - 1);
+    performanceState.voiceAIndex = index;
     currentPatch = factoryVoices[static_cast<std::size_t>(index)].patch;
     currentPatch.transpose = static_cast<int>(transposeSlider.getValue());
 
@@ -1032,12 +1824,7 @@ void MainComponent::syncUiFromPatch()
     effectDelaySlider.setValue(currentPatch.effects.delay, juce::dontSendNotification);
     syncingUi = false;
 
-    const int presetIndex = juce::jmax(0, voiceSelect.getSelectedId() - 1);
-    const auto bank = presetIndex < 16 ? "A" : "B";
-    const auto number = juce::String(presetIndex % 16 + 1).paddedLeft('0', 2);
-    const auto name = factoryVoices.empty() ? juce::String("INIT VOICE")
-                                            : juce::String(factoryVoices[static_cast<std::size_t>(presetIndex)].name);
-    lcd.setLines("PLAY SINGLE", bank + number + " " + name);
+    refreshLcd();
     refreshAlgorithmAndRoles();
 }
 
@@ -1062,10 +1849,94 @@ void MainComponent::updatePatchFromGlobalControls()
     refreshAlgorithmAndRoles();
 }
 
+dx21::Dx21Patch MainComponent::patchForVoiceIndex(const int index) const
+{
+    if (factoryVoices.empty())
+        return dx21::Dx21Patch {};
+
+    const int safeIndex = juce::jlimit(0, static_cast<int>(factoryVoices.size()) - 1, index);
+    auto patch = factoryVoices[static_cast<std::size_t>(safeIndex)].patch;
+    patch.transpose = static_cast<int>(transposeSlider.getValue());
+    return patch;
+}
+
+juce::String MainComponent::performanceVoiceText(const int index) const
+{
+    if (factoryVoices.empty())
+        return "A01 INIT VOICE";
+
+    const int safeIndex = juce::jlimit(0, static_cast<int>(factoryVoices.size()) - 1, index);
+    const auto bank = safeIndex < 16 ? "A" : "B";
+    const auto number = juce::String(safeIndex % 16 + 1).paddedLeft('0', 2);
+    const auto name = juce::String(factoryVoices[static_cast<std::size_t>(safeIndex)].name).substring(0, 12);
+    return bank + number + " " + name;
+}
+
+void MainComponent::refreshLcd()
+{
+    switch (performanceState.mode)
+    {
+        case PerformanceMode::Single:
+            lcd.setLines("PLAY SINGLE", performanceVoiceText(performanceState.voiceAIndex));
+            break;
+
+        case PerformanceMode::Dual:
+            lcd.setLines("DU:" + performanceVoiceText(performanceState.voiceAIndex),
+                         juce::String(performanceState.dualDetune).paddedLeft(' ', 2)
+                            + ":" + performanceVoiceText(performanceState.voiceBIndex));
+            break;
+
+        case PerformanceMode::Split:
+            lcd.setLines("SP:" + performanceVoiceText(performanceState.voiceAIndex),
+                         juce::String(performanceState.splitPoint).paddedLeft(' ', 2)
+                            + ":" + performanceVoiceText(performanceState.voiceBIndex));
+            break;
+    }
+}
+
+void MainComponent::refreshPerformanceControls()
+{
+    performanceModeSelect.setSelectedId(static_cast<int>(performanceState.mode) + 1, juce::dontSendNotification);
+    voiceBSelect.setSelectedId(performanceState.voiceBIndex + 1, juce::dontSendNotification);
+    dualDetuneSlider.setValue(performanceState.dualDetune, juce::dontSendNotification);
+    splitPointSlider.setValue(performanceState.splitPoint, juce::dontSendNotification);
+
+    const bool dual = performanceState.mode == PerformanceMode::Dual;
+    const bool split = performanceState.mode == PerformanceMode::Split;
+    voiceBLabel.setVisible(dual || split);
+    voiceBSelect.setVisible(dual || split);
+    dualDetuneLabel.setVisible(dual);
+    dualDetuneSlider.setVisible(dual);
+    splitPointLabel.setVisible(split);
+    splitPointSlider.setVisible(split);
+}
+
+void MainComponent::updatePerformanceFromControls()
+{
+    performanceState.mode = static_cast<PerformanceMode>(juce::jlimit(1, 3, performanceModeSelect.getSelectedId()) - 1);
+    performanceState.voiceAIndex = juce::jmax(0, voiceSelect.getSelectedId() - 1);
+    performanceState.voiceBIndex = juce::jmax(0, voiceBSelect.getSelectedId() - 1);
+    performanceState.dualDetune = static_cast<int>(dualDetuneSlider.getValue());
+    performanceState.splitPoint = static_cast<int>(splitPointSlider.getValue());
+}
+
+void MainComponent::applyPerformanceModeToEngines()
+{
+    const int voiceCount = performanceState.mode == PerformanceMode::Single ? 8 : 4;
+    engine.prepare(audioSampleRate, voiceCount);
+    performanceEngineB.prepare(audioSampleRate, 4);
+}
+
 void MainComponent::applyPatchToEngine()
 {
     std::lock_guard<std::mutex> lock(engineMutex);
     engine.setPatch(currentPatch);
+    performanceEngineB.setPatch(patchForVoiceIndex(performanceState.voiceBIndex));
+    engine.setPitchBend(currentPitchBend);
+    engine.setModWheel(currentModWheel);
+    performanceEngineB.setPitchBend(juce::jlimit(-1.0, 1.0, currentPitchBend + static_cast<double>(performanceState.dualDetune) / 64.0));
+    performanceEngineB.setModWheel(currentModWheel);
+    refreshLcd();
 }
 
 void MainComponent::setupSlider(juce::Slider& slider,
@@ -1078,7 +1949,7 @@ void MainComponent::setupSlider(juce::Slider& slider,
     slider.setRange(min, max, step);
     slider.setValue(value, juce::dontSendNotification);
     slider.setSliderStyle(style);
-    slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 54, 18);
+    slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 48, 16);
     slider.setMouseDragSensitivity(130);
     if (style == juce::Slider::RotaryHorizontalVerticalDrag)
         slider.setLookAndFeel(&dx21LookAndFeel);
@@ -1088,11 +1959,13 @@ void MainComponent::setupLabel(juce::Label& label, const juce::String& text)
 {
     label.setText(text, juce::dontSendNotification);
     label.setJustificationType(juce::Justification::centredLeft);
+    label.setFont(juce::FontOptions(13.0f, juce::Font::plain));
     label.setColour(juce::Label::textColourId, kTextPrimary);
 }
 
 void MainComponent::setupComboBox(juce::ComboBox& comboBox)
 {
+    comboBox.setLookAndFeel(&dx21LookAndFeel);
     comboBox.setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xff1c1a15));
     comboBox.setColour(juce::ComboBox::textColourId, kTextPrimary);
     comboBox.setColour(juce::ComboBox::outlineColourId, juce::Colour(0xff3a3529));
@@ -1125,6 +1998,7 @@ void MainComponent::populateAudioOutputSelect()
     }
 
     audioOutputSelect.setSelectedId(1, juce::dontSendNotification);
+    restoreAudioOutputSelection();
 }
 
 void MainComponent::populateMidiInputSelect()
@@ -1142,6 +2016,8 @@ void MainComponent::populateMidiInputSelect()
         midiInputSelect.setText("MIDI: No Input", juce::dontSendNotification);
     else
         midiInputSelect.setSelectedId(1, juce::dontSendNotification);
+
+    restoreMidiInputSelection();
 }
 
 void MainComponent::refreshAlgorithmAndRoles()
@@ -1160,7 +2036,11 @@ void MainComponent::refreshAlgorithmAndRoles()
 
 void MainComponent::refreshStatus()
 {
-    statusLabel.setText(midiStatus + "   Voices: " + juce::String(factoryVoices.size())
+    const auto modeName = performanceState.mode == PerformanceMode::Single ? "SINGLE"
+                        : performanceState.mode == PerformanceMode::Dual ? "DUAL"
+                        : "SPLIT";
+    statusLabel.setText(audioStatus + "   " + midiStatus + "   Perf: " + modeName
+                            + "   Voices: " + juce::String(factoryVoices.size())
                             + "   LFO: " + lfoWaveName(currentPatch.lfo.wave),
                         juce::dontSendNotification);
 }
@@ -1173,12 +2053,14 @@ bool MainComponent::ensureAudioStarted()
     audioDeviceManager = std::make_unique<juce::AudioDeviceManager>();
     juce::AudioDeviceManager::AudioDeviceSetup setup;
     const int outputId = audioOutputSelect.getSelectedId();
+    juce::String requestedTypeName;
     if (outputId >= 2)
     {
         const auto index = static_cast<std::size_t>(outputId - 2);
         if (index < audioOutputChoices.size())
         {
             const auto& choice = audioOutputChoices[index];
+            requestedTypeName = choice.typeName;
             audioDeviceManager->setCurrentAudioDeviceType(choice.typeName, true);
             setup.outputDeviceName = choice.deviceName;
         }
@@ -1186,15 +2068,76 @@ bool MainComponent::ensureAudioStarted()
    #if JUCE_WINDOWS
     else
     {
-        audioDeviceManager->setCurrentAudioDeviceType("DirectSound", true);
+        audioDeviceManager->setCurrentAudioDeviceType("Windows Audio (Low Latency Mode)", true);
     }
    #endif
 
     setup.inputDeviceName = {};
-    const auto error = audioDeviceManager->initialise(0, 2, nullptr, true, {}, outputId >= 2 ? &setup : nullptr);
+    juce::String lowLatencyFailure;
+    auto tryOpenAudio = [this, &setup](const juce::String& typeName, const int bufferSize)
+    {
+        if (typeName.isNotEmpty())
+            audioDeviceManager->setCurrentAudioDeviceType(typeName, true);
+
+        audioDeviceManager->closeAudioDevice();
+        setup.bufferSize = bufferSize;
+        return audioDeviceManager->initialise(0, 2, nullptr, false, {}, &setup);
+    };
+
+    auto currentBufferSize = [this]() -> int
+    {
+        if (auto* device = audioDeviceManager->getCurrentAudioDevice())
+            return device->getCurrentBufferSizeSamples();
+
+        return 0;
+    };
+
+    juce::String error;
+    const auto requestedOpenTypeName = requestedTypeName.isNotEmpty()
+        ? requestedTypeName
+       #if JUCE_WINDOWS
+        : juce::String("Windows Audio (Low Latency Mode)");
+       #else
+        : juce::String();
+       #endif
+
+    error = tryOpenAudio(requestedOpenTypeName, kPreferredAudioBufferSize);
+    if (error.isEmpty())
+    {
+        const int actualBufferSize = currentBufferSize();
+        if (actualBufferSize > kMaxLowLatencyAudioBufferSize)
+        {
+            const auto displayTypeName = requestedOpenTypeName.isNotEmpty()
+                ? requestedOpenTypeName
+                : juce::String("Audio");
+            lowLatencyFailure = displayTypeName + " "
+                + juce::String(kPreferredAudioBufferSize) + "->"
+                + juce::String(actualBufferSize) + "smpl";
+        }
+    }
+
+    if (error.isNotEmpty() && requestedTypeName.isNotEmpty())
+        error = tryOpenAudio(requestedTypeName, 0);
+
+   #if JUCE_WINDOWS
+    if (error.isNotEmpty() && outputId < 2 && lowLatencyFailure.isEmpty())
+        error = tryOpenAudio("Windows Audio (Low Latency Mode)", 0);
+
+    if (error.isNotEmpty() && outputId < 2 && lowLatencyFailure.isEmpty())
+        error = tryOpenAudio("Windows Audio", kPreferredAudioBufferSize);
+
+    if (error.isNotEmpty() && outputId < 2 && lowLatencyFailure.isEmpty())
+        error = tryOpenAudio("Windows Audio", 0);
+
+    if (error.isNotEmpty() && outputId < 2 && lowLatencyFailure.isEmpty())
+        error = tryOpenAudio("DirectSound", 0);
+   #endif
+    if (error.isNotEmpty() && requestedTypeName.isEmpty() && lowLatencyFailure.isEmpty())
+        error = tryOpenAudio({}, 0);
+
     if (error.isNotEmpty())
     {
-        midiStatus = "Audio: " + error;
+        audioStatus = "Audio: " + error;
         refreshStatus();
         audioDeviceManager = nullptr;
         return false;
@@ -1203,6 +2146,19 @@ bool MainComponent::ensureAudioStarted()
     audioDeviceManager->addAudioCallback(&audioSourcePlayer);
     audioSourcePlayer.setSource(this);
     audioStarted = true;
+    if (auto* device = audioDeviceManager->getCurrentAudioDevice())
+    {
+        const int actualBufferSize = device->getCurrentBufferSizeSamples();
+        audioStatus = "Audio: " + device->getTypeName()
+            + " " + juce::String(actualBufferSize) + "smpl";
+
+        if (actualBufferSize > kMaxLowLatencyAudioBufferSize && lowLatencyFailure.isNotEmpty())
+            audioStatus += " >128";
+    }
+    else
+    {
+        audioStatus = "Audio: on";
+    }
     return true;
 }
 
@@ -1224,7 +2180,10 @@ bool MainComponent::startPlayback()
 void MainComponent::restartAudioOutput()
 {
     if (!audioStarted)
+    {
+        ensureAudioStarted();
         return;
+    }
 
     const bool shouldResume = powerOn;
     allNotesOff();
@@ -1239,9 +2198,12 @@ void MainComponent::restartAudioOutput()
 
     audioStarted = false;
     audioDeviceManager = nullptr;
+    audioStatus = "Audio: off";
 
     if (shouldResume)
         startPlayback();
+    else
+        ensureAudioStarted();
 }
 
 void MainComponent::connectMidiInputs()
@@ -1299,29 +2261,157 @@ void MainComponent::connectMidiInputs()
     }
 }
 
+void MainComponent::restoreMidiInputSelection()
+{
+    juce::PropertiesFile settings(settingsOptions());
+    const auto savedIdentifier = settings.getValue(kMidiInputIdentifierSetting);
+    if (savedIdentifier.isEmpty())
+        return;
+
+    for (int i = 0; i < midiInputDevices.size(); ++i)
+    {
+        if (midiInputDevices[i].identifier == savedIdentifier)
+        {
+            midiInputSelect.setSelectedId(i + 3, juce::dontSendNotification);
+            connectMidiInputs();
+            refreshStatus();
+            return;
+        }
+    }
+}
+
+void MainComponent::restoreAudioOutputSelection()
+{
+    juce::PropertiesFile settings(settingsOptions());
+    const auto savedType = settings.getValue(kAudioOutputTypeSetting);
+    const auto savedDevice = settings.getValue(kAudioOutputDeviceSetting);
+    if (savedType.isEmpty() || savedDevice.isEmpty())
+        return;
+
+    for (std::size_t i = 0; i < audioOutputChoices.size(); ++i)
+    {
+        const auto& choice = audioOutputChoices[i];
+        if (choice.typeName == savedType && choice.deviceName == savedDevice)
+        {
+            audioOutputSelect.setSelectedId(static_cast<int>(i) + 2, juce::dontSendNotification);
+            return;
+        }
+    }
+}
+
+void MainComponent::saveAudioOutputSelection() const
+{
+    juce::PropertiesFile settings(settingsOptions());
+    const int selectedId = audioOutputSelect.getSelectedId();
+
+    if (selectedId >= 2)
+    {
+        const auto index = static_cast<std::size_t>(selectedId - 2);
+        if (index < audioOutputChoices.size())
+        {
+            const auto& choice = audioOutputChoices[index];
+            settings.setValue(kAudioOutputTypeSetting, choice.typeName);
+            settings.setValue(kAudioOutputDeviceSetting, choice.deviceName);
+            settings.saveIfNeeded();
+            return;
+        }
+    }
+
+    settings.removeValue(kAudioOutputTypeSetting);
+    settings.removeValue(kAudioOutputDeviceSetting);
+    settings.saveIfNeeded();
+}
+
+void MainComponent::saveMidiInputSelection() const
+{
+    juce::PropertiesFile settings(settingsOptions());
+    const int selectedId = midiInputSelect.getSelectedId();
+
+    if (selectedId >= 3)
+    {
+        const int index = selectedId - 3;
+        if (juce::isPositiveAndBelow(index, midiInputDevices.size()))
+        {
+            settings.setValue(kMidiInputIdentifierSetting, midiInputDevices[index].identifier);
+            settings.saveIfNeeded();
+            return;
+        }
+    }
+
+    settings.removeValue(kMidiInputIdentifierSetting);
+    settings.saveIfNeeded();
+}
+
 void MainComponent::noteOn(const int note, const int velocity)
 {
     if (!powerOn && !startPlayback())
         return;
 
+    if (juce::isPositiveAndBelow(note, static_cast<int>(gMidiUiHeldNotes.size())))
+    {
+        gMidiUiHeldNotes[static_cast<std::size_t>(note)].store(true, std::memory_order_relaxed);
+        gMidiUiHeldVelocities[static_cast<std::size_t>(note)].store(juce::jlimit(0, 127, velocity), std::memory_order_relaxed);
+        repaintKeyboardAsync();
+    }
+
     std::lock_guard<std::mutex> lock(engineMutex);
-    engine.noteOn(note, velocity);
+    performNoteOnNoLock(note, velocity);
 }
 
 void MainComponent::noteOff(const int note)
 {
+    if (juce::isPositiveAndBelow(note, static_cast<int>(gMidiUiHeldNotes.size())))
+    {
+        gMidiUiHeldNotes[static_cast<std::size_t>(note)].store(false, std::memory_order_relaxed);
+        gMidiUiHeldVelocities[static_cast<std::size_t>(note)].store(0, std::memory_order_relaxed);
+        repaintKeyboardAsync();
+    }
+
     std::lock_guard<std::mutex> lock(engineMutex);
+    performNoteOffNoLock(note);
+}
+
+void MainComponent::performNoteOnNoLock(const int note, const int velocity)
+{
+    switch (performanceState.mode)
+    {
+        case PerformanceMode::Single:
+            engine.noteOn(note, velocity);
+            break;
+
+        case PerformanceMode::Dual:
+            engine.noteOn(note, velocity);
+            performanceEngineB.noteOn(note, velocity);
+            break;
+
+        case PerformanceMode::Split:
+            if (note <= performanceState.splitPoint)
+                engine.noteOn(note, velocity);
+            else
+                performanceEngineB.noteOn(note, velocity);
+            break;
+    }
+}
+
+void MainComponent::performNoteOffNoLock(const int note)
+{
     engine.noteOff(note);
+    performanceEngineB.noteOff(note);
 }
 
 void MainComponent::allNotesOff()
 {
     for (auto& held : gMidiUiHeldNotes)
         held.store(false, std::memory_order_relaxed);
+    for (auto& velocity : gMidiUiHeldVelocities)
+        velocity.store(0, std::memory_order_relaxed);
+    pcKeyboardHeldNotes.fill(false);
+    pcKeyboardHeldVelocities.fill(0);
     repaintKeyboardAsync();
 
     std::lock_guard<std::mutex> lock(engineMutex);
     engine.panic();
+    performanceEngineB.panic();
 }
 
 bool MainComponent::isMidiUiNoteHeld(const int note) const
@@ -1329,7 +2419,19 @@ bool MainComponent::isMidiUiNoteHeld(const int note) const
     if (!juce::isPositiveAndBelow(note, static_cast<int>(gMidiUiHeldNotes.size())))
         return false;
 
-    return gMidiUiHeldNotes[static_cast<std::size_t>(note)].load(std::memory_order_relaxed);
+    return gMidiUiHeldNotes[static_cast<std::size_t>(note)].load(std::memory_order_relaxed)
+        || pcKeyboardHeldNotes[static_cast<std::size_t>(note)];
+}
+
+int MainComponent::heldVelocityForNote(const int note) const
+{
+    if (!juce::isPositiveAndBelow(note, static_cast<int>(gMidiUiHeldVelocities.size())))
+        return 0;
+
+    const auto index = static_cast<std::size_t>(note);
+    const int midiVelocity = gMidiUiHeldVelocities[index].load(std::memory_order_relaxed);
+    const int pcVelocity = pcKeyboardHeldVelocities[index];
+    return juce::jmax(midiVelocity, pcVelocity);
 }
 
 void MainComponent::repaintKeyboardAsync()
@@ -1346,15 +2448,74 @@ void MainComponent::repaintKeyboardAsync()
     });
 }
 
+void MainComponent::syncPcKeyboardNotes()
+{
+    std::array<bool, 128> shouldHold {};
+    if (!hasKeyboardFocus(true))
+    {
+        bool changed = false;
+        for (int note = 0; note < static_cast<int>(pcKeyboardHeldNotes.size()); ++note)
+        {
+            const auto index = static_cast<std::size_t>(note);
+            if (!pcKeyboardHeldNotes[index])
+                continue;
+
+            pcKeyboardHeldNotes[index] = false;
+            pcKeyboardHeldVelocities[index] = 0;
+            changed = true;
+            noteOff(note);
+        }
+
+        if (changed)
+            keyboard.repaint();
+        return;
+    }
+
+    for (const auto& mapping : kPcKeyboardMap)
+    {
+        const int note = mapping.note + kPcKeyboardTranspose;
+        if (juce::isPositiveAndBelow(note, static_cast<int>(shouldHold.size()))
+            && isPcKeyCurrentlyDown(mapping.keyCode))
+        {
+            shouldHold[static_cast<std::size_t>(note)] = true;
+        }
+    }
+
+    bool changed = false;
+    for (int note = 0; note < static_cast<int>(pcKeyboardHeldNotes.size()); ++note)
+    {
+        const auto index = static_cast<std::size_t>(note);
+        if (shouldHold[index] == pcKeyboardHeldNotes[index])
+            continue;
+
+        pcKeyboardHeldNotes[index] = shouldHold[index];
+        pcKeyboardHeldVelocities[index] = shouldHold[index] ? 108 : 0;
+        changed = true;
+        if (shouldHold[index])
+            noteOn(note, 108);
+        else
+            noteOff(note);
+    }
+
+    if (changed)
+        keyboard.repaint();
+}
+
+void MainComponent::timerCallback()
+{
+    syncPcKeyboardNotes();
+}
+
 void MainComponent::handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage& message)
 {
     if (message.isNoteOn())
     {
         const int note = message.getNoteNumber();
-        const int velocity = static_cast<int>(message.getVelocity() * 127.0f);
+        const int velocity = juce::jlimit(1, 127, static_cast<int>(message.getVelocity()));
         if (juce::isPositiveAndBelow(note, static_cast<int>(gMidiUiHeldNotes.size())))
         {
             gMidiUiHeldNotes[static_cast<std::size_t>(note)].store(true, std::memory_order_relaxed);
+            gMidiUiHeldVelocities[static_cast<std::size_t>(note)].store(velocity, std::memory_order_relaxed);
             repaintKeyboardAsync();
         }
 
@@ -1375,6 +2536,7 @@ void MainComponent::handleIncomingMidiMessage(juce::MidiInput*, const juce::Midi
         if (juce::isPositiveAndBelow(note, static_cast<int>(gMidiUiHeldNotes.size())))
         {
             gMidiUiHeldNotes[static_cast<std::size_t>(note)].store(false, std::memory_order_relaxed);
+            gMidiUiHeldVelocities[static_cast<std::size_t>(note)].store(0, std::memory_order_relaxed);
             repaintKeyboardAsync();
         }
 
@@ -1385,8 +2547,10 @@ void MainComponent::handleIncomingMidiMessage(juce::MidiInput*, const juce::Midi
         const double value = juce::jlimit(-1.0,
                                           1.0,
                                           (static_cast<double>(message.getPitchWheelValue()) - 8192.0) / 8192.0);
+        currentPitchBend = value;
         std::lock_guard<std::mutex> lock(engineMutex);
         engine.setPitchBend(value);
+        performanceEngineB.setPitchBend(juce::jlimit(-1.0, 1.0, value + static_cast<double>(performanceState.dualDetune) / 64.0));
         juce::MessageManager::callAsync([this, value]
         {
             pitchWheelSlider.setValue(value, juce::dontSendNotification);
@@ -1395,8 +2559,10 @@ void MainComponent::handleIncomingMidiMessage(juce::MidiInput*, const juce::Midi
     else if (message.isController() && message.getControllerNumber() == 1)
     {
         const double value = static_cast<double>(message.getControllerValue()) / 127.0;
+        currentModWheel = value;
         std::lock_guard<std::mutex> lock(engineMutex);
         engine.setModWheel(value);
+        performanceEngineB.setModWheel(value);
         juce::MessageManager::callAsync([this, value]
         {
             modWheelSlider.setValue(value, juce::dontSendNotification);
@@ -1415,6 +2581,19 @@ void MainComponent::comboBoxChanged(juce::ComboBox* comboBoxThatHasChanged)
         allNotesOff();
         applySelectedVoice();
     }
+    else if (comboBoxThatHasChanged == &performanceModeSelect || comboBoxThatHasChanged == &voiceBSelect)
+    {
+        allNotesOff();
+        updatePerformanceFromControls();
+        refreshPerformanceControls();
+        {
+            std::lock_guard<std::mutex> lock(engineMutex);
+            applyPerformanceModeToEngines();
+        }
+        applyPatchToEngine();
+        refreshStatus();
+        resized();
+    }
     else if (comboBoxThatHasChanged == &lfoWaveSelect && !syncingUi)
     {
         updatePatchFromGlobalControls();
@@ -1423,12 +2602,14 @@ void MainComponent::comboBoxChanged(juce::ComboBox* comboBoxThatHasChanged)
     }
     else if (comboBoxThatHasChanged == &audioOutputSelect)
     {
+        saveAudioOutputSelection();
         restartAudioOutput();
         refreshStatus();
     }
     else if (comboBoxThatHasChanged == &midiInputSelect)
     {
         connectMidiInputs();
+        saveMidiInputSelection();
         refreshStatus();
     }
 }
@@ -1472,13 +2653,26 @@ void MainComponent::sliderValueChanged(juce::Slider* slider)
     }
     else if (slider == &pitchWheelSlider)
     {
+        currentPitchBend = pitchWheelSlider.getValue();
         std::lock_guard<std::mutex> lock(engineMutex);
-        engine.setPitchBend(pitchWheelSlider.getValue());
+        engine.setPitchBend(currentPitchBend);
+        performanceEngineB.setPitchBend(juce::jlimit(-1.0, 1.0, currentPitchBend + static_cast<double>(performanceState.dualDetune) / 64.0));
     }
     else if (slider == &modWheelSlider)
     {
+        currentModWheel = modWheelSlider.getValue();
         std::lock_guard<std::mutex> lock(engineMutex);
         engine.setModWheel(modWheelSlider.getValue());
+        performanceEngineB.setModWheel(modWheelSlider.getValue());
+    }
+    else if (slider == &dualDetuneSlider || slider == &splitPointSlider)
+    {
+        if (!syncingUi)
+        {
+            updatePerformanceFromControls();
+            applyPatchToEngine();
+            refreshStatus();
+        }
     }
     else if (!syncingUi)
     {

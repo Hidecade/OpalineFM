@@ -75,6 +75,8 @@ if (DX21_RESOLVED_JUCE_DIR)
         PRIVATE
             JUCE_WEB_BROWSER=0
             JUCE_USE_CURL=0
+            JUCE_ASIO=1
+            JUCE_ASIO_USE_EXTERNAL_SDK=0
             DX21_ASSET_DIR="${CMAKE_CURRENT_SOURCE_DIR}/assets"
     )
 

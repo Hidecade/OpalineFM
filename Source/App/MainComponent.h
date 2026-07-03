@@ -9,6 +9,7 @@
 #include <mutex>
 #include <array>
 #include <atomic>
+#include <cmath>
 #include <functional>
 #include <memory>
 #include <vector>
@@ -18,7 +19,8 @@ class MainComponent final : public juce::Component,
                             private juce::MidiInputCallback,
                             private juce::ComboBox::Listener,
                             private juce::Button::Listener,
-                            private juce::Slider::Listener
+                            private juce::Slider::Listener,
+                            private juce::Timer
 {
 public:
     MainComponent();
@@ -55,6 +57,22 @@ private:
                               float maxSliderPos,
                               const juce::Slider::SliderStyle style,
                               juce::Slider& slider) override;
+        void drawButtonBackground(juce::Graphics& g,
+                                  juce::Button& button,
+                                  const juce::Colour& backgroundColour,
+                                  bool shouldDrawButtonAsHighlighted,
+                                  bool shouldDrawButtonAsDown) override;
+        void drawButtonText(juce::Graphics& g,
+                            juce::TextButton& button,
+                            bool shouldDrawButtonAsHighlighted,
+                            bool shouldDrawButtonAsDown) override;
+        void drawToggleButton(juce::Graphics& g,
+                              juce::ToggleButton& button,
+                              bool shouldDrawButtonAsHighlighted,
+                              bool shouldDrawButtonAsDown) override;
+        juce::Label* createSliderTextBox(juce::Slider& slider) override;
+        juce::Font getComboBoxFont(juce::ComboBox& box) override;
+        juce::Font getPopupMenuFont() override;
     };
 
     class LcdComponent final : public juce::Component
@@ -66,6 +84,12 @@ private:
     private:
         juce::String line1 = "PLAY SINGLE";
         juce::String line2 = "A01 INIT VOICE";
+    };
+
+    class VoiceBadgeLabel final : public juce::Label
+    {
+    public:
+        void paint(juce::Graphics& g) override;
     };
 
     class AlgorithmComponent final : public juce::Component
@@ -147,11 +171,72 @@ private:
         int heldNote = -1;
     };
 
+    enum class PerformanceMode
+    {
+        Single = 0,
+        Dual,
+        Split
+    };
+
+    struct PerformanceState
+    {
+        PerformanceMode mode = PerformanceMode::Single;
+        int voiceAIndex = 0;
+        int voiceBIndex = 16;
+        int dualDetune = 0;
+        int splitPoint = 60;
+    };
+
+    class SplitPointSlider final : public juce::Slider
+    {
+    public:
+        juce::String getTextFromValue(double value) override
+        {
+            return noteName(static_cast<int>(std::round(value)));
+        }
+
+        double getValueFromText(const juce::String& text) override
+        {
+            const auto trimmed = text.trim().toUpperCase();
+            for (int note = 0; note < 128; ++note)
+            {
+                if (noteName(note) == trimmed)
+                    return static_cast<double>(note);
+            }
+
+            return juce::jlimit(0.0, 127.0, trimmed.getDoubleValue());
+        }
+
+        void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails& wheel) override
+        {
+            const float delta = std::abs(wheel.deltaY) >= std::abs(wheel.deltaX) ? wheel.deltaY : wheel.deltaX;
+            if (delta == 0.0f)
+                return;
+
+            setValue(juce::jlimit(getMinimum(), getMaximum(), getValue() + (delta > 0.0f ? 1.0 : -1.0)),
+                     juce::sendNotificationSync);
+        }
+
+    private:
+        static juce::String noteName(int note)
+        {
+            static constexpr std::array<const char*, 12> names { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+            const int safeNote = juce::jlimit(0, 127, note);
+            return juce::String(names[static_cast<std::size_t>(safeNote % 12)]) + juce::String(safeNote / 12 - 1);
+        }
+    };
+
     void loadFactoryVoices();
     void applySelectedVoice();
     void syncUiFromPatch();
     void updatePatchFromGlobalControls();
     void applyPatchToEngine();
+    void applyPerformanceModeToEngines();
+    void updatePerformanceFromControls();
+    void refreshPerformanceControls();
+    void refreshLcd();
+    dx21::Dx21Patch patchForVoiceIndex(int index) const;
+    juce::String performanceVoiceText(int index) const;
     void setupSlider(juce::Slider& slider, double min, double max, double step, double value, juce::Slider::SliderStyle style);
     void setupLabel(juce::Label& label, const juce::String& text);
     void setupComboBox(juce::ComboBox& comboBox);
@@ -163,11 +248,20 @@ private:
     bool startPlayback();
     void restartAudioOutput();
     void connectMidiInputs();
+    void restoreAudioOutputSelection();
+    void saveAudioOutputSelection() const;
+    void restoreMidiInputSelection();
+    void saveMidiInputSelection() const;
     void noteOn(int note, int velocity);
     void noteOff(int note);
+    void performNoteOnNoLock(int note, int velocity);
+    void performNoteOffNoLock(int note);
     void allNotesOff();
     bool isMidiUiNoteHeld(int note) const;
+    int heldVelocityForNote(int note) const;
     void repaintKeyboardAsync();
+    void syncPcKeyboardNotes();
+    void timerCallback() override;
 
     void handleIncomingMidiMessage(juce::MidiInput* source, const juce::MidiMessage& message) override;
     void comboBoxChanged(juce::ComboBox* comboBoxThatHasChanged) override;
@@ -179,6 +273,8 @@ private:
     juce::Label statusLabel;
     Dx21LookAndFeel dx21LookAndFeel;
     juce::ComboBox voiceSelect;
+    juce::ComboBox performanceModeSelect;
+    juce::ComboBox voiceBSelect;
     juce::ComboBox audioOutputSelect;
     juce::ComboBox midiInputSelect;
     juce::ComboBox lfoWaveSelect;
@@ -201,6 +297,8 @@ private:
     juce::Slider effectDelaySlider;
     juce::Slider pitchWheelSlider;
     juce::Slider modWheelSlider;
+    juce::Slider dualDetuneSlider;
+    SplitPointSlider splitPointSlider;
     juce::Label volumeLabel;
     juce::Label transposeLabel;
     juce::Label algorithmLabel;
@@ -212,6 +310,8 @@ private:
     juce::Label lfoAmpDepthLabel;
     juce::Label lfoPitchSensitivityLabel;
     juce::Label lfoAmpSensitivityLabel;
+    juce::Label lfoLeftSeparator;
+    juce::Label lfoRightSeparator;
     juce::Label effectReverbLabel;
     juce::Label effectMixLabel;
     juce::Label effectToneLabel;
@@ -219,6 +319,10 @@ private:
     juce::Label effectDelayLabel;
     juce::Label pitchWheelLabel;
     juce::Label modWheelLabel;
+    VoiceBadgeLabel voiceALabel;
+    VoiceBadgeLabel voiceBLabel;
+    juce::Label dualDetuneLabel;
+    juce::Label splitPointLabel;
     LcdComponent lcd;
     AlgorithmComponent algorithmView;
     ScopeComponent scope;
@@ -226,7 +330,9 @@ private:
     std::array<std::unique_ptr<OperatorComponent>, dx21::kOperatorCount> operatorPanels;
 
     dx21::Dx21Engine engine;
+    dx21::Dx21Engine performanceEngineB;
     dx21::Dx21Patch currentPatch;
+    PerformanceState performanceState;
     std::vector<dx21::Dx21PatchWithMetadata> factoryVoices;
     struct AudioOutputChoice
     {
@@ -240,10 +346,16 @@ private:
     juce::AudioSourcePlayer audioSourcePlayer;
     std::vector<std::unique_ptr<juce::MidiInput>> midiInputs;
     std::mutex engineMutex;
+    std::array<bool, 128> pcKeyboardHeldNotes {};
+    std::array<int, 128> pcKeyboardHeldVelocities {};
 
     float masterVolume = 0.8f;
+    double audioSampleRate = 44100.0;
+    double currentPitchBend = 0.0;
+    double currentModWheel = 0.0;
     bool powerOn = false;
     bool audioStarted = false;
     bool syncingUi = false;
     juce::String midiStatus = "MIDI: not connected";
+    juce::String audioStatus = "Audio: off";
 };

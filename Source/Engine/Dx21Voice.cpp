@@ -14,8 +14,8 @@ constexpr double kCarrierLevelDbRange = 48.0;
 constexpr double kModulatorIndexScale = 1.08;
 constexpr double kModulatorIndexBlend = 0.08;
 constexpr double kModulatorIndexExponent = 2.2;
-constexpr double kModulatorAttackSoftenSeconds = 0.012;
-constexpr double kModulatorAttackInitialScale = 0.86;
+constexpr double kModulatorAttackSoftenSeconds = 0.003;
+constexpr double kModulatorAttackInitialScale = 0.96;
 constexpr double kOpmPhaseSteps = 1048576.0;
 constexpr double kOpmPhaseMaxIncrement = kOpmPhaseSteps - 1.0;
 constexpr double kOpmSineIndexSteps = 1024.0;
@@ -83,6 +83,31 @@ double modulatorAttackSoftening(const double age)
 {
     const double progress = clampDouble(age / kModulatorAttackSoftenSeconds, 0.0, 1.0);
     return kModulatorAttackInitialScale + (1.0 - kModulatorAttackInitialScale) * progress;
+}
+
+bool isCarrierOperator(const Algorithm& algorithm, const int opIndex)
+{
+    for (int i = 0; i < algorithm.carrierCount; ++i)
+    {
+        if (algorithm.carriers[static_cast<std::size_t>(i)] == opIndex)
+            return true;
+    }
+
+    return false;
+}
+
+double operatorVelocityFactor(const int opVelocity, const int noteVelocity, const bool carrier)
+{
+    const double amount = clampDouble(static_cast<double>(opVelocity), 0.0, 7.0) / 7.0;
+    if (amount <= 0.0)
+        return 1.0;
+
+    const double velocity = clampDouble(static_cast<double>(noteVelocity), 1.0, 127.0) / 127.0;
+    const double shapedVelocity = std::pow(velocity, 1.35);
+    const double minimum = carrier ? 0.20 : 0.32;
+    const double maximum = carrier ? 1.85 : 2.55;
+    const double fullRangeFactor = minimum + (maximum - minimum) * shapedVelocity;
+    return 1.0 + (fullRangeFactor - 1.0) * amount;
 }
 
 double opmStylePhaseAdvance(const double frequency, const double sampleRate)
@@ -344,11 +369,13 @@ OperatorRender Dx21Voice::renderOperator(const int opIndex,
     const double envelopeAmp = envelopes[opSize].next();
     const double level = nextOperatorLevel(opIndex, op.level);
     const double scaledLevel = keyboardScaledLevel(level, op.levelScale, midiNote);
-    const double velocityBoost = 1.0 + static_cast<double>(op.velocity) * 0.08
-        * (static_cast<double>(noteVelocity) / 127.0 - 0.5);
+    const bool carrier = isCarrierOperator(algorithm, opIndex);
+    const double carrierVelocityFactor = operatorVelocityFactor(op.velocity, noteVelocity, true);
+    const double modulatorVelocityFactor = operatorVelocityFactor(op.velocity, noteVelocity, false);
     const double ampMod = op.ampModEnable ? operatorAmpModFactor(ampDepth, lfoAm) : 1.0;
-    const double carrierAmp = outputLevelToCarrierAmplitude(scaledLevel) * envelopeAmp * velocityBoost * ampMod;
-    const double modulatorIndex = outputLevelToModulatorIndex(scaledLevel) * envelopeAmp * velocityBoost * ampMod
+    const double carrierAmp = outputLevelToCarrierAmplitude(scaledLevel) * envelopeAmp * carrierVelocityFactor * ampMod;
+    const double modulatorIndex = outputLevelToModulatorIndex(scaledLevel) * envelopeAmp
+        * (carrier ? carrierVelocityFactor : modulatorVelocityFactor) * ampMod
         * modulatorAttackSoftening(ageSeconds);
 
     const double wave = sineLookup(phases[opSize] + opmPhaseBusToRadians(phaseModulation) + feedback);
