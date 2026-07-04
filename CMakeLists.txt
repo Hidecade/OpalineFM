@@ -21,6 +21,7 @@ add_library(dx21_engine STATIC
     Source/Engine/Dx21Types.cpp
     Source/Engine/Dx21Sysex.cpp
     Source/Engine/Dx21Voice.cpp
+    Source/Engine/Dx21VoiceLibrary.cpp
 )
 
 target_include_directories(dx21_engine
@@ -67,6 +68,8 @@ if (DX21_RESOLVED_JUCE_DIR)
     target_sources(DX21Native_Standalone
         PRIVATE
             Source/App/Main.cpp
+            Source/App/Dx21AppState.h
+            Source/App/Dx21StateSerialization.h
             Source/App/MainComponent.cpp
             Source/App/MainComponent.h
     )

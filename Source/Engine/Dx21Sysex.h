@@ -31,6 +31,8 @@ struct Dx21PatchWithMetadata
 
 std::vector<Dx21VmemPreset> parseDx21BulkVmem(const std::vector<std::uint8_t>& bytes);
 Dx21PatchWithMetadata decodeDx21VmemVoice(const std::array<std::uint8_t, kDx21VmemVoiceSize>& vmem);
+std::array<std::uint8_t, kDx21VmemVoiceSize> encodeDx21VmemVoice(const Dx21PatchWithMetadata& voice);
+std::vector<std::uint8_t> encodeDx21BulkVmem(const std::vector<Dx21PatchWithMetadata>& voices);
 Dx21PatchWithMetadata withVmemPreset(const Dx21Patch& basePatch, const Dx21VmemPreset& preset);
 void clearVmemPreset(Dx21PatchWithMetadata& patch);
 } // namespace dx21

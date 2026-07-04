@@ -2,6 +2,7 @@
 #include "Engine/Dx21Envelope.h"
 #include "Engine/Dx21Sysex.h"
 #include "Engine/Dx21Tables.h"
+#include "Engine/Dx21VoiceLibrary.h"
 
 #include <array>
 #include <cmath>
@@ -339,6 +340,62 @@ void testVmemDecodeAndPatchMerge()
     expect(merged.vmem[40] == 0, "clearVmemPreset clears raw VMEM bytes");
 }
 
+void testSysexEncoding()
+{
+    auto decoded = dx21::decodeDx21VmemVoice(makeTestVmem());
+    decoded.name = "ROUNDTRIP";
+
+    const auto encodedVmem = dx21::encodeDx21VmemVoice(decoded);
+    const auto roundTrip = dx21::decodeDx21VmemVoice(encodedVmem);
+    expect(roundTrip.name == "ROUNDTRIP", "VMEM encoder writes voice name");
+    expect(roundTrip.patch.algorithm == decoded.patch.algorithm, "VMEM encoder preserves algorithm");
+    expect(roundTrip.patch.feedback == decoded.patch.feedback, "VMEM encoder preserves feedback");
+    expect(roundTrip.patch.lfo.wave == decoded.patch.lfo.wave, "VMEM encoder preserves LFO wave");
+    expect(roundTrip.patch.operators[0].level == decoded.patch.operators[0].level,
+           "VMEM encoder preserves operator level");
+
+    const std::vector<dx21::Dx21PatchWithMetadata> voices { decoded };
+    const auto bulk = dx21::encodeDx21BulkVmem(voices);
+    expect(bulk.size() == dx21::kDx21BulkMinimumSize, "bulk encoder writes full DX21 bank size");
+    expect(bulk.front() == 0xf0u, "bulk encoder writes SysEx start");
+    expect(bulk.back() == 0xf7u, "bulk encoder writes SysEx end");
+
+    const auto presets = dx21::parseDx21BulkVmem(bulk);
+    expect(presets.size() == dx21::kDx21BulkVoiceCount, "encoded bulk parses as 32 voices");
+    expect(presets[0].name == "ROUNDTRIP", "encoded bulk contains first voice name");
+    expect(presets[31].name == "ROUNDTRIP", "bulk encoder repeats short banks to 32 voices");
+}
+
+void testVoiceLibrary()
+{
+    const auto library = dx21::makeInitVoiceLibrary();
+    expect(library.banks.size() == dx21::kDx21VoiceBankCount, "voice library has 8 banks");
+    expect(library.banks[0].voices.size() == dx21::kDx21VoiceBankSize, "voice bank has 32 voices");
+    expect(dx21::voiceAt(library, 0, 0).name == "INIT 1", "voiceAt reads first init voice");
+    expect(dx21::voiceAt(library, 7, 31).name == "INIT 32", "voiceAt reads last init voice");
+
+    const auto imported = dx21::voiceBankFromSysex(makeTestBulk(), "Imported");
+    expect(imported.name == "Imported", "voice bank import stores bank name");
+    expect(imported.voices[0].name == "TESTVOICE", "voice bank import decodes voice names");
+    expect(imported.voices[0].hasVmem, "voice bank import keeps VMEM backing");
+
+    const auto exported = dx21::voiceBankToSysex(imported);
+    const auto exportedPresets = dx21::parseDx21BulkVmem(exported);
+    expect(exportedPresets.size() == dx21::kDx21VoiceBankSize, "voice bank export writes 32 voices");
+    expect(exportedPresets[0].name == "TESTVOICE", "voice bank export preserves voice name");
+
+    bool threw = false;
+    try
+    {
+        (void) dx21::voiceAt(library, 8, 0);
+    }
+    catch (const std::out_of_range&)
+    {
+        threw = true;
+    }
+    expect(threw, "voiceAt rejects invalid bank index");
+}
+
 void testOptionalAssetSysex()
 {
 #ifdef DX21_TEST_ASSET_DIR
@@ -369,6 +426,8 @@ int main()
     testEngineEffectsRendering();
     testSysexBulkParsing();
     testVmemDecodeAndPatchMerge();
+    testSysexEncoding();
+    testVoiceLibrary();
     testOptionalAssetSysex();
 
     if (failures != 0)

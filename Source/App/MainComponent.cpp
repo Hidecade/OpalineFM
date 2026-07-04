@@ -1,8 +1,10 @@
 #include "MainComponent.h"
 
+#include "App/Dx21StateSerialization.h"
 #include "Engine/Dx21Tables.h"
 
 #include <algorithm>
+#include <cstring>
 #include <fstream>
 #include <iterator>
 
@@ -48,6 +50,101 @@ std::vector<std::uint8_t> readBinaryFile(const juce::File& file)
         return {};
 
     return { std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>() };
+}
+
+bool writeBinaryFile(const juce::File& file, const std::vector<std::uint8_t>& bytes)
+{
+    file.deleteFile();
+    juce::FileOutputStream output(file);
+    if (!output.openedOk())
+        return false;
+
+    return output.write(bytes.data(), static_cast<int>(bytes.size()));
+}
+
+juce::ValueTree voiceToValueTree(const dx21::Dx21PatchWithMetadata& voice, const int index)
+{
+    juce::ValueTree tree { "Voice" };
+    tree.setProperty("index", index, nullptr);
+    tree.setProperty("name", juce::String(voice.name), nullptr);
+
+    const auto vmem = dx21::encodeDx21VmemVoice(voice);
+    juce::MemoryBlock block(vmem.data(), vmem.size());
+    tree.setProperty("vmem", block.toBase64Encoding(), nullptr);
+    return tree;
+}
+
+juce::ValueTree bankToValueTree(const dx21::Dx21VoiceBank& bank, const int index)
+{
+    juce::ValueTree tree { "Bank" };
+    tree.setProperty("index", index, nullptr);
+    tree.setProperty("name", juce::String(bank.name), nullptr);
+
+    for (int i = 0; i < dx21::kDx21VoiceBankSize; ++i)
+        tree.addChild(voiceToValueTree(bank.voices[static_cast<std::size_t>(i)], i), -1, nullptr);
+
+    return tree;
+}
+
+std::unique_ptr<juce::XmlElement> voiceLibraryToXml(const dx21::Dx21VoiceLibrary& library)
+{
+    juce::ValueTree tree { "DX21VoiceLibrary" };
+    tree.setProperty("version", 1, nullptr);
+    for (int i = 0; i < dx21::kDx21VoiceBankCount; ++i)
+        tree.addChild(bankToValueTree(library.banks[static_cast<std::size_t>(i)], i), -1, nullptr);
+
+    return tree.createXml();
+}
+
+bool voiceLibraryFromXml(const juce::XmlElement& xml, dx21::Dx21VoiceLibrary& library)
+{
+    const auto tree = juce::ValueTree::fromXml(xml);
+    if (!tree.hasType("DX21VoiceLibrary"))
+        return false;
+
+    auto restored = dx21::makeInitVoiceLibrary();
+    for (int childIndex = 0; childIndex < tree.getNumChildren(); ++childIndex)
+    {
+        const auto bankTree = tree.getChild(childIndex);
+        if (!bankTree.hasType("Bank"))
+            continue;
+
+        const int bankIndex = juce::jlimit(0,
+                                           dx21::kDx21VoiceBankCount - 1,
+                                           static_cast<int>(bankTree.getProperty("index", childIndex)));
+        auto& bank = restored.banks[static_cast<std::size_t>(bankIndex)];
+        const auto bankName = bankTree.getProperty("name").toString();
+        if (bankName.isNotEmpty())
+            bank.name = bankName.toStdString();
+
+        for (int voiceChild = 0; voiceChild < bankTree.getNumChildren(); ++voiceChild)
+        {
+            const auto voiceTree = bankTree.getChild(voiceChild);
+            if (!voiceTree.hasType("Voice"))
+                continue;
+
+            const int voiceIndex = juce::jlimit(0,
+                                                dx21::kDx21VoiceBankSize - 1,
+                                                static_cast<int>(voiceTree.getProperty("index", voiceChild)));
+            juce::MemoryBlock block;
+            if (!block.fromBase64Encoding(voiceTree.getProperty("vmem").toString())
+                || block.getSize() != static_cast<std::size_t>(dx21::kDx21VmemVoiceSize))
+            {
+                continue;
+            }
+
+            std::array<std::uint8_t, dx21::kDx21VmemVoiceSize> vmem {};
+            std::memcpy(vmem.data(), block.getData(), vmem.size());
+            auto voice = dx21::decodeDx21VmemVoice(vmem);
+            const auto name = voiceTree.getProperty("name").toString();
+            if (name.isNotEmpty())
+                voice.name = name.toStdString();
+            bank.voices[static_cast<std::size_t>(voiceIndex)] = voice;
+        }
+    }
+
+    library = std::move(restored);
+    return true;
 }
 
 juce::String displayNameForVoice(int index, const dx21::Dx21PatchWithMetadata& voice)
@@ -209,6 +306,13 @@ std::array<std::atomic<int>, 128> gMidiUiHeldVelocities {};
 constexpr const char* kMidiInputIdentifierSetting = "midiInputIdentifier";
 constexpr const char* kAudioOutputTypeSetting = "audioOutputType";
 constexpr const char* kAudioOutputDeviceSetting = "audioOutputDevice";
+constexpr const char* kVoiceLibraryXmlSetting = "voiceLibraryXml";
+constexpr const char* kVoiceBankIndexSetting = "voiceBankIndex";
+constexpr const char* kVoiceAIndexSetting = "voiceAIndex";
+constexpr const char* kVoiceBIndexSetting = "voiceBIndex";
+constexpr const char* kPerformanceModeSetting = "performanceMode";
+constexpr const char* kDualDetuneSetting = "dualDetune";
+constexpr const char* kSplitPointSetting = "splitPoint";
 
 juce::PropertiesFile::Options settingsOptions()
 {
@@ -572,6 +676,18 @@ void MainComponent::Dx21LookAndFeel::drawButtonText(juce::Graphics& g,
                                                     const bool,
                                                     const bool shouldDrawButtonAsDown)
 {
+    if (button.getName() == "voiceBankButton")
+    {
+        auto bounds = button.getLocalBounds().reduced(3, 1);
+        if (shouldDrawButtonAsDown)
+            bounds.translate(0, 1);
+
+        g.setColour(button.findColour(juce::TextButton::textColourOffId));
+        g.setFont(juce::FontOptions(12.0f, juce::Font::plain));
+        g.drawFittedText(button.getButtonText(), bounds, juce::Justification::centred, 1);
+        return;
+    }
+
     if (button.getName() != "opEnableButton")
     {
         juce::LookAndFeel_V4::drawButtonText(g, button, false, shouldDrawButtonAsDown);
@@ -649,7 +765,7 @@ void MainComponent::LcdComponent::setLines(juce::String topLine, juce::String bo
 
 void MainComponent::LcdComponent::paint(juce::Graphics& g)
 {
-    const auto area = getLocalBounds().toFloat().reduced(3.0f);
+    const auto area = getLocalBounds().toFloat().reduced(2.0f);
     g.setGradientFill(juce::ColourGradient(juce::Colour(0xff0b2037),
                                            area.getX(),
                                            area.getY(),
@@ -661,7 +777,7 @@ void MainComponent::LcdComponent::paint(juce::Graphics& g)
     g.setColour(juce::Colour(0xff2462ad));
     g.drawRoundedRectangle(area, 4.0f, 1.0f);
 
-    const auto inner = area.reduced(10.0f, 6.0f);
+    const auto inner = area.reduced(6.0f, 6.0f);
     constexpr int columnsPerChar = 5;
     constexpr int rowsPerChar = 8;
     constexpr int characterCount = 16;
@@ -1281,14 +1397,26 @@ MainComponent::MainComponent()
     setupLabel(titleLabel, "DX21 Synth");
     titleLabel.setFont(juce::FontOptions(22.0f, juce::Font::bold));
     addAndMakeVisible(titleLabel);
-
     statusLabel.setJustificationType(juce::Justification::centredLeft);
     statusLabel.setColour(juce::Label::textColourId, kTextMuted);
     addAndMakeVisible(statusLabel);
-
     setupLabel(voiceALabel, "A");
     voiceALabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(voiceALabel);
+    setupComboBox(voiceBankSelect);
+    voiceBankSelect.addListener(this);
+    addAndMakeVisible(voiceBankSelect);
+    for (auto* button : { &loadVoiceBankButton, &saveVoiceBankButton, &exportVoiceLibraryButton })
+    {
+        button->setName("voiceBankButton");
+        button->setColour(juce::TextButton::buttonColourId, juce::Colour(0xff1c1a15));
+        button->setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff1c1a15));
+        button->setColour(juce::TextButton::textColourOffId, kTextPrimary);
+        button->setColour(juce::TextButton::textColourOnId, kTextPrimary);
+        button->setLookAndFeel(&dx21LookAndFeel);
+        button->addListener(this);
+        addAndMakeVisible(*button);
+    }
     setupComboBox(voiceSelect);
     voiceSelect.addListener(this);
     addAndMakeVisible(voiceSelect);
@@ -1480,7 +1608,6 @@ MainComponent::MainComponent()
     populateAudioOutputSelect();
     populateMidiInputSelect();
     midiStatus = "MIDI: off";
-    ensureAudioStarted();
     refreshStatus();
 
     setWantsKeyboardFocus(true);
@@ -1492,6 +1619,7 @@ MainComponent::MainComponent()
 
 MainComponent::~MainComponent()
 {
+    saveVoiceLibraryState();
     stopTimer();
     for (auto& input : midiInputs)
     {
@@ -1511,9 +1639,11 @@ MainComponent::~MainComponent()
         slider->setLookAndFeel(nullptr);
     }
 
-    for (auto* comboBox : { &voiceSelect, &performanceModeSelect, &voiceBSelect,
+    for (auto* comboBox : { &voiceSelect, &voiceBankSelect, &performanceModeSelect, &voiceBSelect,
                             &audioOutputSelect, &midiInputSelect, &lfoWaveSelect })
         comboBox->setLookAndFeel(nullptr);
+    for (auto* button : { &loadVoiceBankButton, &saveVoiceBankButton, &exportVoiceLibraryButton })
+        button->setLookAndFeel(nullptr);
     lfoSyncButton.setLookAndFeel(nullptr);
 
     if (audioStarted)
@@ -1622,7 +1752,20 @@ void MainComponent::resized()
     transposeSlider.setBounds(transposeArea.removeFromTop(180));
     transposeLabel.setBounds(transposeArea.removeFromTop(18).translated(0, -6));
 
-    auto patch = top.removeFromLeft(250).reduced(4);
+    auto patch = top.removeFromLeft(300).reduced(4);
+    auto bankRow = patch.removeFromTop(28);
+    voiceBankSelect.setBounds(bankRow.removeFromLeft(112));
+    bankRow.removeFromLeft(3);
+    loadVoiceBankButton.setBounds(bankRow.removeFromLeft(48).withSizeKeepingCentre(48, 22));
+    bankRow.removeFromLeft(3);
+    saveVoiceBankButton.setBounds(bankRow.removeFromLeft(48).withSizeKeepingCentre(48, 22));
+    bankRow.removeFromLeft(3);
+    exportVoiceLibraryButton.setBounds(bankRow.removeFromLeft(58).withSizeKeepingCentre(58, 22));
+    patch.removeFromTop(4);
+    lcd.setBounds(patch.removeFromTop(58));
+    patch.removeFromTop(1);
+    scope.setBounds(patch.removeFromTop(34));
+    patch.removeFromTop(1);
     auto aRow = patch.removeFromTop(28);
     voiceALabel.setBounds(aRow.removeFromLeft(22).withSizeKeepingCentre(20, 20));
     aRow.removeFromLeft(2);
@@ -1640,10 +1783,6 @@ void MainComponent::resized()
     voiceBLabel.setBounds(bRow.removeFromLeft(22).withSizeKeepingCentre(20, 20));
     bRow.removeFromLeft(2);
     voiceBSelect.setBounds(bRow);
-    patch.removeFromTop(4);
-    lcd.setBounds(patch.removeFromTop(58));
-    patch.removeFromTop(6);
-    scope.setBounds(patch.removeFromTop(36));
 
     constexpr int knobSize = 54;
     constexpr int knobLabelHeight = 15;
@@ -1755,7 +1894,7 @@ void MainComponent::resized()
 
 void MainComponent::loadFactoryVoices()
 {
-    factoryVoices.clear();
+    voiceLibrary = dx21::makeInitVoiceLibrary();
 
 #ifdef DX21_ASSET_DIR
     const auto syxFile = juce::File(juce::String(DX21_ASSET_DIR)).getChildFile("DX21.syx");
@@ -1764,19 +1903,40 @@ void MainComponent::loadFactoryVoices()
     {
         try
         {
-            const auto presets = dx21::parseDx21BulkVmem(bytes);
-            for (const auto& preset : presets)
-                factoryVoices.push_back(dx21::withVmemPreset(dx21::Dx21Patch {}, preset));
+            voiceLibrary.banks[0] = dx21::voiceBankFromSysex(bytes, "Factory");
         }
         catch (const std::exception&)
         {
-            factoryVoices.clear();
+            voiceLibrary.banks[0] = dx21::makeInitVoiceBank("Factory");
         }
     }
 #endif
 
-    if (factoryVoices.empty())
-        factoryVoices.push_back(dx21::Dx21PatchWithMetadata { dx21::Dx21Patch {}, "Init Voice", false, {} });
+    currentVoiceBankIndex = 0;
+    restoreSavedVoiceLibraryState();
+    populateVoiceBankSelect();
+    refreshVoiceLists();
+}
+
+void MainComponent::populateVoiceBankSelect()
+{
+    voiceBankSelect.clear(juce::dontSendNotification);
+    for (int i = 0; i < dx21::kDx21VoiceBankCount; ++i)
+    {
+        const auto& bank = voiceLibrary.banks[static_cast<std::size_t>(i)];
+        const auto name = bank.name.empty() ? juce::String("Bank ") + juce::String(i + 1) : juce::String(bank.name);
+        voiceBankSelect.addItem(juce::String(i + 1) + ": " + name, i + 1);
+    }
+
+    voiceBankSelect.setSelectedId(currentVoiceBankIndex + 1, juce::dontSendNotification);
+}
+
+void MainComponent::refreshVoiceLists()
+{
+    factoryVoices.clear();
+    const auto& bank = voiceLibrary.banks[static_cast<std::size_t>(juce::jlimit(0, dx21::kDx21VoiceBankCount - 1, currentVoiceBankIndex))];
+    for (const auto& voice : bank.voices)
+        factoryVoices.push_back(voice);
 
     voiceSelect.clear(juce::dontSendNotification);
     voiceBSelect.clear(juce::dontSendNotification);
@@ -1786,10 +1946,187 @@ void MainComponent::loadFactoryVoices()
         voiceBSelect.addItem(displayNameForVoice(i, factoryVoices[static_cast<std::size_t>(i)]), i + 1);
     }
 
-    voiceSelect.setSelectedId(1, juce::dontSendNotification);
-    performanceState.voiceAIndex = 0;
-    performanceState.voiceBIndex = juce::jmin(16, static_cast<int>(factoryVoices.size()) - 1);
+    const int maxVoiceIndex = juce::jmax(0, static_cast<int>(factoryVoices.size()) - 1);
+    performanceState.voiceAIndex = juce::jlimit(0, maxVoiceIndex, performanceState.voiceAIndex);
+    performanceState.voiceBIndex = juce::jlimit(0, maxVoiceIndex, performanceState.voiceBIndex);
+    voiceSelect.setSelectedId(performanceState.voiceAIndex + 1, juce::dontSendNotification);
     voiceBSelect.setSelectedId(performanceState.voiceBIndex + 1, juce::dontSendNotification);
+    refreshStatus();
+}
+
+void MainComponent::setCurrentVoiceBank(const int bankIndex)
+{
+    const int safeBank = juce::jlimit(0, dx21::kDx21VoiceBankCount - 1, bankIndex);
+    if (safeBank == currentVoiceBankIndex)
+        return;
+
+    storeCurrentPatchToSelectedVoice();
+    currentVoiceBankIndex = safeBank;
+    allNotesOff();
+    refreshVoiceLists();
+    applySelectedVoice();
+    populateVoiceBankSelect();
+    saveVoiceLibraryState();
+}
+
+void MainComponent::storeCurrentPatchToSelectedVoice()
+{
+    if (factoryVoices.empty())
+        return;
+
+    const int voiceIndex = juce::jlimit(0, dx21::kDx21VoiceBankSize - 1, performanceState.voiceAIndex);
+    auto& voice = voiceLibrary.banks[static_cast<std::size_t>(currentVoiceBankIndex)].voices[static_cast<std::size_t>(voiceIndex)];
+    voice.patch = dx21::normalizePatch(currentPatch);
+    if (voice.name.empty())
+        voice.name = "VOICE " + std::to_string(voiceIndex + 1);
+    voice.vmem = dx21::encodeDx21VmemVoice(voice);
+    voice.hasVmem = true;
+    factoryVoices[static_cast<std::size_t>(voiceIndex)] = voice;
+}
+
+void MainComponent::loadVoiceBankFromFile(const juce::File& file)
+{
+    if (file.hasFileExtension(".xml"))
+    {
+        loadVoiceLibraryFromFile(file);
+        return;
+    }
+
+    const auto bytes = readBinaryFile(file);
+    if (bytes.empty())
+    {
+        statusLabel.setText("Voice load failed: empty file", juce::dontSendNotification);
+        return;
+    }
+
+    try
+    {
+        allNotesOff();
+        voiceLibrary.banks[static_cast<std::size_t>(currentVoiceBankIndex)] =
+            dx21::voiceBankFromSysex(bytes, file.getFileNameWithoutExtension().toStdString());
+        populateVoiceBankSelect();
+        refreshVoiceLists();
+        applySelectedVoice();
+        refreshStatus();
+        saveVoiceLibraryState();
+    }
+    catch (const std::exception& e)
+    {
+        statusLabel.setText("Voice load failed: " + juce::String(e.what()), juce::dontSendNotification);
+    }
+}
+
+void MainComponent::loadVoiceLibraryFromFile(const juce::File& file)
+{
+    try
+    {
+        const auto xml = juce::parseXML(file.loadFileAsString());
+        dx21::Dx21VoiceLibrary imported;
+        if (xml == nullptr || !voiceLibraryFromXml(*xml, imported))
+        {
+            statusLabel.setText("Library load failed: invalid file", juce::dontSendNotification);
+            return;
+        }
+
+        allNotesOff();
+        storeCurrentPatchToSelectedVoice();
+        voiceLibrary = std::move(imported);
+        currentVoiceBankIndex = juce::jlimit(0, dx21::kDx21VoiceBankCount - 1, currentVoiceBankIndex);
+        populateVoiceBankSelect();
+        refreshVoiceLists();
+        applySelectedVoice();
+        refreshStatus();
+        saveVoiceLibraryState();
+    }
+    catch (const std::exception& e)
+    {
+        statusLabel.setText("Library load failed: " + juce::String(e.what()), juce::dontSendNotification);
+    }
+}
+
+void MainComponent::saveCurrentVoiceBankToFile(const juce::File& file)
+{
+    try
+    {
+        storeCurrentPatchToSelectedVoice();
+        const auto bytes = dx21::voiceBankToSysex(voiceLibrary.banks[static_cast<std::size_t>(currentVoiceBankIndex)]);
+        if (!writeBinaryFile(file, bytes))
+        {
+            statusLabel.setText("Voice save failed", juce::dontSendNotification);
+            return;
+        }
+
+        refreshStatus();
+        saveVoiceLibraryState();
+    }
+    catch (const std::exception& e)
+    {
+        statusLabel.setText("Voice save failed: " + juce::String(e.what()), juce::dontSendNotification);
+    }
+}
+
+void MainComponent::exportVoiceLibraryToFile(const juce::File& file)
+{
+    try
+    {
+        storeCurrentPatchToSelectedVoice();
+        const auto xml = voiceLibraryToXml(voiceLibrary);
+        if (xml == nullptr || !xml->writeTo(file))
+        {
+            statusLabel.setText("Library export failed", juce::dontSendNotification);
+            return;
+        }
+
+        refreshStatus();
+        saveVoiceLibraryState();
+    }
+    catch (const std::exception& e)
+    {
+        statusLabel.setText("Library export failed: " + juce::String(e.what()), juce::dontSendNotification);
+    }
+}
+
+bool MainComponent::restoreSavedVoiceLibraryState()
+{
+    juce::PropertiesFile settings(settingsOptions());
+    const auto xmlText = settings.getValue(kVoiceLibraryXmlSetting);
+    if (xmlText.isEmpty())
+        return false;
+
+    const auto xml = juce::parseXML(xmlText);
+    if (xml == nullptr || !voiceLibraryFromXml(*xml, voiceLibrary))
+        return false;
+
+    currentVoiceBankIndex = juce::jlimit(0,
+                                         dx21::kDx21VoiceBankCount - 1,
+                                         settings.getIntValue(kVoiceBankIndexSetting, currentVoiceBankIndex));
+    performanceState.voiceAIndex = settings.getIntValue(kVoiceAIndexSetting, performanceState.voiceAIndex);
+    performanceState.voiceBIndex = settings.getIntValue(kVoiceBIndexSetting, performanceState.voiceBIndex);
+    performanceState.mode = static_cast<PerformanceMode>(juce::jlimit(0,
+                                                                       2,
+                                                                       settings.getIntValue(kPerformanceModeSetting,
+                                                                                            static_cast<int>(performanceState.mode))));
+    performanceState.dualDetune = juce::jlimit(-16, 16, settings.getIntValue(kDualDetuneSetting, performanceState.dualDetune));
+    performanceState.splitPoint = juce::jlimit(0, 127, settings.getIntValue(kSplitPointSetting, performanceState.splitPoint));
+    return true;
+}
+
+void MainComponent::saveVoiceLibraryState()
+{
+    storeCurrentPatchToSelectedVoice();
+
+    juce::PropertiesFile settings(settingsOptions());
+    const auto xml = voiceLibraryToXml(voiceLibrary);
+    if (xml != nullptr)
+        settings.setValue(kVoiceLibraryXmlSetting, xml->toString());
+
+    settings.setValue(kVoiceBankIndexSetting, currentVoiceBankIndex);
+    settings.setValue(kVoiceAIndexSetting, performanceState.voiceAIndex);
+    settings.setValue(kVoiceBIndexSetting, performanceState.voiceBIndex);
+    settings.setValue(kPerformanceModeSetting, static_cast<int>(performanceState.mode));
+    settings.setValue(kDualDetuneSetting, performanceState.dualDetune);
+    settings.setValue(kSplitPointSetting, performanceState.splitPoint);
+    settings.saveIfNeeded();
 }
 
 void MainComponent::applySelectedVoice()
@@ -1920,6 +2257,32 @@ void MainComponent::updatePerformanceFromControls()
     performanceState.splitPoint = static_cast<int>(splitPointSlider.getValue());
 }
 
+dx21app::SynthState MainComponent::captureSynthState() const
+{
+    dx21app::SynthState state;
+    state.patch = currentPatch;
+    state.performance = performanceState;
+    state.masterVolume = masterVolume;
+    return state;
+}
+
+void MainComponent::applySynthState(const dx21app::SynthState& state)
+{
+    currentPatch = dx21::normalizePatch(state.patch);
+    performanceState = state.performance;
+    masterVolume = juce::jlimit(0.0f, 1.0f, state.masterVolume);
+
+    syncingUi = true;
+    volumeSlider.setValue(masterVolume, juce::dontSendNotification);
+    syncUiFromPatch();
+    refreshPerformanceControls();
+    syncingUi = false;
+
+    applyPatchToEngine();
+    refreshStatus();
+    resized();
+}
+
 void MainComponent::applyPerformanceModeToEngines()
 {
     const int voiceCount = performanceState.mode == PerformanceMode::Single ? 8 : 4;
@@ -2040,6 +2403,7 @@ void MainComponent::refreshStatus()
                         : performanceState.mode == PerformanceMode::Dual ? "DUAL"
                         : "SPLIT";
     statusLabel.setText(audioStatus + "   " + midiStatus + "   Perf: " + modeName
+                            + "   Bank: " + juce::String(currentVoiceBankIndex + 1)
                             + "   Voices: " + juce::String(factoryVoices.size())
                             + "   LFO: " + lfoWaveName(currentPatch.lfo.wave),
                         juce::dontSendNotification);
@@ -2579,7 +2943,12 @@ void MainComponent::comboBoxChanged(juce::ComboBox* comboBoxThatHasChanged)
     if (comboBoxThatHasChanged == &voiceSelect)
     {
         allNotesOff();
+        storeCurrentPatchToSelectedVoice();
         applySelectedVoice();
+    }
+    else if (comboBoxThatHasChanged == &voiceBankSelect)
+    {
+        setCurrentVoiceBank(voiceBankSelect.getSelectedId() - 1);
     }
     else if (comboBoxThatHasChanged == &performanceModeSelect || comboBoxThatHasChanged == &voiceBSelect)
     {
@@ -2634,6 +3003,57 @@ void MainComponent::buttonClicked(juce::Button* button)
     {
         updatePatchFromGlobalControls();
         applyPatchToEngine();
+    }
+    else if (button == &loadVoiceBankButton)
+    {
+        fileChooser = std::make_unique<juce::FileChooser>("Load DX21 voice bank or library",
+                                                          juce::File {},
+                                                          "*.syx;*.xml");
+        fileChooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                                 [this](const juce::FileChooser& chooser)
+                                 {
+                                     const auto file = chooser.getResult();
+                                     if (file.existsAsFile())
+                                         loadVoiceBankFromFile(file);
+                                 });
+    }
+    else if (button == &saveVoiceBankButton)
+    {
+        const auto bankName = juce::String(voiceLibrary.banks[static_cast<std::size_t>(currentVoiceBankIndex)].name)
+                                  .retainCharacters("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_ ");
+        const auto defaultName = (bankName.isEmpty() ? juce::String("DX21_Bank_") + juce::String(currentVoiceBankIndex + 1)
+                                                     : bankName)
+            + ".syx";
+        fileChooser = std::make_unique<juce::FileChooser>("Save current DX21 voice bank",
+                                                          juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile(defaultName),
+                                                          "*.syx");
+        fileChooser->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
+                                 [this](const juce::FileChooser& chooser)
+                                 {
+                                     auto file = chooser.getResult();
+                                     if (file == juce::File {})
+                                         return;
+                                     if (!file.hasFileExtension(".syx"))
+                                         file = file.withFileExtension(".syx");
+                                     saveCurrentVoiceBankToFile(file);
+                                 });
+    }
+    else if (button == &exportVoiceLibraryButton)
+    {
+        fileChooser = std::make_unique<juce::FileChooser>("Export all DX21 voice data",
+                                                          juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
+                                                              .getChildFile("DX21_Voice_Library.dx21library.xml"),
+                                                          "*.xml");
+        fileChooser->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
+                                 [this](const juce::FileChooser& chooser)
+                                 {
+                                     auto file = chooser.getResult();
+                                     if (file == juce::File {})
+                                         return;
+                                     if (!file.hasFileExtension(".xml"))
+                                         file = file.withFileExtension(".xml");
+                                     exportVoiceLibraryToFile(file);
+                                 });
     }
 }
 

@@ -227,3 +227,173 @@ JS DX21エンジン（`dx21-worklet.js`）は `patch` を受ける際に `normal
 - `WebDX21/src/dx21-sysex.js`
 - `WebDX21/src/ui.js`
 - `WebDX21/scripts/update-presets-from-syx.js`
+
+---
+
+## 12. Native版 Voice Bank Load / Save / Export 仕様
+
+この章は Native/JUCE 版のスタンドアロンアプリで追加した Voice Bank 管理機能の仕様を定義する。
+
+### 12.1 目的
+
+`assets/DX21.syx` から読み込む Factory 32 Voice を初期状態としつつ、ユーザーが任意の DX21 SysEx Bank を読み込み、8 Bank 分の Voice データとして保持できるようにする。
+
+また、アプリ終了時点の読み込み状態、選択 Bank、A/B Voice 選択、Performance 設定を保存し、次回起動時に同じ状態で復元する。
+
+### 12.2 Bank 構成
+
+- Bank 数: 8
+- 1 Bank あたりの Voice 数: 32
+- 1 Voice の VMEM サイズ: 128 byte
+- Bank 1 の初期値: `assets/DX21.syx` から読み込んだ Factory Bank
+- Bank 2-8 の初期値: Init Voice Bank
+
+内部データ構造:
+
+- `dx21::Dx21VoiceLibrary`
+- `dx21::Dx21VoiceBank`
+- `dx21::Dx21PatchWithMetadata`
+
+### 12.3 Load 仕様
+
+対象ボタン: `Load`
+
+処理:
+
+1. ファイル選択ダイアログを開く。
+2. 対象拡張子は `.syx` と `.xml`。
+3. `.syx` の場合は選択ファイルをバイナリとして読み込む。
+4. `dx21::voiceBankFromSysex(bytes, fileNameWithoutExtension)` で 32 Voice Bank に変換する。
+5. `.syx` の読み込み結果は、現在選択中の Bank に上書きする。
+6. `.xml` の場合は Export 済み Voice Library XML として読み込み、8 Bank 全体を上書きする。
+7. Bank コンボボックス、A/B Voice コンボボックス、エンジン状態を更新する。
+8. 読み込み後の状態をアプリ設定に保存する。
+
+エラー時:
+
+- 空ファイルの場合は読み込み失敗として扱う。
+- SysEx 形式が不正な場合は例外を捕捉し、Status 表示にエラー内容を出す。
+- XML 形式が不正、または `DX21VoiceLibrary` として復元できない場合は読み込み失敗として扱う。
+- 読み込み失敗時は既存 Bank を変更しない。
+
+### 12.4 Save 仕様
+
+対象ボタン: `Save`
+
+処理:
+
+1. 現在編集中の A Voice パッチを、現在選択中の Bank / Voice スロットに反映する。
+2. 保存ダイアログを開く。
+3. 現在 Bank 名を元にデフォルトファイル名を作る。
+4. 拡張子が `.syx` でない場合は `.syx` を付与する。
+5. `dx21::voiceBankToSysex(currentBank)` で DX21 32 Voice Bulk SysEx に変換する。
+6. ファイルへバイナリ書き込みする。
+7. 保存後の状態をアプリ設定に保存する。
+
+出力仕様:
+
+- 32 Voice Bulk SysEx
+- 各 Voice は 128 byte VMEM
+- DX21 互換の Bank 単位 `.syx`
+
+### 12.5 Export 仕様
+
+対象ボタン: `Export`
+
+処理:
+
+1. 現在編集中の A Voice パッチを、現在選択中の Bank / Voice スロットに反映する。
+2. 保存ダイアログを開く。
+3. デフォルトファイル名は `DX21_Voice_Library.dx21library.xml`。
+4. 8 Bank 全体を XML に変換する。
+5. ファイルへ XML として書き込む。
+6. Export 後の状態をアプリ設定に保存する。
+
+XML 仕様:
+
+```xml
+<DX21VoiceLibrary version="1">
+  <Bank index="0" name="Factory">
+    <Voice index="0" name="A01 Example" vmem="base64..." />
+    ...
+  </Bank>
+  ...
+</DX21VoiceLibrary>
+```
+
+- `Bank#index`: 0-7
+- `Bank#name`: Bank 表示名
+- `Voice#index`: 0-31
+- `Voice#name`: Voice 表示名
+- `Voice#vmem`: 128 byte VMEM を Base64 化した文字列
+
+### 12.6 起動時復元仕様
+
+アプリ起動時は以下の順で初期化する。
+
+1. `dx21::makeInitVoiceLibrary()` で 8 Bank の初期状態を作る。
+2. `assets/DX21.syx` が存在する場合、Bank 1 に Factory Voice を読み込む。
+3. アプリ設定に保存済み Voice Library XML が存在する場合、そちらを優先して復元する。
+4. Bank コンボボックスと Voice コンボボックスを復元状態に合わせる。
+5. 選択中の A Voice をエンジンへ適用する。
+
+保存対象:
+
+- 8 Bank 分の Voice Library XML
+- 現在選択中の Bank index
+- A Voice index
+- B Voice index
+- Performance Mode
+- Dual Detune
+- Split Point
+
+設定キー:
+
+- `voiceLibraryXml`
+- `voiceBankIndex`
+- `voiceAIndex`
+- `voiceBIndex`
+- `performanceMode`
+- `dualDetune`
+- `splitPoint`
+
+### 12.7 自動保存タイミング
+
+以下のタイミングで現在状態を保存する。
+
+- Bank 切り替え時
+- `.syx` Load 成功時
+- Library XML Load 成功時
+- `.syx` Save 成功時
+- Library XML Export 成功時
+- アプリ終了時
+
+保存前には `storeCurrentPatchToSelectedVoice()` を呼び、現在編集中の A Voice パラメータを Voice Library に反映する。
+
+### 12.8 UI 仕様
+
+配置:
+
+- Bank コンボボックス、`Load`、`Save`、`Export` は LCD の上に配置する。
+- Bank コンボボックスには `1: Factory` のように Bank 番号と Bank 名を表示する。
+- `Load` / `Save` / `Export` ボタンのフォントサイズは 12px。
+
+操作:
+
+- Bank コンボボックス変更時は、現在の A Voice を保存してから Bank を切り替える。
+- Bank 切り替え時は発音中ノートを停止する。
+- `.syx` Load 成功時は現在 Bank を読み込み内容で置き換える。
+- `.xml` Load 成功時は 8 Bank 全体を読み込み内容で置き換える。
+- Save は現在 Bank のみを `.syx` として保存する。
+- Export は 8 Bank 全体を XML として保存する。
+
+### 12.9 制約と今後の拡張
+
+Export した XML Library は `Load` から再読み込みできる。
+
+将来的な候補:
+
+- Bank 名編集
+- Voice 単体 Import / Export
+- Voice コピー / 入れ替え
+- Bank 初期化

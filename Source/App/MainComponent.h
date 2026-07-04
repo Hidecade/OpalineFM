@@ -1,7 +1,9 @@
 #pragma once
 
+#include "App/Dx21AppState.h"
 #include "Engine/Dx21Engine.h"
 #include "Engine/Dx21Sysex.h"
+#include "Engine/Dx21VoiceLibrary.h"
 
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_gui_extra/juce_gui_extra.h>
@@ -171,21 +173,8 @@ private:
         int heldNote = -1;
     };
 
-    enum class PerformanceMode
-    {
-        Single = 0,
-        Dual,
-        Split
-    };
-
-    struct PerformanceState
-    {
-        PerformanceMode mode = PerformanceMode::Single;
-        int voiceAIndex = 0;
-        int voiceBIndex = 16;
-        int dualDetune = 0;
-        int splitPoint = 60;
-    };
+    using PerformanceMode = dx21app::PerformanceMode;
+    using PerformanceState = dx21app::PerformanceState;
 
     class SplitPointSlider final : public juce::Slider
     {
@@ -227,11 +216,23 @@ private:
     };
 
     void loadFactoryVoices();
+    void populateVoiceBankSelect();
+    void refreshVoiceLists();
+    void setCurrentVoiceBank(int bankIndex);
+    void storeCurrentPatchToSelectedVoice();
+    void loadVoiceBankFromFile(const juce::File& file);
+    void loadVoiceLibraryFromFile(const juce::File& file);
+    void saveCurrentVoiceBankToFile(const juce::File& file);
+    void exportVoiceLibraryToFile(const juce::File& file);
+    bool restoreSavedVoiceLibraryState();
+    void saveVoiceLibraryState();
     void applySelectedVoice();
     void syncUiFromPatch();
     void updatePatchFromGlobalControls();
     void applyPatchToEngine();
     void applyPerformanceModeToEngines();
+    dx21app::SynthState captureSynthState() const;
+    void applySynthState(const dx21app::SynthState& state);
     void updatePerformanceFromControls();
     void refreshPerformanceControls();
     void refreshLcd();
@@ -273,12 +274,16 @@ private:
     juce::Label statusLabel;
     Dx21LookAndFeel dx21LookAndFeel;
     juce::ComboBox voiceSelect;
+    juce::ComboBox voiceBankSelect;
     juce::ComboBox performanceModeSelect;
     juce::ComboBox voiceBSelect;
     juce::ComboBox audioOutputSelect;
     juce::ComboBox midiInputSelect;
     juce::ComboBox lfoWaveSelect;
     juce::TextButton powerButton { "OFF" };
+    juce::TextButton loadVoiceBankButton { "Load" };
+    juce::TextButton saveVoiceBankButton { "Save" };
+    juce::TextButton exportVoiceLibraryButton { "Export" };
     juce::ToggleButton lfoSyncButton { "Sync" };
     juce::Slider volumeSlider;
     juce::Slider transposeSlider;
@@ -333,6 +338,8 @@ private:
     dx21::Dx21Engine performanceEngineB;
     dx21::Dx21Patch currentPatch;
     PerformanceState performanceState;
+    dx21::Dx21VoiceLibrary voiceLibrary;
+    int currentVoiceBankIndex = 0;
     std::vector<dx21::Dx21PatchWithMetadata> factoryVoices;
     struct AudioOutputChoice
     {
@@ -344,6 +351,7 @@ private:
     juce::Array<juce::MidiDeviceInfo> midiInputDevices;
     std::unique_ptr<juce::AudioDeviceManager> audioDeviceManager;
     juce::AudioSourcePlayer audioSourcePlayer;
+    std::unique_ptr<juce::FileChooser> fileChooser;
     std::vector<std::unique_ptr<juce::MidiInput>> midiInputs;
     std::mutex engineMutex;
     std::array<bool, 128> pcKeyboardHeldNotes {};

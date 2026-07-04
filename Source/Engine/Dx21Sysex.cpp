@@ -7,6 +7,7 @@ namespace dx21
 namespace
 {
 constexpr std::array<int, kOperatorCount> kDx21VmemOperatorOrder { 3, 1, 2, 0 };
+constexpr std::array<std::uint8_t, kDx21BulkVoiceDataOffset> kDx21BulkHeader { 0xf0u, 0x43u, 0x00u, 0x04u, 0x20u, 0x00u };
 
 std::string readVoiceName(const std::array<std::uint8_t, kDx21VmemVoiceSize>& vmem)
 {
@@ -45,6 +46,44 @@ Dx21Operator decodeOperatorBlock(const std::array<std::uint8_t, kDx21VmemVoiceSi
     op.detune = static_cast<int>(packedDetuneRateScale & 0x07u) - 3;
     op.rateScale = (packedDetuneRateScale >> 3) & 0x03u;
     return op;
+}
+
+void writeVoiceName(std::array<std::uint8_t, kDx21VmemVoiceSize>& vmem, const std::string& name)
+{
+    for (int i = 57; i <= 66; ++i)
+        vmem[static_cast<std::size_t>(i)] = static_cast<std::uint8_t>(' ');
+
+    for (std::size_t i = 0; i < 10 && i < name.size(); ++i)
+    {
+        const auto ch = static_cast<unsigned char>(name[i]);
+        vmem[57 + i] = static_cast<std::uint8_t>((ch >= 0x20 && ch <= 0x7e) ? ch : ' ');
+    }
+}
+
+void encodeOperatorBlock(std::array<std::uint8_t, kDx21VmemVoiceSize>& vmem,
+                         const int base,
+                         const Dx21Operator& op)
+{
+    vmem[static_cast<std::size_t>(base + 0)] = static_cast<std::uint8_t>(clampInt(op.envelope.attackRate, 0, 31));
+    vmem[static_cast<std::size_t>(base + 1)] = static_cast<std::uint8_t>(clampInt(op.envelope.decay1Rate, 0, 31));
+    vmem[static_cast<std::size_t>(base + 2)] = static_cast<std::uint8_t>(clampInt(op.envelope.decay2Rate, 0, 31));
+    vmem[static_cast<std::size_t>(base + 3)] = static_cast<std::uint8_t>(clampInt(op.envelope.releaseRate, 0, 15));
+    vmem[static_cast<std::size_t>(base + 4)] = static_cast<std::uint8_t>(clampInt(op.envelope.decay1Level, 0, 15));
+    vmem[static_cast<std::size_t>(base + 5)] = static_cast<std::uint8_t>(clampInt(op.levelScale, 0, 99));
+    vmem[static_cast<std::size_t>(base + 6)] = static_cast<std::uint8_t>((op.ampModEnable ? 0x40 : 0x00) | clampInt(op.velocity, 0, 7));
+    vmem[static_cast<std::size_t>(base + 7)] = static_cast<std::uint8_t>(clampInt(op.level, 0, 99));
+    vmem[static_cast<std::size_t>(base + 8)] = static_cast<std::uint8_t>(clampInt(op.ratioIndex, 0, 63));
+    vmem[static_cast<std::size_t>(base + 9)] = static_cast<std::uint8_t>((clampInt(op.rateScale, 0, 3) << 3)
+        | clampInt(op.detune + 3, 0, 6));
+}
+
+std::uint8_t yamahaChecksum(const std::vector<std::uint8_t>& bytes, const std::size_t offset, const std::size_t size)
+{
+    int sum = 0;
+    for (std::size_t i = 0; i < size; ++i)
+        sum += bytes[offset + i] & 0x7f;
+
+    return static_cast<std::uint8_t>((128 - (sum & 0x7f)) & 0x7f);
 }
 } // namespace
 
@@ -101,6 +140,55 @@ Dx21PatchWithMetadata decodeDx21VmemVoice(const std::array<std::uint8_t, kDx21Vm
 
     result.patch = normalizePatch(patch);
     return result;
+}
+
+std::array<std::uint8_t, kDx21VmemVoiceSize> encodeDx21VmemVoice(const Dx21PatchWithMetadata& voice)
+{
+    auto vmem = voice.hasVmem ? voice.vmem : std::array<std::uint8_t, kDx21VmemVoiceSize> {};
+    const auto patch = normalizePatch(voice.patch);
+
+    for (int block = 0; block < kOperatorCount; ++block)
+    {
+        const int opIndex = kDx21VmemOperatorOrder[static_cast<std::size_t>(block)];
+        encodeOperatorBlock(vmem, block * 10, patch.operators[static_cast<std::size_t>(opIndex)]);
+    }
+
+    vmem[40] = static_cast<std::uint8_t>((clampInt(patch.algorithm, 1, 8) - 1)
+        | (clampInt(patch.feedback, 0, 7) << 3)
+        | (patch.lfo.sync ? 0x40 : 0x00));
+    vmem[41] = static_cast<std::uint8_t>(clampInt(patch.lfo.speed, 0, 99));
+    vmem[42] = static_cast<std::uint8_t>(clampInt(patch.lfo.delay, 0, 99));
+    vmem[43] = static_cast<std::uint8_t>(clampInt(patch.lfo.pitchDepth, 0, 99));
+    vmem[44] = static_cast<std::uint8_t>(clampInt(patch.lfo.ampDepth, 0, 99));
+    vmem[45] = static_cast<std::uint8_t>(clampInt(patch.lfo.wave, 0, 3)
+        | (clampInt(patch.lfo.pitchSensitivity, 0, 7) << 2)
+        | (clampInt(patch.lfo.ampSensitivity, 0, 3) << 5));
+    writeVoiceName(vmem, voice.name.empty() ? "INIT VOICE" : voice.name);
+    return vmem;
+}
+
+std::vector<std::uint8_t> encodeDx21BulkVmem(const std::vector<Dx21PatchWithMetadata>& voices)
+{
+    if (voices.empty())
+        throw std::runtime_error("Cannot encode an empty DX21 voice bank.");
+
+    std::vector<std::uint8_t> bytes(static_cast<std::size_t>(kDx21BulkMinimumSize), 0);
+    for (std::size_t i = 0; i < kDx21BulkHeader.size(); ++i)
+        bytes[i] = kDx21BulkHeader[i];
+
+    for (int voice = 0; voice < kDx21BulkVoiceCount; ++voice)
+    {
+        const auto& source = voices[static_cast<std::size_t>(voice) % voices.size()];
+        const auto vmem = encodeDx21VmemVoice(source);
+        const auto offset = static_cast<std::size_t>(kDx21BulkVoiceDataOffset + voice * kDx21VmemVoiceSize);
+        for (int i = 0; i < kDx21VmemVoiceSize; ++i)
+            bytes[offset + static_cast<std::size_t>(i)] = vmem[static_cast<std::size_t>(i)] & 0x7f;
+    }
+
+    bytes[static_cast<std::size_t>(kDx21BulkVoiceDataOffset + kDx21BulkVoiceDataSize)] =
+        yamahaChecksum(bytes, kDx21BulkVoiceDataOffset, kDx21BulkVoiceDataSize);
+    bytes.back() = 0xf7u;
+    return bytes;
 }
 
 Dx21PatchWithMetadata withVmemPreset(const Dx21Patch& basePatch, const Dx21VmemPreset& preset)
