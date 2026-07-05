@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <utility>
 
 namespace dx21
@@ -35,24 +36,27 @@ constexpr std::array<double, 8> kDx21PitchSensitivitySemitones {
     4.0,
     8.0
 };
-constexpr std::array<int, 256> kLfoSampleAndHoldWaveform {
-    0xff, 0xee, 0xd3, 0x80, 0x58, 0xda, 0x7f, 0x94, 0x9e, 0xe3, 0xfa, 0x00, 0x4d, 0xfa, 0xff, 0x6a,
-    0x7a, 0xde, 0x49, 0xf6, 0x00, 0x33, 0xbb, 0x63, 0x91, 0x60, 0x51, 0xff, 0x00, 0xd8, 0x7f, 0xde,
-    0xdc, 0x73, 0x21, 0x85, 0xb2, 0x9c, 0x5d, 0x24, 0xcd, 0x91, 0x9e, 0x76, 0x7f, 0x20, 0xfb, 0xf3,
-    0x00, 0xa6, 0x3e, 0x42, 0x27, 0x69, 0xae, 0x33, 0x45, 0x44, 0x11, 0x41, 0x72, 0x73, 0xdf, 0xa2,
-    0x32, 0xbd, 0x7e, 0xa8, 0x13, 0xeb, 0xd3, 0x15, 0xdd, 0xfb, 0xc9, 0x9d, 0x61, 0x2f, 0xbe, 0x9d,
-    0x23, 0x65, 0x51, 0x6a, 0x84, 0xf9, 0xc9, 0xd7, 0x23, 0xbf, 0x65, 0x19, 0xdc, 0x03, 0xf3, 0x24,
-    0x33, 0xb6, 0x1e, 0x57, 0x5c, 0xac, 0x25, 0x89, 0x4d, 0xc5, 0x9c, 0x99, 0x15, 0x07, 0xcf, 0xba,
-    0xc5, 0x9b, 0x15, 0x4d, 0x8d, 0x2a, 0x1e, 0x1f, 0xea, 0x2b, 0x2f, 0x64, 0xa9, 0x50, 0x3d, 0xab,
-    0x50, 0x77, 0xe9, 0xc0, 0xac, 0x6d, 0x3f, 0xca, 0xcf, 0x71, 0x7d, 0x80, 0xa6, 0xfd, 0xff, 0xb5,
-    0xbd, 0x6f, 0x24, 0x7b, 0x00, 0x99, 0x5d, 0xb1, 0x48, 0xb0, 0x28, 0x7f, 0x80, 0xec, 0xbf, 0x6f,
-    0x6e, 0x39, 0x90, 0x42, 0xd9, 0x4e, 0x2e, 0x12, 0x66, 0xc8, 0xcf, 0x3b, 0x3f, 0x10, 0x7d, 0x79,
-    0x00, 0xd3, 0x1f, 0x21, 0x93, 0x34, 0xd7, 0x19, 0x22, 0xa2, 0x08, 0x20, 0xb9, 0xb9, 0xef, 0x51,
-    0x99, 0xde, 0xbf, 0xd4, 0x09, 0x75, 0xe9, 0x8a, 0xee, 0xfd, 0xe4, 0x4e, 0x30, 0x17, 0xdf, 0xce,
-    0x11, 0xb2, 0x28, 0x35, 0xc2, 0x7c, 0x64, 0xeb, 0x91, 0x5f, 0x32, 0x0c, 0x6e, 0x00, 0xf9, 0x92,
-    0x19, 0xdb, 0x8f, 0xab, 0xae, 0xd6, 0x12, 0xc4, 0x26, 0x62, 0xce, 0xcc, 0x0a, 0x03, 0xe7, 0xdd,
-    0xe2, 0x4d, 0x8a, 0xa6, 0x46, 0x95, 0x0f, 0x8f, 0xf5, 0x15, 0x97, 0x32, 0xd4, 0x28, 0x1e, 0x55
-};
+
+int nextNukedOpmNoiseInjectedBit(std::uint32_t& noiseLfsr, int& noiseBit)
+{
+    const int injected = noiseLfsr & 1u;
+    const bool reset = (noiseLfsr & 0xffffu) == 0u && noiseBit == 0;
+    const int feedback = static_cast<int>((noiseLfsr >> 2) & 1u) ^ noiseBit;
+    const int newBit = reset ? 1 : feedback;
+    noiseBit = static_cast<int>(noiseLfsr & 1u);
+    noiseLfsr >>= 1;
+    noiseLfsr |= static_cast<std::uint32_t>(newBit) << 15;
+    return injected;
+}
+
+int nextNukedOpmSampleAndHoldValue(std::uint32_t& noiseLfsr, int& noiseBit)
+{
+    int value = 0;
+    for (int bit = 0; bit < 8; ++bit)
+        value = (value << 1) | nextNukedOpmNoiseInjectedBit(noiseLfsr, noiseBit);
+
+    return value;
+}
 
 double outputLevelToCarrierAmplitude(const double level)
 {
@@ -232,9 +236,8 @@ std::pair<double, double> dx21LfoShape(const double phase, const int wave)
     }
     else // S/H
     {
-        const int value = kLfoSampleAndHoldWaveform[static_cast<std::size_t>(index)];
-        am = static_cast<double>(value) / 255.0;
-        pm = (static_cast<double>(value) - 128.0) / 128.0;
+        am = 0.5;
+        pm = 0.0;
     }
 
     return { clampDouble(am, 0.0, 1.0), clampDouble(pm, -1.0, 1.0) };
@@ -258,6 +261,10 @@ void Dx21Voice::start(const Dx21Patch& patch, const int newMidiNote, const int v
     phases.fill(0.0);
     operatorTlAccumulators.fill(0.0);
     delayedPitchLfo = 0.0;
+    sampleAndHoldLfsr = 0;
+    sampleAndHoldBit = 0;
+    sampleAndHoldCycle = -1;
+    sampleAndHoldValue = 128;
     feedbackHistory.fill(0.0);
     failed = false;
 
@@ -336,6 +343,20 @@ double Dx21Voice::nextPitchModulation(const double pitchLfo)
     return delayed;
 }
 
+std::pair<double, double> Dx21Voice::nextSampleAndHoldLfoShape(const double phase)
+{
+    const int cycle = static_cast<int>(std::floor(phase));
+    if (cycle != sampleAndHoldCycle)
+    {
+        sampleAndHoldValue = nextNukedOpmSampleAndHoldValue(sampleAndHoldLfsr, sampleAndHoldBit);
+        sampleAndHoldCycle = cycle;
+    }
+
+    const double am = static_cast<double>(sampleAndHoldValue) / 255.0;
+    const double pm = static_cast<double>(sampleAndHoldValue) / 127.5 - 1.0;
+    return { clampDouble(am, 0.0, 1.0), clampDouble(pm, -1.0, 1.0) };
+}
+
 OperatorRender Dx21Voice::renderOperator(const int opIndex,
                                          const Dx21Patch& patch,
                                          const Algorithm& algorithm,
@@ -409,8 +430,11 @@ double Dx21Voice::render(const Dx21Patch& patch,
     const auto& algorithm = dx21Algorithms()[static_cast<std::size_t>(patch.algorithm - 1)];
     const double lfoAge = patch.lfo.sync ? ageSeconds : globalLfoAge;
     const double lfoPhase = dx21LfoSpeedToHz(patch.lfo.speed) * lfoAge;
-    const auto lfo = dx21LfoShape(lfoPhase, patch.lfo.wave);
-    const auto pitchLfoShape = dx21PitchLfoShape(lfoPhase, patch.lfo.wave, patch.lfo.pitchSensitivity);
+    const auto lfo = patch.lfo.wave == 3 ? nextSampleAndHoldLfoShape(lfoPhase)
+                                         : dx21LfoShape(lfoPhase, patch.lfo.wave);
+    const auto pitchLfoShape = clampInt(patch.lfo.pitchSensitivity, 0, 7) == 0
+        ? dx21LfoShape(lfoPhase, 2)
+        : lfo;
     const double delay = lfoDelayFactor(patch.lfo.delay, ageSeconds);
     const double pitchLfo = opmStylePitchModDepth(patch.lfo.pitchDepth, patch.lfo.pitchSensitivity) * delay
         * (0.35 + modWheel * 0.65) * pitchLfoShape.second;

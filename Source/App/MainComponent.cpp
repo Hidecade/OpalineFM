@@ -647,7 +647,9 @@ void MainComponent::Dx21LookAndFeel::drawButtonBackground(juce::Graphics& g,
                                                           const bool shouldDrawButtonAsHighlighted,
                                                           const bool shouldDrawButtonAsDown)
 {
-    if (button.getName() != "opEnableButton")
+    const bool opButton = button.getName() == "opEnableButton";
+    const bool ampButton = button.getName() == "opAmpModButton";
+    if (!opButton && !ampButton)
     {
         juce::LookAndFeel_V4::drawButtonBackground(g, button, backgroundColour, shouldDrawButtonAsHighlighted, shouldDrawButtonAsDown);
         return;
@@ -655,9 +657,9 @@ void MainComponent::Dx21LookAndFeel::drawButtonBackground(juce::Graphics& g,
 
     auto bounds = button.getLocalBounds().toFloat().reduced(1.0f);
     const bool on = button.getToggleState();
-    const auto top = on ? juce::Colour(0xff35d8bd) : juce::Colour(0xff45443d);
-    const auto bottom = on ? juce::Colour(0xff07876e) : juce::Colour(0xff22221e);
-    const auto outline = on ? juce::Colour(0xff55e6d0) : kControlBorder;
+    const auto top = on ? (ampButton ? juce::Colour(0xff5ca8d7) : juce::Colour(0xff35d8bd)) : juce::Colour(0xff45443d);
+    const auto bottom = on ? (ampButton ? juce::Colour(0xff22618d) : juce::Colour(0xff07876e)) : juce::Colour(0xff22221e);
+    const auto outline = on ? (ampButton ? juce::Colour(0xff8bc9f0) : juce::Colour(0xff55e6d0)) : kControlBorder;
 
     if (shouldDrawButtonAsDown)
         bounds.translate(0.0f, 1.0f);
@@ -694,7 +696,7 @@ void MainComponent::Dx21LookAndFeel::drawButtonText(juce::Graphics& g,
         return;
     }
 
-    if (button.getName() != "opEnableButton")
+    if (button.getName() != "opEnableButton" && button.getName() != "opAmpModButton")
     {
         juce::LookAndFeel_V4::drawButtonText(g, button, false, shouldDrawButtonAsDown);
         return;
@@ -1031,6 +1033,12 @@ MainComponent::OperatorComponent::OperatorComponent(const int operatorIndex, Cha
     enableButton.setLookAndFeel(&dx21LookAndFeel);
     addAndMakeVisible(enableButton);
     enableButton.addListener(this);
+
+    ampModButton.setName("opAmpModButton");
+    ampModButton.setLookAndFeel(&dx21LookAndFeel);
+    addAndMakeVisible(ampModButton);
+    ampModButton.addListener(this);
+
     roleLabel.setJustificationType(juce::Justification::centredRight);
     roleLabel.setFont(juce::FontOptions(13.0f, juce::Font::plain));
     roleLabel.setColour(juce::Label::textColourId, kTextMuted);
@@ -1059,6 +1067,7 @@ MainComponent::OperatorComponent::OperatorComponent(const int operatorIndex, Cha
 MainComponent::OperatorComponent::~OperatorComponent()
 {
     enableButton.setLookAndFeel(nullptr);
+    ampModButton.setLookAndFeel(nullptr);
     for (auto& slider : opSliders)
         slider.setLookAndFeel(nullptr);
     for (auto& slider : egSliders)
@@ -1100,7 +1109,9 @@ void MainComponent::OperatorComponent::setOperator(const dx21::Dx21Operator& new
     egSliders[3].setValue(op.envelope.decay2Rate, juce::dontSendNotification);
     egSliders[4].setValue(op.envelope.releaseRate, juce::dontSendNotification);
     enableButton.setToggleState(op.enabled, juce::dontSendNotification);
+    ampModButton.setToggleState(op.ampModEnable, juce::dontSendNotification);
     updateEnableButtonStyle();
+    updateAmpModButtonStyle();
     repaint();
 }
 
@@ -1174,6 +1185,9 @@ void MainComponent::OperatorComponent::resized()
     const auto enableBounds = top.removeFromLeft(42).withHeight(22);
     enableButton.setBounds(enableBounds);
     top.removeFromLeft(5);
+    const auto ampModBounds = top.removeFromLeft(32).withHeight(22);
+    ampModButton.setBounds(ampModBounds);
+    top.removeFromLeft(5);
     roleLabel.setBounds(top.withY(enableBounds.getY()).withHeight(enableBounds.getHeight()));
     area.removeFromTop(50);
     auto egRow = area.removeFromTop(74);
@@ -1212,11 +1226,21 @@ void MainComponent::OperatorComponent::sliderValueChanged(juce::Slider*)
     notify();
 }
 
-void MainComponent::OperatorComponent::buttonClicked(juce::Button*)
+void MainComponent::OperatorComponent::buttonClicked(juce::Button* button)
 {
-    op.enabled = !op.enabled;
-    enableButton.setToggleState(op.enabled, juce::dontSendNotification);
-    updateEnableButtonStyle();
+    if (button == &enableButton)
+    {
+        op.enabled = !op.enabled;
+        enableButton.setToggleState(op.enabled, juce::dontSendNotification);
+        updateEnableButtonStyle();
+    }
+    else if (button == &ampModButton)
+    {
+        op.ampModEnable = !op.ampModEnable;
+        ampModButton.setToggleState(op.ampModEnable, juce::dontSendNotification);
+        updateAmpModButtonStyle();
+    }
+
     notify();
 }
 
@@ -1227,6 +1251,15 @@ void MainComponent::OperatorComponent::updateEnableButtonStyle()
     enableButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff0aa878));
     enableButton.setColour(juce::TextButton::textColourOffId, op.enabled ? juce::Colours::white : kTextMuted);
     enableButton.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+}
+
+void MainComponent::OperatorComponent::updateAmpModButtonStyle()
+{
+    ampModButton.setButtonText("AM");
+    ampModButton.setColour(juce::TextButton::buttonColourId, op.ampModEnable ? juce::Colour(0xff4f8fbb) : juce::Colour(0xff2b2a24));
+    ampModButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff4f8fbb));
+    ampModButton.setColour(juce::TextButton::textColourOffId, op.ampModEnable ? juce::Colours::white : kTextMuted);
+    ampModButton.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
 }
 
 void MainComponent::OperatorComponent::notify()
@@ -1412,7 +1445,7 @@ MainComponent::MainComponent()
     setupComboBox(voiceBankSelect);
     voiceBankSelect.addListener(this);
     addAndMakeVisible(voiceBankSelect);
-    for (auto* button : { &loadVoiceBankButton, &saveVoiceBankButton, &exportVoiceLibraryButton })
+    for (auto* button : { &loadVoiceBankButton, &saveVoiceBankButton, &exportVoiceLibraryButton, &storeVoiceButton })
     {
         button->setName("voiceBankButton");
         button->setColour(juce::TextButton::buttonColourId, juce::Colour(0xff1c1a15));
@@ -1648,7 +1681,7 @@ MainComponent::~MainComponent()
     for (auto* comboBox : { &voiceSelect, &voiceBankSelect, &performanceModeSelect, &voiceBSelect,
                             &audioOutputSelect, &midiInputSelect, &lfoWaveSelect })
         comboBox->setLookAndFeel(nullptr);
-    for (auto* button : { &loadVoiceBankButton, &saveVoiceBankButton, &exportVoiceLibraryButton })
+    for (auto* button : { &loadVoiceBankButton, &saveVoiceBankButton, &exportVoiceLibraryButton, &storeVoiceButton })
         button->setLookAndFeel(nullptr);
     lfoSyncButton.setLookAndFeel(nullptr);
 
@@ -1775,6 +1808,8 @@ void MainComponent::resized()
     auto aRow = patch.removeFromTop(28);
     voiceALabel.setBounds(aRow.removeFromLeft(22).withSizeKeepingCentre(20, 20));
     aRow.removeFromLeft(2);
+    storeVoiceButton.setBounds(aRow.removeFromRight(50).withSizeKeepingCentre(50, 22));
+    aRow.removeFromRight(3);
     voiceSelect.setBounds(aRow);
     patch.removeFromTop(2);
     auto perfRow = patch.removeFromTop(26);
@@ -1966,7 +2001,6 @@ void MainComponent::setCurrentVoiceBank(const int bankIndex)
     if (safeBank == currentVoiceBankIndex)
         return;
 
-    storeCurrentPatchToSelectedVoice();
     currentVoiceBankIndex = safeBank;
     allNotesOff();
     refreshVoiceLists();
@@ -2035,7 +2069,6 @@ void MainComponent::loadVoiceLibraryFromFile(const juce::File& file)
         }
 
         allNotesOff();
-        storeCurrentPatchToSelectedVoice();
         voiceLibrary = std::move(imported);
         currentVoiceBankIndex = juce::jlimit(0, dx21::kDx21VoiceBankCount - 1, currentVoiceBankIndex);
         populateVoiceBankSelect();
@@ -2054,7 +2087,6 @@ void MainComponent::saveCurrentVoiceBankToFile(const juce::File& file)
 {
     try
     {
-        storeCurrentPatchToSelectedVoice();
         const auto bytes = dx21::voiceBankToSysex(voiceLibrary.banks[static_cast<std::size_t>(currentVoiceBankIndex)]);
         if (!writeBinaryFile(file, bytes))
         {
@@ -2075,7 +2107,6 @@ void MainComponent::exportVoiceLibraryToFile(const juce::File& file)
 {
     try
     {
-        storeCurrentPatchToSelectedVoice();
         const auto xml = voiceLibraryToXml(voiceLibrary);
         if (xml == nullptr || !xml->writeTo(file))
         {
@@ -2119,8 +2150,6 @@ bool MainComponent::restoreSavedVoiceLibraryState()
 
 void MainComponent::saveVoiceLibraryState()
 {
-    storeCurrentPatchToSelectedVoice();
-
     juce::PropertiesFile settings(settingsOptions());
     const auto xml = voiceLibraryToXml(voiceLibrary);
     if (xml != nullptr)
@@ -2946,8 +2975,8 @@ void MainComponent::comboBoxChanged(juce::ComboBox* comboBoxThatHasChanged)
     if (comboBoxThatHasChanged == &voiceSelect)
     {
         allNotesOff();
-        storeCurrentPatchToSelectedVoice();
         applySelectedVoice();
+        saveVoiceLibraryState();
     }
     else if (comboBoxThatHasChanged == &voiceBankSelect)
     {
@@ -3057,6 +3086,16 @@ void MainComponent::buttonClicked(juce::Button* button)
                                          file = file.withFileExtension(".xml");
                                      exportVoiceLibraryToFile(file);
                                  });
+    }
+    else if (button == &storeVoiceButton)
+    {
+        storeCurrentPatchToSelectedVoice();
+        refreshVoiceLists();
+        voiceSelect.setSelectedId(performanceState.voiceAIndex + 1, juce::dontSendNotification);
+        voiceBSelect.setSelectedId(performanceState.voiceBIndex + 1, juce::dontSendNotification);
+        statusLabel.setText("Voice stored", juce::dontSendNotification);
+        refreshStatus();
+        saveVoiceLibraryState();
     }
 }
 

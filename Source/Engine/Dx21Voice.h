@@ -4,6 +4,8 @@
 #include "Engine/Dx21Types.h"
 
 #include <array>
+#include <cstdint>
+#include <utility>
 
 namespace dx21
 {
@@ -35,6 +37,7 @@ private:
                                   std::array<OperatorRender, kOperatorCount>& outputs);
     double nextOperatorLevel(int index, int targetLevel);
     double nextPitchModulation(double pitchLfo);
+    std::pair<double, double> nextSampleAndHoldLfoShape(double phase);
 
     int midiNote = 60;
     int noteVelocity = 100;
@@ -45,6 +48,10 @@ private:
     std::array<double, kOperatorCount> operatorTlAccumulators {};
     std::array<Dx21Envelope, kOperatorCount> envelopes {};
     double delayedPitchLfo = 0.0;
+    std::uint32_t sampleAndHoldLfsr = 0;
+    int sampleAndHoldBit = 0;
+    int sampleAndHoldCycle = -1;
+    int sampleAndHoldValue = 128;
     std::array<double, 2> feedbackHistory {};
     bool failed = false;
 };

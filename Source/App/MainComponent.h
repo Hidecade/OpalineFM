@@ -140,6 +140,7 @@ private:
         void setupSlider(juce::Slider& slider, double min, double max, double step, double value);
         void addLabeledSlider(juce::Label& label, juce::Slider& slider, const juce::String& text);
         void updateEnableButtonStyle();
+        void updateAmpModButtonStyle();
         void notify();
 
         int opIndex = 0;
@@ -148,6 +149,7 @@ private:
         juce::String role = "Carrier";
         Dx21LookAndFeel dx21LookAndFeel;
         juce::TextButton enableButton;
+        juce::TextButton ampModButton { "AM" };
         juce::Label roleLabel;
         std::array<juce::Label, 6> opLabels;
         std::array<juce::Slider, 6> opSliders;
@@ -284,6 +286,7 @@ private:
     juce::TextButton loadVoiceBankButton { "Load" };
     juce::TextButton saveVoiceBankButton { "Save" };
     juce::TextButton exportVoiceLibraryButton { "Export" };
+    juce::TextButton storeVoiceButton { "Store" };
     juce::ToggleButton lfoSyncButton { "Sync" };
     juce::Slider volumeSlider;
     juce::Slider transposeSlider;

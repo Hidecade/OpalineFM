@@ -54,6 +54,7 @@ void testTables()
                && algorithms[3].deps[0][0] == 1 && algorithms[3].deps[0][1] == 2,
            "algorithm 4 matches WebDX21 dependency graph");
     expect(algorithms[7].carrierCount == 4, "algorithm 8 has four carriers");
+    expectNear(dx21::dx21LfoSpeedToHz(35), 6.7, 0.02, "LFO speed 35 matches DX21 manual");
     expectNear(dx21::dx21LfoSpeedToHz(99), 55.0, 0.0001, "LFO speed 99 matches WebDX21");
 }
 
