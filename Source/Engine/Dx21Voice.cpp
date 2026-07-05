@@ -38,10 +38,10 @@ constexpr std::array<double, 8> kDx21PitchSensitivitySemitones {
     1.0,
     2.0,
     4.0,
-    8.0
+    7.0
 };
 constexpr std::array<double, 8> kOpmPitchSensitivitySemitones {
-    2.0,    // PMS=0 uses the DX21 VIBRATO OSC path instead of the selected LFO wave.
+    1.0,    // PMS=0 uses the DX21 VIBRATO OSC path with PMS=5 depth.
     0.05,
     0.10,
     0.20,
@@ -280,8 +280,11 @@ double chipStylePitchModDepth(const int depth, const int sensitivity)
     return normalized * kOpmPitchSensitivitySemitones[sensitivityIndex];
 }
 
-double pitchModDepthForModel(const int depth, const int sensitivity, const Dx21RenderModel renderModel)
+double pitchModDepthForModel(const int depth, const int sensitivity, const int wave, const Dx21RenderModel renderModel)
 {
+    if (clampInt(wave, 0, 3) == 1 && clampInt(sensitivity, 0, 7) == 7)
+        return static_cast<double>(clampInt(depth, 0, 99)) / 99.0 * 8.0;
+
     if (renderModel == Dx21RenderModel::ChipHybrid)
         return chipStylePitchModDepth(depth, sensitivity);
 
@@ -312,14 +315,16 @@ double lfoDelayFactor(const int delay, const double age)
 
 std::pair<double, double> dx21LfoShape(const double phase, const int wave)
 {
-    const int index = static_cast<int>(std::floor((phase - std::floor(phase)) * 256.0)) & 255;
+    const double cycle = phase - std::floor(phase);
+    const int index = static_cast<int>(std::floor(cycle * 256.0)) & 255;
     double am = 0.0;
     double pm = 0.0;
 
     if (wave == 0) // SAW UP
     {
         am = static_cast<double>(255 - index) / 255.0;
-        pm = static_cast<double>(index < 128 ? index : index - 255) / 128.0;
+        pm = index < 128 ? static_cast<double>(index) / 127.0
+                         : static_cast<double>(index - 255) / 127.0;
     }
     else if (wave == 1) // SQUARE
     {
@@ -330,18 +335,14 @@ std::pair<double, double> dx21LfoShape(const double phase, const int wave)
     {
         const double amRaw = index < 128 ? 255.0 - static_cast<double>(index) * 2.0
                                          : static_cast<double>(index) * 2.0 - 256.0;
-        double pmRaw = 0.0;
-        if (index < 64)
-            pmRaw = static_cast<double>(index) * 2.0;
-        else if (index < 128)
-            pmRaw = 255.0 - static_cast<double>(index) * 2.0;
-        else if (index < 192)
-            pmRaw = 256.0 - static_cast<double>(index) * 2.0;
-        else
-            pmRaw = static_cast<double>(index) * 2.0 - 511.0;
-
         am = amRaw / 255.0;
-        pm = pmRaw / 128.0;
+        const double pitchPhase = static_cast<double>(index) / 256.0;
+        if (pitchPhase < 0.25)
+            pm = pitchPhase * 4.0;
+        else if (pitchPhase < 0.75)
+            pm = 2.0 - pitchPhase * 4.0;
+        else
+            pm = pitchPhase * 4.0 - 4.0;
     }
     else // S/H
     {
@@ -587,8 +588,9 @@ double Dx21Voice::render(const Dx21Patch& patch,
         ? dx21LfoShape(lfoPhase, 2)
         : lfo;
     const double delay = lfoDelayFactor(patch.lfo.delay, ageSeconds);
-    const double pitchLfo = pitchModDepthForModel(patch.lfo.pitchDepth, patch.lfo.pitchSensitivity, renderModel) * delay
-        * (0.35 + modWheel * 0.65) * pitchLfoShape.second;
+    const double pitchControllerScale = renderModel == Dx21RenderModel::ChipHybrid ? 1.0 : (0.35 + modWheel * 0.65);
+    const double pitchLfo = pitchModDepthForModel(patch.lfo.pitchDepth, patch.lfo.pitchSensitivity, patch.lfo.wave, renderModel) * delay
+        * pitchControllerScale * pitchLfoShape.second;
     const double ampDepth = opmStyleAmpModDepth(patch.lfo.ampDepth, patch.lfo.ampSensitivity) * delay;
     const double appliedPitchLfo = nextPitchModulation(pitchLfo);
     const double pitchEnvelopeSemitones = pitchEnvelope.nextSemitones();
