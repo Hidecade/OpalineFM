@@ -17,6 +17,7 @@ endif()
 add_library(dx21_engine STATIC
     Source/Engine/Dx21Envelope.cpp
     Source/Engine/Dx21Engine.cpp
+    Source/Engine/Dx21PitchEnvelope.cpp
     Source/Engine/Dx21Tables.cpp
     Source/Engine/Dx21Types.cpp
     Source/Engine/Dx21Sysex.cpp
@@ -48,9 +49,12 @@ target_compile_definitions(dx21_engine_tests
 add_test(NAME dx21_engine_tests COMMAND dx21_engine_tests)
 
 set(DX21_JUCE_DIR "" CACHE PATH "Path to a JUCE checkout. If empty, external/JUCE is used when present.")
+option(DX21_BUILD_STANDALONE "Build the JUCE standalone app when JUCE is available." ON)
 
 set(DX21_RESOLVED_JUCE_DIR "")
-if (DX21_JUCE_DIR AND EXISTS "${DX21_JUCE_DIR}/CMakeLists.txt")
+if (NOT DX21_BUILD_STANDALONE)
+    set(DX21_RESOLVED_JUCE_DIR "")
+elseif (DX21_JUCE_DIR AND EXISTS "${DX21_JUCE_DIR}/CMakeLists.txt")
     set(DX21_RESOLVED_JUCE_DIR "${DX21_JUCE_DIR}")
 elseif (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/JUCE/CMakeLists.txt")
     set(DX21_RESOLVED_JUCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/JUCE")

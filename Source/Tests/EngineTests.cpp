@@ -1,5 +1,6 @@
 #include "Engine/Dx21Engine.h"
 #include "Engine/Dx21Envelope.h"
+#include "Engine/Dx21PitchEnvelope.h"
 #include "Engine/Dx21Sysex.h"
 #include "Engine/Dx21Tables.h"
 #include "Engine/Dx21VoiceLibrary.h"
@@ -65,6 +66,12 @@ void testPatchNormalization()
     patch.feedback = -5;
     patch.transpose = 100;
     patch.lfo.wave = 42;
+    patch.pitchEnvelope.rate1 = -4;
+    patch.pitchEnvelope.rate2 = 100;
+    patch.pitchEnvelope.rate3 = 123;
+    patch.pitchEnvelope.level1 = -5;
+    patch.pitchEnvelope.level2 = 101;
+    patch.pitchEnvelope.level3 = 120;
     patch.effects.reverb = 1000;
     patch.effects.mix = -10;
     patch.effects.tone = 120;
@@ -79,6 +86,12 @@ void testPatchNormalization()
     expect(normalized.feedback == 0, "feedback clamps low");
     expect(normalized.transpose == 24, "transpose clamps high");
     expect(normalized.lfo.wave == 3, "lfo wave clamps high");
+    expect(normalized.pitchEnvelope.rate1 == 0, "PEG rate1 clamps low");
+    expect(normalized.pitchEnvelope.rate2 == 99, "PEG rate2 clamps high");
+    expect(normalized.pitchEnvelope.rate3 == 99, "PEG rate3 clamps high");
+    expect(normalized.pitchEnvelope.level1 == 0, "PEG level1 clamps low");
+    expect(normalized.pitchEnvelope.level2 == 99, "PEG level2 clamps high");
+    expect(normalized.pitchEnvelope.level3 == 99, "PEG level3 clamps high");
     expect(normalized.effects.reverb == 99, "effect reverb clamps high");
     expect(normalized.effects.mix == 0, "effect mix clamps low");
     expect(normalized.effects.tone == 99, "effect tone clamps high");
@@ -135,6 +148,46 @@ void testFastAttackTiming()
 
     expect(ampAt100Ms > 0.5, "AR31 reaches a strong level within 100 ms");
     expect(envelope.stage() != dx21::Dx21Envelope::Stage::Attack, "AR31 leaves attack stage quickly");
+}
+
+void testPitchEnvelope()
+{
+    dx21::Dx21PitchEnvelope envelope;
+    envelope.reset(1000.0);
+
+    dx21::Dx21PitchEnvelopeParams params;
+    params.rate1 = 99;
+    params.rate2 = 99;
+    params.rate3 = 99;
+    params.level1 = 99;
+    params.level2 = 50;
+    params.level3 = 50;
+
+    envelope.noteOn(params);
+    const double first = envelope.nextSemitones();
+    expect(first > 0.0 && first < 48.0, "PEG starts moving from PL3 toward PL1");
+
+    double value = first;
+    for (int i = 0; i < 20; ++i)
+        value = envelope.nextSemitones();
+
+    expectNear(value, 0.0, 0.0001, "PEG reaches PL2 sustain after stage 1 and 2");
+    expect(envelope.stage() == dx21::Dx21PitchEnvelope::Stage::Sustain, "PEG enters sustain");
+
+    params.level1 = 50;
+    params.level2 = 99;
+    params.level3 = 50;
+    envelope.noteOn(params);
+    for (int i = 0; i < 20; ++i)
+        value = envelope.nextSemitones();
+
+    expectNear(value, 48.0, 0.0001, "PEG sustains PL2");
+    envelope.noteOff();
+    for (int i = 0; i < 20; ++i)
+        value = envelope.nextSemitones();
+
+    expectNear(value, 0.0, 0.0001, "PEG releases from current value to PL3");
+    expect(envelope.stage() == dx21::Dx21PitchEnvelope::Stage::Finished, "PEG finishes release");
 }
 
 void testEngineRendering()
@@ -240,6 +293,12 @@ std::array<std::uint8_t, dx21::kDx21VmemVoiceSize> makeTestVmem()
     vmem[44] = 55;
     vmem[45] = static_cast<std::uint8_t>(2 | (3 << 2) | (6 << 4));
     vmem[46] = 31;
+    vmem[67] = 61;
+    vmem[68] = 62;
+    vmem[69] = 63;
+    vmem[70] = 64;
+    vmem[71] = 65;
+    vmem[72] = 66;
 
     for (int block = 0; block < dx21::kOperatorCount; ++block)
     {
@@ -316,6 +375,12 @@ void testVmemDecodeAndPatchMerge()
     expect(decoded.patch.lfo.pitchSensitivity == 6, "decoder reads PMS");
     expect(decoded.patch.lfo.ampSensitivity == 3, "decoder reads AMS");
     expect(decoded.patch.transpose == 7, "decoder reads VMEM transpose");
+    expect(decoded.patch.pitchEnvelope.rate1 == 61, "decoder reads PEG rate 1");
+    expect(decoded.patch.pitchEnvelope.rate2 == 62, "decoder reads PEG rate 2");
+    expect(decoded.patch.pitchEnvelope.rate3 == 63, "decoder reads PEG rate 3");
+    expect(decoded.patch.pitchEnvelope.level1 == 64, "decoder reads PEG level 1");
+    expect(decoded.patch.pitchEnvelope.level2 == 65, "decoder reads PEG level 2");
+    expect(decoded.patch.pitchEnvelope.level3 == 66, "decoder reads PEG level 3");
 
     auto lfoNoiseVmem = vmem;
     lfoNoiseVmem[45] = 115; // S/H wave, AMS=0, PMS=7.
@@ -362,6 +427,10 @@ void testSysexEncoding()
     expect(roundTrip.patch.feedback == decoded.patch.feedback, "VMEM encoder preserves feedback");
     expect(roundTrip.patch.lfo.wave == decoded.patch.lfo.wave, "VMEM encoder preserves LFO wave");
     expect(roundTrip.patch.transpose == decoded.patch.transpose, "VMEM encoder preserves transpose");
+    expect(roundTrip.patch.pitchEnvelope.rate1 == decoded.patch.pitchEnvelope.rate1,
+           "VMEM encoder preserves PEG rate 1");
+    expect(roundTrip.patch.pitchEnvelope.level3 == decoded.patch.pitchEnvelope.level3,
+           "VMEM encoder preserves PEG level 3");
     expect(roundTrip.patch.operators[0].level == decoded.patch.operators[0].level,
            "VMEM encoder preserves operator level");
 
@@ -432,6 +501,7 @@ int main()
     testPatchNormalization();
     testEnvelope();
     testFastAttackTiming();
+    testPitchEnvelope();
     testEngineRendering();
     testVoiceLimit();
     testEngineEffectsRendering();

@@ -35,6 +35,13 @@ Dx21Patch normalizePatch(const Dx21Patch& patch)
     normalized.lfo.ampSensitivity = clampInt(normalized.lfo.ampSensitivity, 0, 3);
     normalized.lfo.wave = clampInt(normalized.lfo.wave, 0, 3);
 
+    normalized.pitchEnvelope.rate1 = clampInt(normalized.pitchEnvelope.rate1, 0, 99);
+    normalized.pitchEnvelope.rate2 = clampInt(normalized.pitchEnvelope.rate2, 0, 99);
+    normalized.pitchEnvelope.rate3 = clampInt(normalized.pitchEnvelope.rate3, 0, 99);
+    normalized.pitchEnvelope.level1 = clampInt(normalized.pitchEnvelope.level1, 0, 99);
+    normalized.pitchEnvelope.level2 = clampInt(normalized.pitchEnvelope.level2, 0, 99);
+    normalized.pitchEnvelope.level3 = clampInt(normalized.pitchEnvelope.level3, 0, 99);
+
     normalized.effects.reverb = clampInt(normalized.effects.reverb, 0, 99);
     normalized.effects.mix = clampInt(normalized.effects.mix, 0, 99);
     normalized.effects.tone = clampInt(normalized.effects.tone, 0, 99);

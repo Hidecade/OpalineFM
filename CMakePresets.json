@@ -18,6 +18,26 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
       }
+    },
+    {
+      "name": "engine-vs-debug",
+      "displayName": "Engine Debug (Visual Studio)",
+      "generator": "Visual Studio 18 2026",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build/engine-vs-debug",
+      "cacheVariables": {
+        "DX21_BUILD_STANDALONE": "OFF"
+      }
+    },
+    {
+      "name": "standalone-vs-debug",
+      "displayName": "Standalone Debug (Visual Studio)",
+      "generator": "Visual Studio 18 2026",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build/standalone-vs-debug",
+      "cacheVariables": {
+        "DX21_BUILD_STANDALONE": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -28,6 +48,32 @@
     {
       "name": "windows-release",
       "configurePreset": "windows-release"
+    },
+    {
+      "name": "engine-vs-debug",
+      "configurePreset": "engine-vs-debug",
+      "configuration": "Debug",
+      "targets": [
+        "dx21_engine_tests"
+      ]
+    },
+    {
+      "name": "standalone-vs-debug",
+      "configurePreset": "standalone-vs-debug",
+      "configuration": "Debug",
+      "targets": [
+        "DX21Native_Standalone"
+      ]
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "engine-vs-debug",
+      "configurePreset": "engine-vs-debug",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      }
     }
   ]
 }

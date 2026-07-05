@@ -287,6 +287,21 @@ float egTimeWeight(const int rate, const int maxRate)
     return 0.12f + (1.0f - normalized) * (1.0f - normalized) * 0.88f;
 }
 
+float pegLevelToCents(const int level)
+{
+    const int value = juce::jlimit(0, 99, level);
+    if (value >= 50)
+        return static_cast<float>(value - 50) * 4800.0f / 49.0f;
+
+    return static_cast<float>(value - 50) * 4800.0f / 50.0f;
+}
+
+float pegRateWeight(const int rate)
+{
+    const float normalized = static_cast<float>(juce::jlimit(0, 99, rate)) / 99.0f;
+    return 0.12f + (1.0f - normalized) * (1.0f - normalized) * 0.88f;
+}
+
 const juce::Colour kAppBackground { 0xff020405 };
 const juce::Colour kPanelTop { 0xff29261f };
 const juce::Colour kPanelBottom { 0xff14130f };
@@ -855,7 +870,7 @@ void MainComponent::AlgorithmComponent::setAlgorithm(const int newAlgorithm, con
 
 void MainComponent::AlgorithmComponent::paint(juce::Graphics& g)
 {
-    const auto bounds = getLocalBounds().toFloat().reduced(3.0f);
+    const auto bounds = getLocalBounds().toFloat().reduced(1.0f);
     const auto area = bounds.withSizeKeepingCentre(juce::jmin(bounds.getWidth(), bounds.getHeight()),
                                                    juce::jmin(bounds.getWidth(), bounds.getHeight()));
     g.setGradientFill(juce::ColourGradient(kPanelTop,
@@ -956,7 +971,7 @@ void MainComponent::AlgorithmComponent::paint(juce::Graphics& g)
     for (const auto& pointToDraw : p)
         illustrationBounds = illustrationBounds.getUnion(juce::Rectangle<float>(boxSize, boxSize).withCentre(pointToDraw));
 
-    const auto targetArea = area.reduced(area.getWidth() * 0.14f, area.getHeight() * 0.13f);
+    const auto targetArea = area.reduced(area.getWidth() * 0.08f, area.getHeight() * 0.08f);
     const auto offset = targetArea.getCentre() - illustrationBounds.getCentre();
 
     g.saveState();
@@ -1022,6 +1037,61 @@ void MainComponent::ScopeComponent::paint(juce::Graphics& g)
     }
     g.setColour(kTeal);
     g.strokePath(path, juce::PathStrokeType(1.5f));
+}
+
+void MainComponent::PitchEnvelopeGraphComponent::setEnvelope(const dx21::Dx21PitchEnvelopeParams& params)
+{
+    envelope = params;
+    repaint();
+}
+
+void MainComponent::PitchEnvelopeGraphComponent::paint(juce::Graphics& g)
+{
+    const auto area = getLocalBounds().toFloat().reduced(1.0f);
+    g.setColour(kControlWell);
+    g.fillRoundedRectangle(area, 4.0f);
+    g.setColour(kControlBorder);
+    g.drawRoundedRectangle(area, 4.0f, 1.0f);
+
+    const auto graph = area.reduced(4.0f, 3.0f);
+    const float midY = graph.getCentreY();
+    g.setColour(kControlBorder.withAlpha(0.75f));
+    g.drawHorizontalLine(static_cast<int>(std::round(midY)), graph.getX(), graph.getRight());
+
+    const float w1 = pegRateWeight(envelope.rate1);
+    const float w2 = pegRateWeight(envelope.rate2);
+    const float w3 = pegRateWeight(envelope.rate3);
+    const float total = w1 + w2 + w3;
+    const float left = graph.getX();
+    const float right = graph.getRight();
+    const float usableWidth = graph.getWidth();
+    const float x0 = left;
+    const float x1 = left + usableWidth * w1 / total;
+    const float x2 = x1 + usableWidth * w2 / total;
+    const float x3 = right;
+    const auto yForLevel = [&graph](const int level)
+    {
+        const float normalized = juce::jlimit(-1.0f, 1.0f, pegLevelToCents(level) / 4800.0f);
+        return graph.getCentreY() - normalized * graph.getHeight() * 0.46f;
+    };
+
+    juce::Path path;
+    path.startNewSubPath(x0, yForLevel(envelope.level3));
+    path.lineTo(x1, yForLevel(envelope.level1));
+    path.lineTo(x2, yForLevel(envelope.level2));
+    path.lineTo(x3, yForLevel(envelope.level3));
+
+    g.setColour(kControlBorder);
+    g.drawVerticalLine(static_cast<int>(std::round(x1)), graph.getY(), graph.getBottom());
+    g.drawVerticalLine(static_cast<int>(std::round(x2)), graph.getY(), graph.getBottom());
+
+    g.setColour(kEnvelope);
+    g.strokePath(path, juce::PathStrokeType(2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+    g.setFont(juce::FontOptions(10.0f, juce::Font::plain));
+    g.setColour(kTextMuted);
+    g.drawText("-4", juce::Rectangle<float>(area.getX() + 2.0f, area.getBottom() - 13.0f, 22.0f, 11.0f), juce::Justification::centredLeft);
+    g.drawText("+4", juce::Rectangle<float>(area.getX() + 2.0f, area.getY() + 1.0f, 22.0f, 11.0f), juce::Justification::centredLeft);
 }
 
 MainComponent::OperatorComponent::OperatorComponent(const int operatorIndex, ChangeCallback callback)
@@ -1528,13 +1598,13 @@ MainComponent::MainComponent()
     transposeSlider.addListener(this);
     addAndMakeVisible(transposeSlider);
 
-    setupLabel(algorithmLabel, "Algorithm");
+    setupLabel(algorithmLabel, "ALG");
     setupSlider(algorithmSlider, 1, 8, 1, 1, juce::Slider::RotaryHorizontalVerticalDrag);
     algorithmSlider.addListener(this);
     addAndMakeVisible(algorithmLabel);
     addAndMakeVisible(algorithmSlider);
 
-    setupLabel(feedbackLabel, "Feedback");
+    setupLabel(feedbackLabel, "FB");
     setupSlider(feedbackSlider, 0, 7, 1, 2, juce::Slider::RotaryHorizontalVerticalDrag);
     feedbackSlider.addListener(this);
     addAndMakeVisible(feedbackLabel);
@@ -1559,8 +1629,10 @@ MainComponent::MainComponent()
     lfoSyncButton.setColour(juce::ToggleButton::tickDisabledColourId, juce::Colour(0xff555044));
     lfoSyncButton.addListener(this);
     addAndMakeVisible(lfoSyncButton);
+    pegLeftSeparator.setColour(juce::Label::backgroundColourId, kPanelBorder.withAlpha(0.9f));
     lfoLeftSeparator.setColour(juce::Label::backgroundColourId, kPanelBorder.withAlpha(0.9f));
     lfoRightSeparator.setColour(juce::Label::backgroundColourId, kPanelBorder.withAlpha(0.9f));
+    addAndMakeVisible(pegLeftSeparator);
     addAndMakeVisible(lfoLeftSeparator);
     addAndMakeVisible(lfoRightSeparator);
 
@@ -1584,6 +1656,32 @@ MainComponent::MainComponent()
     }
     for (auto* label : { &lfoSpeedLabel, &lfoDelayLabel, &lfoPitchDepthLabel, &lfoAmpDepthLabel,
                          &lfoPitchSensitivityLabel, &lfoAmpSensitivityLabel })
+        addAndMakeVisible(*label);
+
+    setupLabel(pegTitleLabel, "Pitch EG");
+    pegTitleLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(pegTitleLabel);
+    addAndMakeVisible(pegGraph);
+    setupLabel(pegRate1Label, "PR1");
+    setupLabel(pegRate2Label, "PR2");
+    setupLabel(pegRate3Label, "PR3");
+    setupLabel(pegLevel1Label, "PL1");
+    setupLabel(pegLevel2Label, "PL2");
+    setupLabel(pegLevel3Label, "PL3");
+    setupSlider(pegRate1Slider, 0, 99, 1, 99, juce::Slider::RotaryHorizontalVerticalDrag);
+    setupSlider(pegRate2Slider, 0, 99, 1, 99, juce::Slider::RotaryHorizontalVerticalDrag);
+    setupSlider(pegRate3Slider, 0, 99, 1, 99, juce::Slider::RotaryHorizontalVerticalDrag);
+    setupSlider(pegLevel1Slider, 0, 99, 1, 50, juce::Slider::RotaryHorizontalVerticalDrag);
+    setupSlider(pegLevel2Slider, 0, 99, 1, 50, juce::Slider::RotaryHorizontalVerticalDrag);
+    setupSlider(pegLevel3Slider, 0, 99, 1, 50, juce::Slider::RotaryHorizontalVerticalDrag);
+    for (auto* slider : { &pegRate1Slider, &pegRate2Slider, &pegRate3Slider,
+                          &pegLevel1Slider, &pegLevel2Slider, &pegLevel3Slider })
+    {
+        slider->addListener(this);
+        addAndMakeVisible(*slider);
+    }
+    for (auto* label : { &pegRate1Label, &pegRate2Label, &pegRate3Label,
+                         &pegLevel1Label, &pegLevel2Label, &pegLevel3Label })
         addAndMakeVisible(*label);
 
     setupLabel(effectReverbLabel, "Reverb");
@@ -1667,9 +1765,11 @@ MainComponent::~MainComponent()
     }
     midiInputs.clear();
 
-    const std::array<juce::Slider*, 19> sliders { &volumeSlider, &transposeSlider, &algorithmSlider, &feedbackSlider,
+    const std::array<juce::Slider*, 25> sliders { &volumeSlider, &transposeSlider, &algorithmSlider, &feedbackSlider,
                                                   &lfoSpeedSlider, &lfoDelaySlider, &lfoPitchDepthSlider, &lfoAmpDepthSlider,
                                                   &lfoPitchSensitivitySlider, &lfoAmpSensitivitySlider,
+                                                  &pegRate1Slider, &pegRate2Slider, &pegRate3Slider,
+                                                  &pegLevel1Slider, &pegLevel2Slider, &pegLevel3Slider,
                                                   &effectReverbSlider, &effectMixSlider, &effectToneSlider, &effectChorusSlider,
                                                   &effectDelaySlider, &pitchWheelSlider, &modWheelSlider,
                                                   &dualDetuneSlider, &splitPointSlider };
@@ -1825,17 +1925,18 @@ void MainComponent::resized()
     bRow.removeFromLeft(2);
     voiceBSelect.setBounds(bRow);
 
-    constexpr int knobSize = 54;
+    constexpr int knobSize = 48;
     constexpr int knobLabelHeight = 15;
-    constexpr int knobCellWidth = 60;
+    constexpr int knobCellWidth = 32;
     constexpr int knobCellHeight = 80;
     auto controlsPanel = top.reduced(4, 0);
     const auto controlsPanelBounds = controlsPanel;
-    constexpr int voicePanelWidth = 150;
-    constexpr int minimumKnobGroupWidth = 200;
+    constexpr int voicePanelWidth = 128;
+    constexpr int minimumKnobGroupWidth = 118;
     const int sharedKnobGroupWidth = juce::jmax(minimumKnobGroupWidth,
-                                                (controlsPanel.getWidth() - voicePanelWidth) / 2);
+                                                (controlsPanel.getWidth() - voicePanelWidth) / 3);
     auto voice = controlsPanel.removeFromLeft(voicePanelWidth);
+    auto peg = controlsPanel.removeFromLeft(juce::jmin(sharedKnobGroupWidth, controlsPanel.getWidth()));
     auto lfo = controlsPanel.removeFromLeft(juce::jmin(sharedKnobGroupWidth, controlsPanel.getWidth()));
     auto effects = controlsPanel;
 
@@ -1858,21 +1959,45 @@ void MainComponent::resized()
         slider.setBounds(knobArea.withSizeKeepingCentre(knobSize, knobSize));
     };
 
+    pegLeftSeparator.setBounds(peg.getX(), knobRow1Y - 8, 1, peg.getBottom() - (knobRow1Y - 8));
     lfoLeftSeparator.setBounds(lfo.getX(), knobRow1Y - 8, 1, lfo.getBottom() - (knobRow1Y - 8));
     lfoRightSeparator.setBounds(lfo.getRight() - 1, knobRow1Y - 8, 1, lfo.getBottom() - (knobRow1Y - 8));
 
-    auto voiceContent = voice.reduced(2, 0);
+    auto voiceContent = voice.reduced(0, 0);
     algorithmLabel.setBounds(voiceContent.getX(), voiceContent.getY(), voiceContent.getWidth(), 22);
-    algorithmView.setBounds(voiceContent.getX(), voiceContent.getY() + 62, 74, 86);
+    algorithmView.setBounds(voiceContent.getX(), voiceContent.getY() + 28, 84, 84);
+    pegGraph.setBounds(voiceContent.getX(), voiceContent.getY() + 124, 84, 64);
     const int voiceKnobX = voiceContent.getRight() - knobCellWidth - 2;
-    layoutKnob(juce::Rectangle<int>(voiceKnobX, knobRow1Y, knobCellWidth, knobCellHeight),
+    layoutKnob(juce::Rectangle<int>(voiceKnobX, knobRow1Y, knobCellWidth, knobCellHeight).reduced(1),
                algorithmLabel,
                algorithmSlider);
-    layoutKnob(juce::Rectangle<int>(voiceKnobX, knobRow2Y, knobCellWidth, knobCellHeight),
+    layoutKnob(juce::Rectangle<int>(voiceKnobX, knobRow2Y, knobCellWidth, knobCellHeight).reduced(1),
                feedbackLabel,
                feedbackSlider);
 
-    auto lfoContent = lfo.reduced(8, 0);
+    auto pegContent = peg.reduced(0, 0);
+    pegTitleLabel.setBounds(pegContent.getX() + 3, controlsPanelBounds.getY(), pegContent.getWidth() - 6, 24);
+    const int pegTopY = knobRow1Y;
+    const int pegCellWidth = juce::jmax(32, pegContent.getWidth() / 3);
+    const int pegCellHeight = knobCellHeight;
+    std::array<juce::Label*, 6> pegLabels { &pegRate1Label, &pegRate2Label, &pegRate3Label,
+                                            &pegLevel1Label, &pegLevel2Label, &pegLevel3Label };
+    std::array<juce::Slider*, 6> pegSliders { &pegRate1Slider, &pegRate2Slider, &pegRate3Slider,
+                                              &pegLevel1Slider, &pegLevel2Slider, &pegLevel3Slider };
+    for (int row = 0; row < 2; ++row)
+    {
+        for (int col = 0; col < 3; ++col)
+        {
+            const int index = row * 3 + col;
+            auto cell = juce::Rectangle<int>(pegContent.getX() + col * pegCellWidth,
+                                             pegTopY + row * pegCellHeight,
+                                             pegCellWidth,
+                                             pegCellHeight).reduced(1);
+            layoutKnob(cell, *pegLabels[static_cast<std::size_t>(index)], *pegSliders[static_cast<std::size_t>(index)]);
+        }
+    }
+
+    auto lfoContent = lfo.reduced(0, 0);
     const int lfoCellWidth = juce::jmax(knobCellWidth, lfoContent.getWidth() / 3);
     std::array<juce::Label*, 6> lfoLabels { &lfoSpeedLabel, &lfoDelayLabel, &lfoPitchDepthLabel, &lfoAmpDepthLabel, &lfoPitchSensitivityLabel, &lfoAmpSensitivityLabel };
     std::array<juce::Slider*, 6> lfoSliders { &lfoSpeedSlider, &lfoDelaySlider, &lfoPitchDepthSlider, &lfoAmpDepthSlider, &lfoPitchSensitivitySlider, &lfoAmpSensitivitySlider };
@@ -1884,12 +2009,12 @@ void MainComponent::resized()
             auto cell = juce::Rectangle<int>(lfoContent.getX() + col * lfoCellWidth,
                                              row == 0 ? knobRow1Y : knobRow2Y,
                                              lfoCellWidth,
-                                             knobCellHeight).reduced(2);
+                                             knobCellHeight).reduced(1);
             layoutKnob(cell, *lfoLabels[static_cast<std::size_t>(index)], *lfoSliders[static_cast<std::size_t>(index)]);
         }
     }
 
-    auto effectsContent = effects.reduced(8, 0);
+    auto effectsContent = effects.reduced(0, 0);
     const int effectsCellWidth = juce::jmax(knobCellWidth, effectsContent.getWidth() / 3);
     std::array<juce::Label*, 5> effectLabels { &effectReverbLabel, &effectMixLabel, &effectToneLabel, &effectChorusLabel, &effectDelayLabel };
     std::array<juce::Slider*, 5> effectSliders { &effectReverbSlider, &effectMixSlider, &effectToneSlider, &effectChorusSlider, &effectDelaySlider };
@@ -1904,7 +2029,7 @@ void MainComponent::resized()
             auto cell = juce::Rectangle<int>(effectsContent.getX() + col * effectsCellWidth,
                                              row == 0 ? knobRow1Y : knobRow2Y,
                                              effectsCellWidth,
-                                             knobCellHeight).reduced(2);
+                                             knobCellHeight).reduced(1);
             layoutKnob(cell, *effectLabels[static_cast<std::size_t>(index)], *effectSliders[static_cast<std::size_t>(index)]);
         }
     }
@@ -2188,6 +2313,13 @@ void MainComponent::syncUiFromPatch()
     lfoAmpDepthSlider.setValue(currentPatch.lfo.ampDepth, juce::dontSendNotification);
     lfoPitchSensitivitySlider.setValue(currentPatch.lfo.pitchSensitivity, juce::dontSendNotification);
     lfoAmpSensitivitySlider.setValue(currentPatch.lfo.ampSensitivity, juce::dontSendNotification);
+    pegRate1Slider.setValue(currentPatch.pitchEnvelope.rate1, juce::dontSendNotification);
+    pegRate2Slider.setValue(currentPatch.pitchEnvelope.rate2, juce::dontSendNotification);
+    pegRate3Slider.setValue(currentPatch.pitchEnvelope.rate3, juce::dontSendNotification);
+    pegLevel1Slider.setValue(currentPatch.pitchEnvelope.level1, juce::dontSendNotification);
+    pegLevel2Slider.setValue(currentPatch.pitchEnvelope.level2, juce::dontSendNotification);
+    pegLevel3Slider.setValue(currentPatch.pitchEnvelope.level3, juce::dontSendNotification);
+    pegGraph.setEnvelope(currentPatch.pitchEnvelope);
     effectReverbSlider.setValue(currentPatch.effects.reverb, juce::dontSendNotification);
     effectMixSlider.setValue(currentPatch.effects.mix, juce::dontSendNotification);
     effectToneSlider.setValue(currentPatch.effects.tone, juce::dontSendNotification);
@@ -2212,6 +2344,13 @@ void MainComponent::updatePatchFromGlobalControls()
     currentPatch.lfo.ampDepth = static_cast<int>(lfoAmpDepthSlider.getValue());
     currentPatch.lfo.pitchSensitivity = static_cast<int>(lfoPitchSensitivitySlider.getValue());
     currentPatch.lfo.ampSensitivity = static_cast<int>(lfoAmpSensitivitySlider.getValue());
+    currentPatch.pitchEnvelope.rate1 = static_cast<int>(pegRate1Slider.getValue());
+    currentPatch.pitchEnvelope.rate2 = static_cast<int>(pegRate2Slider.getValue());
+    currentPatch.pitchEnvelope.rate3 = static_cast<int>(pegRate3Slider.getValue());
+    currentPatch.pitchEnvelope.level1 = static_cast<int>(pegLevel1Slider.getValue());
+    currentPatch.pitchEnvelope.level2 = static_cast<int>(pegLevel2Slider.getValue());
+    currentPatch.pitchEnvelope.level3 = static_cast<int>(pegLevel3Slider.getValue());
+    pegGraph.setEnvelope(currentPatch.pitchEnvelope);
     currentPatch.effects.reverb = static_cast<int>(effectReverbSlider.getValue());
     currentPatch.effects.mix = static_cast<int>(effectMixSlider.getValue());
     currentPatch.effects.tone = static_cast<int>(effectToneSlider.getValue());

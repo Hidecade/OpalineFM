@@ -43,6 +43,16 @@ struct Dx21Lfo
     int wave = 0;
 };
 
+struct Dx21PitchEnvelopeParams
+{
+    int rate1 = 99;
+    int rate2 = 99;
+    int rate3 = 99;
+    int level1 = 50;
+    int level2 = 50;
+    int level3 = 50;
+};
+
 struct Dx21Effects
 {
     int reverb = 0;
@@ -58,6 +68,7 @@ struct Dx21Patch
     int feedback = 2;
     int transpose = 0;
     Dx21Lfo lfo;
+    Dx21PitchEnvelopeParams pitchEnvelope;
     Dx21Effects effects;
     std::array<Dx21Operator, kOperatorCount> operators {};
 };

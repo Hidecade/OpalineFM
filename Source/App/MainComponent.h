@@ -120,6 +120,16 @@ private:
         std::atomic<int> writeIndex { 0 };
     };
 
+    class PitchEnvelopeGraphComponent final : public juce::Component
+    {
+    public:
+        void setEnvelope(const dx21::Dx21PitchEnvelopeParams& params);
+        void paint(juce::Graphics& g) override;
+
+    private:
+        dx21::Dx21PitchEnvelopeParams envelope;
+    };
+
     class OperatorComponent final : public juce::Component,
                                     private juce::Slider::Listener,
                                     private juce::Button::Listener
@@ -298,6 +308,12 @@ private:
     juce::Slider lfoAmpDepthSlider;
     juce::Slider lfoPitchSensitivitySlider;
     juce::Slider lfoAmpSensitivitySlider;
+    juce::Slider pegRate1Slider;
+    juce::Slider pegRate2Slider;
+    juce::Slider pegRate3Slider;
+    juce::Slider pegLevel1Slider;
+    juce::Slider pegLevel2Slider;
+    juce::Slider pegLevel3Slider;
     juce::Slider effectReverbSlider;
     juce::Slider effectMixSlider;
     juce::Slider effectToneSlider;
@@ -318,8 +334,16 @@ private:
     juce::Label lfoAmpDepthLabel;
     juce::Label lfoPitchSensitivityLabel;
     juce::Label lfoAmpSensitivityLabel;
+    juce::Label pegLeftSeparator;
     juce::Label lfoLeftSeparator;
     juce::Label lfoRightSeparator;
+    juce::Label pegTitleLabel;
+    juce::Label pegRate1Label;
+    juce::Label pegRate2Label;
+    juce::Label pegRate3Label;
+    juce::Label pegLevel1Label;
+    juce::Label pegLevel2Label;
+    juce::Label pegLevel3Label;
     juce::Label effectReverbLabel;
     juce::Label effectMixLabel;
     juce::Label effectToneLabel;
@@ -334,6 +358,7 @@ private:
     LcdComponent lcd;
     AlgorithmComponent algorithmView;
     ScopeComponent scope;
+    PitchEnvelopeGraphComponent pegGraph;
     KeyboardComponent keyboard;
     std::array<std::unique_ptr<OperatorComponent>, dx21::kOperatorCount> operatorPanels;
 

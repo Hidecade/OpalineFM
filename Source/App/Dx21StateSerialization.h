@@ -12,6 +12,7 @@ static const juce::Identifier synthState { "DX21SynthState" };
 static const juce::Identifier patch { "Patch" };
 static const juce::Identifier performance { "Performance" };
 static const juce::Identifier lfo { "Lfo" };
+static const juce::Identifier pitchEnvelope { "PitchEnvelope" };
 static const juce::Identifier effects { "Effects" };
 static const juce::Identifier op { "Operator" };
 static const juce::Identifier envelope { "Envelope" };
@@ -111,6 +112,15 @@ inline juce::ValueTree patchToValueTree(const dx21::Dx21Patch& patch)
     lfo.setProperty("wave", patch.lfo.wave, nullptr);
     tree.addChild(lfo, -1, nullptr);
 
+    juce::ValueTree pitchEnvelope { state_ids::pitchEnvelope };
+    pitchEnvelope.setProperty("rate1", patch.pitchEnvelope.rate1, nullptr);
+    pitchEnvelope.setProperty("rate2", patch.pitchEnvelope.rate2, nullptr);
+    pitchEnvelope.setProperty("rate3", patch.pitchEnvelope.rate3, nullptr);
+    pitchEnvelope.setProperty("level1", patch.pitchEnvelope.level1, nullptr);
+    pitchEnvelope.setProperty("level2", patch.pitchEnvelope.level2, nullptr);
+    pitchEnvelope.setProperty("level3", patch.pitchEnvelope.level3, nullptr);
+    tree.addChild(pitchEnvelope, -1, nullptr);
+
     juce::ValueTree effects { state_ids::effects };
     effects.setProperty("reverb", patch.effects.reverb, nullptr);
     effects.setProperty("mix", patch.effects.mix, nullptr);
@@ -146,6 +156,17 @@ inline dx21::Dx21Patch patchFromValueTree(const juce::ValueTree& tree, const dx2
         patch.lfo.ampSensitivity = readInt(lfo, "ampSensitivity", patch.lfo.ampSensitivity);
         patch.lfo.sync = readBool(lfo, "sync", patch.lfo.sync);
         patch.lfo.wave = readInt(lfo, "wave", patch.lfo.wave);
+    }
+
+    const auto pitchEnvelope = tree.getChildWithName(state_ids::pitchEnvelope);
+    if (pitchEnvelope.isValid())
+    {
+        patch.pitchEnvelope.rate1 = readInt(pitchEnvelope, "rate1", patch.pitchEnvelope.rate1);
+        patch.pitchEnvelope.rate2 = readInt(pitchEnvelope, "rate2", patch.pitchEnvelope.rate2);
+        patch.pitchEnvelope.rate3 = readInt(pitchEnvelope, "rate3", patch.pitchEnvelope.rate3);
+        patch.pitchEnvelope.level1 = readInt(pitchEnvelope, "level1", patch.pitchEnvelope.level1);
+        patch.pitchEnvelope.level2 = readInt(pitchEnvelope, "level2", patch.pitchEnvelope.level2);
+        patch.pitchEnvelope.level3 = readInt(pitchEnvelope, "level3", patch.pitchEnvelope.level3);
     }
 
     const auto effects = tree.getChildWithName(state_ids::effects);

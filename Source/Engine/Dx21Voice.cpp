@@ -267,6 +267,8 @@ void Dx21Voice::start(const Dx21Patch& patch, const int newMidiNote, const int v
     sampleAndHoldValue = 128;
     feedbackHistory.fill(0.0);
     failed = false;
+    pitchEnvelope.reset(currentSampleRate);
+    pitchEnvelope.noteOn(patch.pitchEnvelope);
 
     for (int i = 0; i < kOperatorCount; ++i)
     {
@@ -283,6 +285,7 @@ void Dx21Voice::release()
 {
     for (auto& envelope : envelopes)
         envelope.noteOff();
+    pitchEnvelope.noteOff();
 }
 
 bool Dx21Voice::isActive() const
@@ -440,9 +443,10 @@ double Dx21Voice::render(const Dx21Patch& patch,
         * (0.35 + modWheel * 0.65) * pitchLfoShape.second;
     const double ampDepth = opmStyleAmpModDepth(patch.lfo.ampDepth, patch.lfo.ampSensitivity) * delay;
     const double appliedPitchLfo = nextPitchModulation(pitchLfo);
+    const double pitchEnvelopeSemitones = pitchEnvelope.nextSemitones();
     const double bendSemitones = clampDouble(pitchBend, -1.0, 1.0) * 2.0;
     const double baseFrequency = midiNoteToFrequency(static_cast<double>(midiNote + patch.transpose))
-        * std::pow(2.0, (bendSemitones + appliedPitchLfo) / 12.0);
+        * std::pow(2.0, (bendSemitones + appliedPitchLfo + pitchEnvelopeSemitones) / 12.0);
 
     std::array<bool, kOperatorCount> computed {};
     std::array<OperatorRender, kOperatorCount> outputs {};
