@@ -25,7 +25,16 @@ constexpr double kOppTlRampSeconds = 0.012;
 constexpr double kOppTlSubsteps = 8.0;
 constexpr double kOppTlMax = 127.0;
 constexpr double kCarrierMixGain = 0.86;
-constexpr double kVibratoOscPitchSensitivity = 3.0;
+constexpr std::array<double, 8> kDx21PitchSensitivitySemitones {
+    2.0,    // PMS=0 uses the DX21 vibrato oscillator path; measured like PMS=5.
+    0.125,
+    0.25,
+    0.5,
+    1.0,
+    2.0,
+    4.0,
+    8.0
+};
 constexpr std::array<int, 256> kLfoSampleAndHoldWaveform {
     0xff, 0xee, 0xd3, 0x80, 0x58, 0xda, 0x7f, 0x94, 0x9e, 0xe3, 0xfa, 0x00, 0x4d, 0xfa, 0xff, 0x6a,
     0x7a, 0xde, 0x49, 0xf6, 0x00, 0x33, 0xbb, 0x63, 0x91, 0x60, 0x51, 0xff, 0x00, 0xd8, 0x7f, 0xde,
@@ -162,9 +171,8 @@ double steppedModDepth(const double normalized, const std::array<double, 9>& tab
 double opmStylePitchModDepth(const int depth, const int sensitivity)
 {
     const double normalized = static_cast<double>(clampInt(depth, 0, 99)) / 99.0;
-    const double effectiveSensitivity = sensitivity == 0 ? kVibratoOscPitchSensitivity : static_cast<double>(sensitivity);
-    const double normalizedSensitivity = clampDouble(effectiveSensitivity, 0.0, 7.0) / 7.0;
-    return normalized * normalizedSensitivity * 8.0;
+    const auto sensitivityIndex = static_cast<std::size_t>(clampInt(sensitivity, 0, 7));
+    return normalized * kDx21PitchSensitivitySemitones[sensitivityIndex];
 }
 
 double opmStyleAmpModDepth(const int depth, const int sensitivity)

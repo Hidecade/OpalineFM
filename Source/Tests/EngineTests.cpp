@@ -237,7 +237,8 @@ std::array<std::uint8_t, dx21::kDx21VmemVoiceSize> makeTestVmem()
     vmem[42] = 33;
     vmem[43] = 44;
     vmem[44] = 55;
-    vmem[45] = static_cast<std::uint8_t>(2 | (6 << 2) | (3 << 5));
+    vmem[45] = static_cast<std::uint8_t>(2 | (3 << 2) | (6 << 4));
+    vmem[46] = 31;
 
     for (int block = 0; block < dx21::kOperatorCount; ++block)
     {
@@ -313,6 +314,14 @@ void testVmemDecodeAndPatchMerge()
     expect(decoded.patch.lfo.wave == 2, "decoder reads LFO wave");
     expect(decoded.patch.lfo.pitchSensitivity == 6, "decoder reads PMS");
     expect(decoded.patch.lfo.ampSensitivity == 3, "decoder reads AMS");
+    expect(decoded.patch.transpose == 7, "decoder reads VMEM transpose");
+
+    auto lfoNoiseVmem = vmem;
+    lfoNoiseVmem[45] = 115; // S/H wave, AMS=0, PMS=7.
+    const auto lfoNoise = dx21::decodeDx21VmemVoice(lfoNoiseVmem);
+    expect(lfoNoise.patch.lfo.wave == 3, "decoder reads S/H wave from B07-style LFO byte");
+    expect(lfoNoise.patch.lfo.ampSensitivity == 0, "decoder reads AMS=0 from B07-style LFO byte");
+    expect(lfoNoise.patch.lfo.pitchSensitivity == 7, "decoder reads PMS=7 from B07-style LFO byte");
 
     expect(decoded.patch.operators[3].envelope.attackRate == 10, "VMEM block 0 maps to OP4");
     expect(decoded.patch.operators[1].envelope.attackRate == 11, "VMEM block 1 maps to OP2");
@@ -332,7 +341,7 @@ void testVmemDecodeAndPatchMerge()
     preset.vmem = vmem;
     auto merged = dx21::withVmemPreset(base, preset);
     expect(merged.name == "MERGED", "withVmemPreset applies preset name");
-    expect(merged.patch.transpose == -7, "withVmemPreset preserves base transpose");
+    expect(merged.patch.transpose == 7, "withVmemPreset applies VMEM transpose");
     expect(merged.hasVmem, "withVmemPreset keeps raw VMEM backing");
 
     dx21::clearVmemPreset(merged);
@@ -351,6 +360,7 @@ void testSysexEncoding()
     expect(roundTrip.patch.algorithm == decoded.patch.algorithm, "VMEM encoder preserves algorithm");
     expect(roundTrip.patch.feedback == decoded.patch.feedback, "VMEM encoder preserves feedback");
     expect(roundTrip.patch.lfo.wave == decoded.patch.lfo.wave, "VMEM encoder preserves LFO wave");
+    expect(roundTrip.patch.transpose == decoded.patch.transpose, "VMEM encoder preserves transpose");
     expect(roundTrip.patch.operators[0].level == decoded.patch.operators[0].level,
            "VMEM encoder preserves operator level");
 

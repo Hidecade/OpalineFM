@@ -542,7 +542,13 @@ void MainComponent::Dx21LookAndFeel::drawLinearSlider(juce::Graphics& g,
                    panel.withTrimmedLeft(panel.getWidth() * 0.55f).withTrimmedTop(panel.getHeight() - 22.0f),
                    juce::Justification::centred);
 
-        const auto valueY = juce::jlimit(slot.getY() + 10.0f, slot.getBottom() - 10.0f, sliderPos);
+        const double sliderRange = slider.getMaximum() - slider.getMinimum();
+        const double normalizedValue = sliderRange > 0.0
+            ? (slider.getValue() - slider.getMinimum()) / sliderRange
+            : 0.0;
+        const float valueY = juce::jmap(static_cast<float>(juce::jlimit(0.0, 1.0, normalizedValue)),
+                                        slot.getBottom() - 10.0f,
+                                        slot.getY() + 10.0f);
         const auto grip = juce::Rectangle<float>(panel.getX() + 2.0f, valueY - 9.0f, panel.getWidth() * 0.44f, 18.0f);
         g.setGradientFill(juce::ColourGradient(juce::Colour(0xffeef6ff),
                                                grip.getX(),
@@ -2134,7 +2140,6 @@ void MainComponent::applySelectedVoice()
     const int index = juce::jlimit(0, static_cast<int>(factoryVoices.size()) - 1, voiceSelect.getSelectedId() - 1);
     performanceState.voiceAIndex = index;
     currentPatch = factoryVoices[static_cast<std::size_t>(index)].patch;
-    currentPatch.transpose = static_cast<int>(transposeSlider.getValue());
 
     syncUiFromPatch();
     applyPatchToEngine();
@@ -2192,9 +2197,7 @@ dx21::Dx21Patch MainComponent::patchForVoiceIndex(const int index) const
         return dx21::Dx21Patch {};
 
     const int safeIndex = juce::jlimit(0, static_cast<int>(factoryVoices.size()) - 1, index);
-    auto patch = factoryVoices[static_cast<std::size_t>(safeIndex)].patch;
-    patch.transpose = static_cast<int>(transposeSlider.getValue());
-    return patch;
+    return factoryVoices[static_cast<std::size_t>(safeIndex)].patch;
 }
 
 juce::String MainComponent::performanceVoiceText(const int index) const

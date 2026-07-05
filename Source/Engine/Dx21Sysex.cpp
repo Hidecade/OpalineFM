@@ -129,8 +129,9 @@ Dx21PatchWithMetadata decodeDx21VmemVoice(const std::array<std::uint8_t, kDx21Vm
 
     const auto packedLfo = vmem[45];
     patch.lfo.wave = packedLfo & 0x03u;
-    patch.lfo.pitchSensitivity = (packedLfo >> 2) & 0x07u;
-    patch.lfo.ampSensitivity = (packedLfo >> 5) & 0x03u;
+    patch.lfo.ampSensitivity = (packedLfo >> 2) & 0x03u;
+    patch.lfo.pitchSensitivity = (packedLfo >> 4) & 0x07u;
+    patch.transpose = clampInt(static_cast<int>(vmem[46]), 0, 48) - 24;
 
     for (int block = 0; block < kOperatorCount; ++block)
     {
@@ -161,8 +162,9 @@ std::array<std::uint8_t, kDx21VmemVoiceSize> encodeDx21VmemVoice(const Dx21Patch
     vmem[43] = static_cast<std::uint8_t>(clampInt(patch.lfo.pitchDepth, 0, 99));
     vmem[44] = static_cast<std::uint8_t>(clampInt(patch.lfo.ampDepth, 0, 99));
     vmem[45] = static_cast<std::uint8_t>(clampInt(patch.lfo.wave, 0, 3)
-        | (clampInt(patch.lfo.pitchSensitivity, 0, 7) << 2)
-        | (clampInt(patch.lfo.ampSensitivity, 0, 3) << 5));
+        | (clampInt(patch.lfo.ampSensitivity, 0, 3) << 2)
+        | (clampInt(patch.lfo.pitchSensitivity, 0, 7) << 4));
+    vmem[46] = static_cast<std::uint8_t>(clampInt(patch.transpose, -24, 24) + 24);
     writeVoiceName(vmem, voice.name.empty() ? "INIT VOICE" : voice.name);
     return vmem;
 }
@@ -197,7 +199,6 @@ Dx21PatchWithMetadata withVmemPreset(const Dx21Patch& basePatch, const Dx21VmemP
     if (!preset.name.empty())
         patch.name = preset.name;
 
-    patch.patch.transpose = basePatch.transpose;
     return patch;
 }
 
