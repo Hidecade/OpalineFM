@@ -19,6 +19,7 @@ public:
     void noteOff(int note);
     void setPitchBend(double value);
     void setModWheel(double value);
+    void setRenderModel(Dx21RenderModel model) { renderModel = model; }
     void panic();
 
     void renderBlock(float* left, float* right, int numSamples);
@@ -46,6 +47,7 @@ private:
     int maxVoiceCount = kDefaultMaxVoices;
     double pitchBend = 0.0;
     double modWheel = 0.0;
+    Dx21RenderModel renderModel = Dx21RenderModel::Current;
     double globalLfoAge = 0.0;
     double chorusPhase = 0.0;
     double toneLeft = 0.0;

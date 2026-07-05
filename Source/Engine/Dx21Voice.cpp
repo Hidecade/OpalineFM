@@ -15,6 +15,10 @@ constexpr double kCarrierLevelDbRange = 48.0;
 constexpr double kModulatorIndexScale = 1.08;
 constexpr double kModulatorIndexBlend = 0.08;
 constexpr double kModulatorIndexExponent = 2.2;
+constexpr double kOpmTlDbPerStep = 0.75;
+constexpr double kChipLevelBlend = 0.50;
+constexpr double kChipModulatorBlend = 0.50;
+constexpr double kChipModulatorIndexScale = 1.08;
 constexpr double kModulatorAttackSoftenSeconds = 0.003;
 constexpr double kModulatorAttackInitialScale = 0.96;
 constexpr double kOpmPhaseSteps = 1048576.0;
@@ -66,6 +70,51 @@ double outputLevelToCarrierAmplitude(const double level)
     return std::pow(10.0, -((1.0 - normalized) * kCarrierLevelDbRange) / 20.0);
 }
 
+double amplitudeToDb(const double amplitude)
+{
+    return -20.0 * std::log10(std::max(amplitude, 1.0e-9));
+}
+
+double dbToAmplitude(const double db)
+{
+    return std::pow(10.0, -db / 20.0);
+}
+
+double dx21LevelToOpmTl(const double level)
+{
+    return std::round((1.0 - clampDouble(level, 0.0, 99.0) / 99.0) * kOppTlMax);
+}
+
+double opmTlToDb(const double tl)
+{
+    return clampDouble(tl, 0.0, kOppTlMax) * kOpmTlDbPerStep;
+}
+
+double opmTlToAmplitude(const double tl)
+{
+    return dbToAmplitude(opmTlToDb(tl));
+}
+
+double outputLevelToCarrierAmplitudeChipLike(const double level)
+{
+    return opmTlToAmplitude(dx21LevelToOpmTl(level));
+}
+
+double outputLevelToCarrierAmplitudeHybrid(const double level)
+{
+    const double oldDb = amplitudeToDb(outputLevelToCarrierAmplitude(level));
+    const double chipDb = amplitudeToDb(outputLevelToCarrierAmplitudeChipLike(level));
+    return dbToAmplitude(oldDb * (1.0 - kChipLevelBlend) + chipDb * kChipLevelBlend);
+}
+
+double outputLevelToCarrierAmplitudeForModel(const double level, const Dx21RenderModel renderModel)
+{
+    if (renderModel == Dx21RenderModel::ChipHybrid)
+        return outputLevelToCarrierAmplitudeHybrid(level);
+
+    return outputLevelToCarrierAmplitude(level);
+}
+
 double outputLevelToModulatorIndex(const double level)
 {
     const double carrierAmp = outputLevelToCarrierAmplitude(level);
@@ -75,6 +124,26 @@ double outputLevelToModulatorIndex(const double level)
 
     const double shapedIndex = std::pow(normalized, kModulatorIndexExponent);
     return carrierAmp * kModulatorIndexScale + shapedIndex * kModulatorIndexBlend;
+}
+
+double outputLevelToModulatorIndexChipLike(const double level)
+{
+    return outputLevelToCarrierAmplitudeChipLike(level) * kChipModulatorIndexScale;
+}
+
+double outputLevelToModulatorIndexHybrid(const double level)
+{
+    const double oldIndex = outputLevelToModulatorIndex(level);
+    const double chipIndex = outputLevelToModulatorIndexChipLike(level);
+    return oldIndex * (1.0 - kChipModulatorBlend) + chipIndex * kChipModulatorBlend;
+}
+
+double outputLevelToModulatorIndexForModel(const double level, const Dx21RenderModel renderModel)
+{
+    if (renderModel == Dx21RenderModel::ChipHybrid)
+        return outputLevelToModulatorIndexHybrid(level);
+
+    return outputLevelToModulatorIndex(level);
 }
 
 double keyboardScaledLevel(const double level, const int levelScale, const int note)
@@ -366,6 +435,7 @@ OperatorRender Dx21Voice::renderOperator(const int opIndex,
                                          const double baseFrequency,
                                          const double ampDepth,
                                          const double lfoAm,
+                                         const Dx21RenderModel renderModel,
                                          std::array<bool, kOperatorCount>& computed,
                                          std::array<OperatorRender, kOperatorCount>& outputs)
 {
@@ -385,7 +455,7 @@ OperatorRender Dx21Voice::renderOperator(const int opIndex,
     for (int i = 0; i < algorithm.depCounts[opSize]; ++i)
     {
         const int dep = algorithm.deps[opSize][static_cast<std::size_t>(i)];
-        phaseModulation += renderOperator(dep, patch, algorithm, baseFrequency, ampDepth, lfoAm, computed, outputs).modulation;
+        phaseModulation += renderOperator(dep, patch, algorithm, baseFrequency, ampDepth, lfoAm, renderModel, computed, outputs).modulation;
     }
 
     const double feedback = opIndex == 3
@@ -405,8 +475,9 @@ OperatorRender Dx21Voice::renderOperator(const int opIndex,
     const double carrierVelocityFactor = operatorVelocityFactor(op.velocity, noteVelocity, true);
     const double modulatorVelocityFactor = operatorVelocityFactor(op.velocity, noteVelocity, false);
     const double ampMod = op.ampModEnable ? operatorAmpModFactor(ampDepth, lfoAm) : 1.0;
-    const double carrierAmp = outputLevelToCarrierAmplitude(scaledLevel) * envelopeAmp * carrierVelocityFactor * ampMod;
-    const double modulatorIndex = outputLevelToModulatorIndex(scaledLevel) * envelopeAmp
+    const double carrierAmp = outputLevelToCarrierAmplitudeForModel(scaledLevel, renderModel)
+        * envelopeAmp * carrierVelocityFactor * ampMod;
+    const double modulatorIndex = outputLevelToModulatorIndexForModel(scaledLevel, renderModel) * envelopeAmp
         * (carrier ? carrierVelocityFactor : modulatorVelocityFactor) * ampMod
         * modulatorAttackSoftening(ageSeconds);
 
@@ -426,7 +497,8 @@ OperatorRender Dx21Voice::renderOperator(const int opIndex,
 double Dx21Voice::render(const Dx21Patch& patch,
                          const double pitchBend,
                          const double modWheel,
-                         const double globalLfoAge)
+                         const double globalLfoAge,
+                         const Dx21RenderModel renderModel)
 {
     ageSeconds += 1.0 / currentSampleRate;
 
@@ -455,7 +527,7 @@ double Dx21Voice::render(const Dx21Patch& patch,
     for (int i = 0; i < algorithm.carrierCount; ++i)
     {
         const int carrier = algorithm.carriers[static_cast<std::size_t>(i)];
-        sum += renderOperator(carrier, patch, algorithm, baseFrequency, ampDepth, lfo.first, computed, outputs).audio;
+        sum += renderOperator(carrier, patch, algorithm, baseFrequency, ampDepth, lfo.first, renderModel, computed, outputs).audio;
     }
 
     if (!std::isfinite(sum))

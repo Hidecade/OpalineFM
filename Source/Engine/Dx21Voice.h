@@ -25,7 +25,11 @@ public:
     void release();
     bool isActive() const;
     int note() const { return midiNote; }
-    double render(const Dx21Patch& patch, double pitchBend, double modWheel, double globalLfoAge);
+    double render(const Dx21Patch& patch,
+                  double pitchBend,
+                  double modWheel,
+                  double globalLfoAge,
+                  Dx21RenderModel renderModel);
 
 private:
     OperatorRender renderOperator(int opIndex,
@@ -34,6 +38,7 @@ private:
                                   double baseFrequency,
                                   double ampDepth,
                                   double lfoAm,
+                                  Dx21RenderModel renderModel,
                                   std::array<bool, kOperatorCount>& computed,
                                   std::array<OperatorRender, kOperatorCount>& outputs);
     double nextOperatorLevel(int index, int targetLevel);

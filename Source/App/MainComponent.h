@@ -243,6 +243,9 @@ private:
     void updatePatchFromGlobalControls();
     void applyPatchToEngine();
     void applyPerformanceModeToEngines();
+    dx21::Dx21RenderModel currentRenderModel() const;
+    void applyRenderModelToEnginesNoLock();
+    void refreshEngineModelButton();
     dx21app::SynthState captureSynthState() const;
     void applySynthState(const dx21app::SynthState& state);
     void updatePerformanceFromControls();
@@ -297,6 +300,7 @@ private:
     juce::TextButton saveVoiceBankButton { "Save" };
     juce::TextButton exportVoiceLibraryButton { "Export" };
     juce::TextButton storeVoiceButton { "Store" };
+    juce::TextButton engineModelButton { "OLD" };
     juce::ToggleButton lfoSyncButton { "Sync" };
     juce::Slider volumeSlider;
     juce::Slider transposeSlider;
@@ -391,6 +395,7 @@ private:
     double currentModWheel = 0.0;
     bool powerOn = false;
     bool audioStarted = false;
+    bool chipRenderModel = false;
     bool syncingUi = false;
     juce::String midiStatus = "MIDI: not connected";
     juce::String audioStatus = "Audio: off";

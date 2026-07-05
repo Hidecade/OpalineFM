@@ -79,6 +79,12 @@ struct StereoSample
     float right = 0.0f;
 };
 
+enum class Dx21RenderModel
+{
+    Current,
+    ChipHybrid
+};
+
 Dx21Patch normalizePatch(const Dx21Patch& patch);
 double midiNoteToFrequency(double midiNote);
 double clampDouble(double value, double low, double high);

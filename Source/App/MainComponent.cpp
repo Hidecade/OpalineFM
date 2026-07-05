@@ -1578,6 +1578,12 @@ MainComponent::MainComponent()
     powerButton.addListener(this);
     addAndMakeVisible(powerButton);
 
+    engineModelButton.setClickingTogglesState(true);
+    engineModelButton.setName("voiceBankButton");
+    engineModelButton.addListener(this);
+    refreshEngineModelButton();
+    addAndMakeVisible(engineModelButton);
+
     setupLabel(volumeLabel, "Volume");
     volumeLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(volumeLabel);
@@ -1802,6 +1808,7 @@ void MainComponent::prepareToPlay(int, const double sampleRate)
     audioSampleRate = sampleRate > 0.0 ? sampleRate : 44100.0;
     engine.prepare(audioSampleRate, performanceState.mode == PerformanceMode::Single ? 8 : 4);
     performanceEngineB.prepare(audioSampleRate, 4);
+    applyRenderModelToEnginesNoLock();
     engine.setPatch(currentPatch);
     performanceEngineB.setPatch(patchForVoiceIndex(performanceState.voiceBIndex));
 }
@@ -1874,6 +1881,8 @@ void MainComponent::resized()
     titleLabel.setBounds(header.removeFromLeft(210));
     powerButton.setBounds(header.removeFromRight(82));
     header.removeFromRight(10);
+    engineModelButton.setBounds(header.removeFromRight(64));
+    header.removeFromRight(8);
     midiInputSelect.setBounds(header.removeFromRight(180));
     header.removeFromRight(8);
     audioOutputSelect.setBounds(header.removeFromRight(235));
@@ -2459,11 +2468,13 @@ void MainComponent::applyPerformanceModeToEngines()
     const int voiceCount = performanceState.mode == PerformanceMode::Single ? 8 : 4;
     engine.prepare(audioSampleRate, voiceCount);
     performanceEngineB.prepare(audioSampleRate, 4);
+    applyRenderModelToEnginesNoLock();
 }
 
 void MainComponent::applyPatchToEngine()
 {
     std::lock_guard<std::mutex> lock(engineMutex);
+    applyRenderModelToEnginesNoLock();
     engine.setPatch(currentPatch);
     performanceEngineB.setPatch(patchForVoiceIndex(performanceState.voiceBIndex));
     engine.setPitchBend(currentPitchBend);
@@ -2471,6 +2482,29 @@ void MainComponent::applyPatchToEngine()
     performanceEngineB.setPitchBend(juce::jlimit(-1.0, 1.0, currentPitchBend + static_cast<double>(performanceState.dualDetune) / 64.0));
     performanceEngineB.setModWheel(currentModWheel);
     refreshLcd();
+}
+
+dx21::Dx21RenderModel MainComponent::currentRenderModel() const
+{
+    return chipRenderModel ? dx21::Dx21RenderModel::ChipHybrid : dx21::Dx21RenderModel::Current;
+}
+
+void MainComponent::applyRenderModelToEnginesNoLock()
+{
+    const auto model = currentRenderModel();
+    engine.setRenderModel(model);
+    performanceEngineB.setRenderModel(model);
+}
+
+void MainComponent::refreshEngineModelButton()
+{
+    engineModelButton.setButtonText(chipRenderModel ? "NEW" : "OLD");
+    engineModelButton.setToggleState(chipRenderModel, juce::dontSendNotification);
+    engineModelButton.setColour(juce::TextButton::buttonColourId,
+                                chipRenderModel ? juce::Colour(0xff243d38) : juce::Colour(0xff1c1a15));
+    engineModelButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff0aa878));
+    engineModelButton.setColour(juce::TextButton::textColourOffId, chipRenderModel ? juce::Colours::white : kTextPrimary);
+    engineModelButton.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
 }
 
 void MainComponent::setupSlider(juce::Slider& slider,
@@ -2574,6 +2608,7 @@ void MainComponent::refreshStatus()
                         : performanceState.mode == PerformanceMode::Dual ? "DUAL"
                         : "SPLIT";
     statusLabel.setText(audioStatus + "   " + midiStatus + "   Perf: " + modeName
+                            + "   Engine: " + (chipRenderModel ? "NEW" : "OLD")
                             + "   Bank: " + juce::String(currentVoiceBankIndex + 1)
                             + "   Voices: " + juce::String(factoryVoices.size())
                             + "   LFO: " + lfoWaveName(currentPatch.lfo.wave),
@@ -3174,6 +3209,14 @@ void MainComponent::buttonClicked(juce::Button* button)
     {
         updatePatchFromGlobalControls();
         applyPatchToEngine();
+    }
+    else if (button == &engineModelButton)
+    {
+        chipRenderModel = engineModelButton.getToggleState();
+        refreshEngineModelButton();
+        allNotesOff();
+        applyPatchToEngine();
+        refreshStatus();
     }
     else if (button == &loadVoiceBankButton)
     {

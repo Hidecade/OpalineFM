@@ -220,7 +220,7 @@ StereoSample Dx21Engine::renderSample()
     double mixed = 0.0;
 
     for (auto& voice : voices)
-        mixed += voice.render(patch, pitchBend, modWheel, globalLfoAge);
+        mixed += voice.render(patch, pitchBend, modWheel, globalLfoAge, renderModel);
 
     voices.erase(std::remove_if(voices.begin(),
                                 voices.end(),
