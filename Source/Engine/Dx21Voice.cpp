@@ -40,6 +40,16 @@ constexpr std::array<double, 8> kDx21PitchSensitivitySemitones {
     4.0,
     8.0
 };
+constexpr std::array<double, 8> kOpmPitchSensitivitySemitones {
+    2.0,    // PMS=0 uses the DX21 VIBRATO OSC path instead of the selected LFO wave.
+    0.05,
+    0.10,
+    0.20,
+    0.50,
+    1.00,
+    4.00,
+    7.00
+};
 
 int nextNukedOpmNoiseInjectedBit(std::uint32_t& noiseLfsr, int& noiseBit)
 {
@@ -73,6 +83,11 @@ double outputLevelToCarrierAmplitude(const double level)
 double amplitudeToDb(const double amplitude)
 {
     return -20.0 * std::log10(std::max(amplitude, 1.0e-9));
+}
+
+double amplitudeFactorToDbOffset(const double factor)
+{
+    return -20.0 * std::log10(std::max(factor, 1.0e-9));
 }
 
 double dbToAmplitude(const double db)
@@ -154,6 +169,16 @@ double keyboardScaledLevel(const double level, const int levelScale, const int n
 
     const double highKeyAmount = clampDouble((static_cast<double>(note) - 60.0) / 36.0, 0.0, 1.0);
     return clampDouble(level - highKeyAmount * scale * 0.45, 0.0, 99.0);
+}
+
+double keyboardScaleTlOffset(const int note, const int levelScale)
+{
+    const double scale = clampDouble(static_cast<double>(levelScale), 0.0, 99.0);
+    if (scale <= 0.0)
+        return 0.0;
+
+    const double highKeyAmount = clampDouble((static_cast<double>(note) - 60.0) / 36.0, 0.0, 1.0);
+    return highKeyAmount * scale * 0.45 * kOppTlMax / 99.0;
 }
 
 double operatorAmpModFactor(const double depth, const double shapeValue)
@@ -246,6 +271,21 @@ double opmStylePitchModDepth(const int depth, const int sensitivity)
     const double normalized = static_cast<double>(clampInt(depth, 0, 99)) / 99.0;
     const auto sensitivityIndex = static_cast<std::size_t>(clampInt(sensitivity, 0, 7));
     return normalized * kDx21PitchSensitivitySemitones[sensitivityIndex];
+}
+
+double chipStylePitchModDepth(const int depth, const int sensitivity)
+{
+    const double normalized = static_cast<double>(clampInt(depth, 0, 99)) / 99.0;
+    const auto sensitivityIndex = static_cast<std::size_t>(clampInt(sensitivity, 0, 7));
+    return normalized * kOpmPitchSensitivitySemitones[sensitivityIndex];
+}
+
+double pitchModDepthForModel(const int depth, const int sensitivity, const Dx21RenderModel renderModel)
+{
+    if (renderModel == Dx21RenderModel::ChipHybrid)
+        return chipStylePitchModDepth(depth, sensitivity);
+
+    return opmStylePitchModDepth(depth, sensitivity);
 }
 
 double opmStyleAmpModDepth(const int depth, const int sensitivity)
@@ -372,6 +412,11 @@ bool Dx21Voice::isActive() const
 
 double Dx21Voice::nextOperatorLevel(const int index, const int targetLevel)
 {
+    return oppTlUnitsToLevel(nextOperatorTl(index, targetLevel) * kOppTlSubsteps);
+}
+
+double Dx21Voice::nextOperatorTl(const int index, const int targetLevel)
+{
     const auto opSize = static_cast<std::size_t>(index);
     double current = operatorOppTlUnits[opSize];
     const double target = levelToOppTlTarget(targetLevel);
@@ -405,7 +450,7 @@ double Dx21Voice::nextOperatorLevel(const int index, const int targetLevel)
         operatorTlAccumulators[opSize] -= stepInterval;
 
     operatorOppTlUnits[opSize] = clampDouble(current, 0.0, kOppTlMax * kOppTlSubsteps);
-    return oppTlUnitsToLevel(operatorOppTlUnits[opSize]);
+    return operatorOppTlUnits[opSize] / kOppTlSubsteps;
 }
 
 double Dx21Voice::nextPitchModulation(const double pitchLfo)
@@ -469,17 +514,48 @@ OperatorRender Dx21Voice::renderOperator(const int opIndex,
         phases[opSize] -= 2.0 * kPi;
 
     const double envelopeAmp = envelopes[opSize].next();
-    const double level = nextOperatorLevel(opIndex, op.level);
-    const double scaledLevel = keyboardScaledLevel(level, op.levelScale, midiNote);
     const bool carrier = isCarrierOperator(algorithm, opIndex);
     const double carrierVelocityFactor = operatorVelocityFactor(op.velocity, noteVelocity, true);
     const double modulatorVelocityFactor = operatorVelocityFactor(op.velocity, noteVelocity, false);
     const double ampMod = op.ampModEnable ? operatorAmpModFactor(ampDepth, lfoAm) : 1.0;
-    const double carrierAmp = outputLevelToCarrierAmplitudeForModel(scaledLevel, renderModel)
-        * envelopeAmp * carrierVelocityFactor * ampMod;
-    const double modulatorIndex = outputLevelToModulatorIndexForModel(scaledLevel, renderModel) * envelopeAmp
-        * (carrier ? carrierVelocityFactor : modulatorVelocityFactor) * ampMod
-        * modulatorAttackSoftening(ageSeconds);
+    double carrierAmp = 0.0;
+    double modulatorIndex = 0.0;
+
+    if (renderModel == Dx21RenderModel::ChipHybrid)
+    {
+        const double tl = nextOperatorTl(opIndex, op.level);
+        const double smoothedLevel = oppTlUnitsToLevel(tl * kOppTlSubsteps);
+        const double oldScaledLevel = keyboardScaledLevel(smoothedLevel, op.levelScale, midiNote);
+        const double chipTl = clampDouble(tl + keyboardScaleTlOffset(midiNote, op.levelScale), 0.0, kOppTlMax);
+        const double envelopeDb = amplitudeFactorToDbOffset(envelopeAmp);
+        const double ampModDb = op.ampModEnable ? amplitudeFactorToDbOffset(ampMod) : 0.0;
+
+        const double oldCarrierLevelDb = amplitudeToDb(outputLevelToCarrierAmplitude(oldScaledLevel));
+        const double chipCarrierLevelDb = opmTlToDb(chipTl);
+        const double carrierLevelDb = oldCarrierLevelDb * (1.0 - kChipLevelBlend) + chipCarrierLevelDb * kChipLevelBlend;
+        const double carrierVelocityDb = amplitudeFactorToDbOffset(carrierVelocityFactor);
+        carrierAmp = dbToAmplitude(carrierLevelDb + envelopeDb + carrierVelocityDb + ampModDb);
+
+        const double oldModulatorIndex = outputLevelToModulatorIndex(oldScaledLevel);
+        const double chipModulatorDb = opmTlToDb(chipTl) + envelopeDb
+            + amplitudeFactorToDbOffset(carrier ? carrierVelocityFactor : modulatorVelocityFactor) + ampModDb;
+        const double chipModulatorIndex = dbToAmplitude(chipModulatorDb) * kChipModulatorIndexScale;
+        modulatorIndex = oldModulatorIndex * envelopeAmp
+                * (carrier ? carrierVelocityFactor : modulatorVelocityFactor) * ampMod
+                * (1.0 - kChipModulatorBlend)
+            + chipModulatorIndex * kChipModulatorBlend;
+        modulatorIndex *= modulatorAttackSoftening(ageSeconds);
+    }
+    else
+    {
+        const double level = nextOperatorLevel(opIndex, op.level);
+        const double scaledLevel = keyboardScaledLevel(level, op.levelScale, midiNote);
+        carrierAmp = outputLevelToCarrierAmplitudeForModel(scaledLevel, renderModel)
+            * envelopeAmp * carrierVelocityFactor * ampMod;
+        modulatorIndex = outputLevelToModulatorIndexForModel(scaledLevel, renderModel) * envelopeAmp
+            * (carrier ? carrierVelocityFactor : modulatorVelocityFactor) * ampMod
+            * modulatorAttackSoftening(ageSeconds);
+    }
 
     const double wave = sineLookup(phases[opSize] + opmPhaseBusToRadians(phaseModulation) + feedback);
     const OperatorRender value { wave * carrierAmp, wave * modulatorIndex * kOpmOperatorBusPeak };
@@ -511,7 +587,7 @@ double Dx21Voice::render(const Dx21Patch& patch,
         ? dx21LfoShape(lfoPhase, 2)
         : lfo;
     const double delay = lfoDelayFactor(patch.lfo.delay, ageSeconds);
-    const double pitchLfo = opmStylePitchModDepth(patch.lfo.pitchDepth, patch.lfo.pitchSensitivity) * delay
+    const double pitchLfo = pitchModDepthForModel(patch.lfo.pitchDepth, patch.lfo.pitchSensitivity, renderModel) * delay
         * (0.35 + modWheel * 0.65) * pitchLfoShape.second;
     const double ampDepth = opmStyleAmpModDepth(patch.lfo.ampDepth, patch.lfo.ampSensitivity) * delay;
     const double appliedPitchLfo = nextPitchModulation(pitchLfo);

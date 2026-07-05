@@ -42,6 +42,7 @@ private:
                                   std::array<bool, kOperatorCount>& computed,
                                   std::array<OperatorRender, kOperatorCount>& outputs);
     double nextOperatorLevel(int index, int targetLevel);
+    double nextOperatorTl(int index, int targetLevel);
     double nextPitchModulation(double pitchLfo);
     std::pair<double, double> nextSampleAndHoldLfoShape(double phase);
 
