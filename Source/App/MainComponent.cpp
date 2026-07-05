@@ -1925,13 +1925,13 @@ void MainComponent::resized()
     bRow.removeFromLeft(2);
     voiceBSelect.setBounds(bRow);
 
-    constexpr int knobSize = 48;
+    constexpr int knobSize = 54;
     constexpr int knobLabelHeight = 15;
     constexpr int knobCellWidth = 32;
     constexpr int knobCellHeight = 80;
     auto controlsPanel = top.reduced(4, 0);
     const auto controlsPanelBounds = controlsPanel;
-    constexpr int voicePanelWidth = 128;
+    constexpr int voicePanelWidth = 150;
     constexpr int minimumKnobGroupWidth = 118;
     const int sharedKnobGroupWidth = juce::jmax(minimumKnobGroupWidth,
                                                 (controlsPanel.getWidth() - voicePanelWidth) / 3);
@@ -1967,19 +1967,19 @@ void MainComponent::resized()
     algorithmLabel.setBounds(voiceContent.getX(), voiceContent.getY(), voiceContent.getWidth(), 22);
     algorithmView.setBounds(voiceContent.getX(), voiceContent.getY() + 28, 84, 84);
     pegGraph.setBounds(voiceContent.getX(), voiceContent.getY() + 124, 84, 64);
-    const int voiceKnobX = voiceContent.getRight() - knobCellWidth - 2;
-    layoutKnob(juce::Rectangle<int>(voiceKnobX, knobRow1Y, knobCellWidth, knobCellHeight).reduced(1),
-               algorithmLabel,
-               algorithmSlider);
-    layoutKnob(juce::Rectangle<int>(voiceKnobX, knobRow2Y, knobCellWidth, knobCellHeight).reduced(1),
-               feedbackLabel,
-               feedbackSlider);
-
     auto pegContent = peg.reduced(0, 0);
-    pegTitleLabel.setBounds(pegContent.getX() + 3, controlsPanelBounds.getY(), pegContent.getWidth() - 6, 24);
     const int pegTopY = knobRow1Y;
     const int pegCellWidth = juce::jmax(32, pegContent.getWidth() / 3);
     const int pegCellHeight = knobCellHeight;
+    const int voiceKnobX = pegContent.getX() - pegCellWidth;
+    layoutKnob(juce::Rectangle<int>(voiceKnobX, knobRow1Y, pegCellWidth, knobCellHeight).reduced(1),
+               algorithmLabel,
+               algorithmSlider);
+    layoutKnob(juce::Rectangle<int>(voiceKnobX, knobRow2Y, pegCellWidth, knobCellHeight).reduced(1),
+               feedbackLabel,
+               feedbackSlider);
+
+    pegTitleLabel.setBounds(pegContent.getX() + 3, controlsPanelBounds.getY(), pegContent.getWidth() - 6, 24);
     std::array<juce::Label*, 6> pegLabels { &pegRate1Label, &pegRate2Label, &pegRate3Label,
                                             &pegLevel1Label, &pegLevel2Label, &pegLevel3Label };
     std::array<juce::Slider*, 6> pegSliders { &pegRate1Slider, &pegRate2Slider, &pegRate3Slider,
