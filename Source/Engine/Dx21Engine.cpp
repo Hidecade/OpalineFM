@@ -1,4 +1,4 @@
-#include "Engine/Dx21Engine.h"
+﻿#include "Engine/Dx21Engine.h"
 
 #include <algorithm>
 #include <cmath>
@@ -7,6 +7,7 @@ namespace dx21
 {
 namespace
 {
+// 最終段の余裕を残すための全体ゲインと、簡易エフェクト用の最大ディレイ長。
 constexpr double kOutputGain = 0.56;
 constexpr double kMaxDelaySeconds = 0.8;
 constexpr double kMaxChorusSeconds = 0.04;
@@ -17,6 +18,8 @@ void Dx21Engine::prepare(const double sampleRate, const int maxVoices)
 {
     currentSampleRate = sampleRate > 0.0 ? sampleRate : 44100.0;
     maxVoiceCount = clampInt(maxVoices, 1, 32);
+
+    // サンプルレート変更時はエフェクト用リングバッファを作り直す。
     delayBufferLeft.assign(static_cast<std::size_t>(std::ceil(currentSampleRate * kMaxDelaySeconds)) + 4, 0.0);
     delayBufferRight.assign(delayBufferLeft.size(), 0.0);
     chorusBufferLeft.assign(static_cast<std::size_t>(std::ceil(currentSampleRate * kMaxChorusSeconds)) + 4, 0.0);

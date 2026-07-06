@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "Engine/Dx21Types.h"
 
@@ -9,6 +9,7 @@
 
 namespace dx21
 {
+// DX21 32音色バルクVMEMの固定サイズ。
 constexpr int kDx21BulkVoiceCount = 32;
 constexpr int kDx21VmemVoiceSize = 128;
 constexpr int kDx21BulkVoiceDataOffset = 6;
@@ -23,6 +24,7 @@ struct Dx21VmemPreset
 
 struct Dx21PatchWithMetadata
 {
+    // patchは編集用、vmemは元SysExを保つためのバックアップ。
     Dx21Patch patch;
     std::string name;
     bool hasVmem = false;

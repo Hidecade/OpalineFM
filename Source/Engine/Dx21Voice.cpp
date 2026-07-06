@@ -1,4 +1,4 @@
-#include "Engine/Dx21Voice.h"
+﻿#include "Engine/Dx21Voice.h"
 
 #include "Engine/Dx21Tables.h"
 
@@ -11,12 +11,12 @@ namespace dx21
 {
 namespace
 {
+// LEVEL、TL、変調指数の調整係数。ChipHybridでは従来値とOPM風の値を混ぜる。
 constexpr double kCarrierLevelDbRange = 48.0;
 constexpr double kModulatorIndexScale = 1.08;
 constexpr double kModulatorIndexBlend = 0.08;
 constexpr double kModulatorIndexExponent = 2.2;
 constexpr double kOpmTlDbPerStep = 0.75;
-constexpr double kOpmOperatorAttenuationDbPerStep = 0.1875;
 constexpr double kOpmLogAttenuationDbPerStep = 6.020599913279624 / 256.0;
 constexpr double kOpmEgDbRange = 128.0;
 constexpr double kOpmEgIndexMax = 1023.0;
@@ -102,6 +102,7 @@ double dbToAmplitude(const double db)
 
 double dx21LevelToOpmTl(const double level)
 {
+    // DX21のLEVEL 0..99を、OPMのTL 0..127へ写像する。TLは小さいほど音量が大きい。
     return std::round((1.0 - clampDouble(level, 0.0, 99.0) / 99.0) * kOppTlMax);
 }
 
@@ -120,21 +121,6 @@ double outputLevelToCarrierAmplitudeChipLike(const double level)
     return opmTlToAmplitude(dx21LevelToOpmTl(level));
 }
 
-double outputLevelToCarrierAmplitudeHybrid(const double level)
-{
-    const double oldDb = amplitudeToDb(outputLevelToCarrierAmplitude(level));
-    const double chipDb = amplitudeToDb(outputLevelToCarrierAmplitudeChipLike(level));
-    return dbToAmplitude(oldDb * (1.0 - kChipLevelBlend) + chipDb * kChipLevelBlend);
-}
-
-double outputLevelToCarrierAmplitudeForModel(const double level, const Dx21RenderModel renderModel)
-{
-    if (renderModel == Dx21RenderModel::ChipHybrid)
-        return outputLevelToCarrierAmplitudeHybrid(level);
-
-    return outputLevelToCarrierAmplitude(level);
-}
-
 double outputLevelToModulatorIndex(const double level)
 {
     const double carrierAmp = outputLevelToCarrierAmplitude(level);
@@ -149,21 +135,6 @@ double outputLevelToModulatorIndex(const double level)
 double outputLevelToModulatorIndexChipLike(const double level)
 {
     return outputLevelToCarrierAmplitudeChipLike(level) * kChipModulatorIndexScale;
-}
-
-double outputLevelToModulatorIndexHybrid(const double level)
-{
-    const double oldIndex = outputLevelToModulatorIndex(level);
-    const double chipIndex = outputLevelToModulatorIndexChipLike(level);
-    return oldIndex * (1.0 - kChipModulatorBlend) + chipIndex * kChipModulatorBlend;
-}
-
-double outputLevelToModulatorIndexForModel(const double level, const Dx21RenderModel renderModel)
-{
-    if (renderModel == Dx21RenderModel::ChipHybrid)
-        return outputLevelToModulatorIndexHybrid(level);
-
-    return outputLevelToModulatorIndex(level);
 }
 
 double keyboardScaledLevel(const double level, const int levelScale, const int note)
@@ -276,6 +247,7 @@ int chipPhaseOffsetIndexFromRadians(const double radians)
 
 int chipOperatorPhaseIndex(const double phase, const double modulationBus, const double feedbackRadians)
 {
+    // NEWでは1024stepのテーブルindex上で、PMとFBを整数加算する。
     const int baseIndex = chipOperatorPhaseIndex(phase);
     const int modulationIndex = chipPhaseOffsetIndexFromRadians(opmPhaseBusToRadians(modulationBus, Dx21RenderModel::ChipHybrid));
     const int feedbackIndex = chipPhaseOffsetIndexFromRadians(feedbackRadians);
@@ -381,20 +353,6 @@ double chipExpOutputFromAttenuation(const int attenuation)
     return static_cast<double>(output) / 8192.0;
 }
 
-double chipOperatorOutput(const double phase, const double amplitude)
-{
-    if (amplitude <= 0.0)
-        return 0.0;
-
-    const int phaseIndex = chipOperatorPhaseIndex(phase);
-    const int waveAttenuation = chipOperatorLogSineAttenuation(phaseIndex);
-    const int ampAttenuation = clampInt(
-        static_cast<int>(std::round(amplitudeFactorToDbOffset(amplitude) / kOpmLogAttenuationDbPerStep)), 0, 4095);
-    const int attenuation = clampInt(waveAttenuation + ampAttenuation, 0, 4095);
-    const double output = static_cast<double>(chipOperatorSign(phaseIndex)) * chipExpOutputFromAttenuation(attenuation);
-    return quantizeOperatorAudioForModel(output, Dx21RenderModel::ChipHybrid);
-}
-
 double chipOperatorOutputFromPhaseIndex(const int phaseIndex, const double amplitude)
 {
     if (amplitude <= 0.0)
@@ -406,14 +364,6 @@ double chipOperatorOutputFromPhaseIndex(const int phaseIndex, const double ampli
     const int attenuation = clampInt(waveAttenuation + ampAttenuation, 0, 4095);
     const double output = static_cast<double>(chipOperatorSign(phaseIndex)) * chipExpOutputFromAttenuation(attenuation);
     return quantizeOperatorAudioForModel(output, Dx21RenderModel::ChipHybrid);
-}
-
-double operatorOutputForModel(const double phase, const double amplitude, const Dx21RenderModel renderModel)
-{
-    if (renderModel == Dx21RenderModel::ChipHybrid)
-        return chipOperatorOutput(phase, amplitude);
-
-    return sineLookup(phase) * amplitude;
 }
 
 double quantizeOperatorBusForModel(const double bus, const Dx21RenderModel renderModel)
@@ -783,6 +733,7 @@ OperatorRender Dx21Voice::renderOperator(const int opIndex,
 
     if (renderModel == Dx21RenderModel::ChipHybrid)
     {
+        // NEWはTL/dB/EG/Velocity/AMをログ領域でまとめ、従来モデルとブレンドする。
         const double tl = nextOperatorTl(opIndex, op.level);
         const double smoothedLevel = oppTlUnitsToLevel(tl * kOppTlSubsteps);
         const double oldScaledLevel = keyboardScaledLevel(smoothedLevel, op.levelScale, midiNote);
@@ -814,9 +765,9 @@ OperatorRender Dx21Voice::renderOperator(const int opIndex,
         const double ampModDb = op.ampModEnable ? amplitudeFactorToDbOffset(ampMod) : 0.0;
         const double carrierVelocityDb = amplitudeFactorToDbOffset(carrierVelocityFactor);
         const double modulatorVelocityDb = amplitudeFactorToDbOffset(carrier ? carrierVelocityFactor : modulatorVelocityFactor);
-        carrierAmp = dbToAmplitude(amplitudeToDb(outputLevelToCarrierAmplitudeForModel(scaledLevel, renderModel))
+        carrierAmp = dbToAmplitude(amplitudeToDb(outputLevelToCarrierAmplitude(scaledLevel))
                                    + envelopeDb + carrierVelocityDb + ampModDb);
-        modulatorIndex = dbToAmplitude(amplitudeToDb(outputLevelToModulatorIndexForModel(scaledLevel, renderModel))
+        modulatorIndex = dbToAmplitude(amplitudeToDb(outputLevelToModulatorIndex(scaledLevel))
                                        + envelopeDb + modulatorVelocityDb + ampModDb)
             * modulatorAttackSofteningForModel(ageSeconds, renderModel);
     }
@@ -832,8 +783,9 @@ OperatorRender Dx21Voice::renderOperator(const int opIndex,
     else
     {
         const double operatorPhase = phases[opSize] + opmPhaseBusToRadians(phaseModulation, renderModel) + feedback;
-        carrierOutput = operatorOutputForModel(operatorPhase, carrierAmp, renderModel);
-        modulatorOutput = operatorOutputForModel(operatorPhase, modulatorIndex, renderModel);
+        const double wave = sineLookup(operatorPhase);
+        carrierOutput = wave * carrierAmp;
+        modulatorOutput = wave * modulatorIndex;
     }
     const OperatorRender value {
         carrierOutput,

@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "Engine/Dx21ChipEnvelope.h"
 #include "Engine/Dx21Envelope.h"
@@ -13,12 +13,14 @@ namespace dx21
 {
 struct Algorithm;
 
+// 1オペレータの出力。audioは最終音声、modulationは次段へ送る位相変調量。
 struct OperatorRender
 {
     double audio = 0.0;
     double modulation = 0.0;
 };
 
+// 1音分のFMボイス。OLD/NEWの状態を持ち、renderModelで鳴らし分ける。
 class Dx21Voice
 {
 public:
@@ -47,6 +49,7 @@ private:
     double nextPitchModulation(double pitchLfo);
     std::pair<double, double> nextSampleAndHoldLfoShape(double phase);
 
+    // 発音ごとの状態。位相、EG、フィードバック履歴はボイス単位で独立する。
     int midiNote = 60;
     int noteVelocity = 100;
     double currentSampleRate = 44100.0;

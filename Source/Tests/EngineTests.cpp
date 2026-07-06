@@ -165,10 +165,10 @@ void testPitchEnvelope()
 
     envelope.noteOn(params);
     const double first = envelope.nextSemitones();
-    expect(first > 0.0 && first < 48.0, "PEG starts moving from PL3 toward PL1");
+    expect(first > 0.0 && first < 47.04, "PEG starts moving from PL3 toward PL1");
 
     double value = first;
-    for (int i = 0; i < 20; ++i)
+    for (int i = 0; i < 90; ++i)
         value = envelope.nextSemitones();
 
     expectNear(value, 0.0, 0.0001, "PEG reaches PL2 sustain after stage 1 and 2");
@@ -178,16 +178,57 @@ void testPitchEnvelope()
     params.level2 = 99;
     params.level3 = 50;
     envelope.noteOn(params);
-    for (int i = 0; i < 20; ++i)
+    for (int i = 0; i < 50; ++i)
         value = envelope.nextSemitones();
 
-    expectNear(value, 48.0, 0.0001, "PEG sustains PL2");
+    expectNear(value, 47.04, 0.0001, "PEG sustains PL2");
     envelope.noteOff();
-    for (int i = 0; i < 20; ++i)
+    for (int i = 0; i < 50; ++i)
         value = envelope.nextSemitones();
 
     expectNear(value, 0.0, 0.0001, "PEG releases from current value to PL3");
     expect(envelope.stage() == dx21::Dx21PitchEnvelope::Stage::Finished, "PEG finishes release");
+
+    struct PegRateExpectation
+    {
+        int rate = 0;
+        int expectedSamples = 0;
+    };
+
+    const PegRateExpectation measuredRates[] {
+        { 20, 5583 },
+        { 40, 2403 },
+        { 60, 1129 },
+        { 80, 579 },
+        { 90, 429 },
+        { 99, 35 }
+    };
+
+    for (const auto& expected : measuredRates)
+    {
+        envelope.reset(1000.0);
+        params.rate1 = expected.rate;
+        params.rate2 = 99;
+        params.rate3 = 99;
+        params.level1 = 99;
+        params.level2 = 99;
+        params.level3 = 50;
+        envelope.noteOn(params);
+
+        int samples = 0;
+        value = 0.0;
+        while (envelope.stage() != dx21::Dx21PitchEnvelope::Stage::Sustain && samples < expected.expectedSamples + 200)
+        {
+            value = envelope.nextSemitones();
+            ++samples;
+        }
+
+        expectNear(static_cast<double>(samples),
+                   static_cast<double>(expected.expectedSamples),
+                   6.0,
+                   "PEG measured PR reaches PL1/PL2 in expected time");
+        expectNear(value, 47.04, 0.0001, "PEG measured PR reaches PL99");
+    }
 }
 
 void testEngineRendering()

@@ -1,9 +1,10 @@
-#pragma once
+﻿#pragma once
 
 #include <array>
 
 namespace dx21
 {
+// carriersは最終出力、depsは各OPへ入る上流モジュレータを表す。
 struct Algorithm
 {
     std::array<int, 4> carriers {};

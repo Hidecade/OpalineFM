@@ -1,4 +1,4 @@
-#include "Engine/Dx21ChipEnvelope.h"
+﻿#include "Engine/Dx21ChipEnvelope.h"
 
 #include <array>
 #include <cmath>
@@ -7,6 +7,7 @@ namespace dx21
 {
 namespace
 {
+// NEW EGは0が最大音量、1023が無音側の10bitインデックスを直接扱う。
 constexpr double kEgIndexMax = 1023.0;
 constexpr double kEgIndexDbRange = 128.0;
 constexpr double kQuietDb = 96.0;
@@ -163,6 +164,7 @@ void Dx21ChipEnvelope::advanceAttack()
     if (increment <= 0)
         return;
 
+    // Attackだけは現在値に比例して減るため、直線ではなくカーブした立ち上がりになる。
     if (currentParams.attackRate >= 31)
         egLevel = 0.0;
     else

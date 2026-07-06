@@ -1,9 +1,10 @@
-#pragma once
+﻿#pragma once
 
 #include "Engine/Dx21Types.h"
 
 namespace dx21
 {
+// DX21のPitch EG。音量EGとは別に、音程をセント単位で段階遷移させる。
 class Dx21PitchEnvelope
 {
 public:

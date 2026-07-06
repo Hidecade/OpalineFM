@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "Engine/Dx21Types.h"
 #include "Engine/Dx21Voice.h"
@@ -8,6 +8,7 @@
 
 namespace dx21
 {
+// パッチ、発音中ボイス、グローバルLFO、簡易エフェクトを束ねる音源本体。
 class Dx21Engine
 {
 public:

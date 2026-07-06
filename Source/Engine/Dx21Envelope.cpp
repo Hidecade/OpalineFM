@@ -1,4 +1,4 @@
-#include "Engine/Dx21Envelope.h"
+﻿#include "Engine/Dx21Envelope.h"
 
 #include <array>
 #include <cmath>
@@ -219,6 +219,7 @@ double Dx21Envelope::decay1LevelDb() const
 double Dx21Envelope::next()
 {
     const double targetD1Db = decay1LevelDb();
+
     egRemainder += kDx21EgTickHz / currentSampleRate;
     while (egRemainder >= 1.0)
     {

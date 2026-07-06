@@ -1,9 +1,10 @@
-#pragma once
+﻿#pragma once
 
 #include "Engine/Dx21Types.h"
 
 namespace dx21
 {
+// 従来モデル用EG。内部はdB減衰量として進め、最後に振幅へ変換する。
 class Dx21Envelope
 {
 public:

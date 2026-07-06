@@ -1,9 +1,10 @@
-#pragma once
+﻿#pragma once
 
 #include "Engine/Dx21Types.h"
 
 namespace dx21
 {
+// NEWモデル用EG。10bit EGインデックスを直接進めてチップ寄りの段差を残す。
 class Dx21ChipEnvelope
 {
 public:

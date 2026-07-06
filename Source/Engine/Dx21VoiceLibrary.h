@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "Engine/Dx21Sysex.h"
 
@@ -12,6 +12,7 @@ namespace dx21
 constexpr int kDx21VoiceBankCount = 8;
 constexpr int kDx21VoiceBankSize = kDx21BulkVoiceCount;
 
+// UI/ホスト側で扱う音色バンク。DX21に合わせて1バンク32音色。
 struct Dx21VoiceBank
 {
     std::string name;

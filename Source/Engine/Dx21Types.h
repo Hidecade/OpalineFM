@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <array>
 #include <cstdint>
@@ -9,6 +9,7 @@ constexpr int kOperatorCount = 4;
 constexpr int kDefaultMaxVoices = 8;
 constexpr double kPi = 3.14159265358979323846264338327950288;
 
+// DX21の音色パラメータをエンジン内部で扱うための基本構造体群。
 struct Dx21EnvelopeParams
 {
     int attackRate = 20;
@@ -79,6 +80,7 @@ struct StereoSample
     float right = 0.0f;
 };
 
+// Current は従来モデル、ChipHybrid はOPM/Nuked-OPM寄せの試作モデル。
 enum class Dx21RenderModel
 {
     Current,
