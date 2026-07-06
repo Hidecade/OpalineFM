@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Engine/Dx21ChipEnvelope.h"
 #include "Engine/Dx21Envelope.h"
 #include "Engine/Dx21PitchEnvelope.h"
 #include "Engine/Dx21Types.h"
@@ -54,7 +55,9 @@ private:
     std::array<double, kOperatorCount> operatorOppTlUnits {};
     std::array<double, kOperatorCount> operatorTlAccumulators {};
     std::array<Dx21Envelope, kOperatorCount> envelopes {};
+    std::array<Dx21ChipEnvelope, kOperatorCount> chipEnvelopes {};
     Dx21PitchEnvelope pitchEnvelope;
+    Dx21RenderModel activeRenderModel = Dx21RenderModel::Current;
     double delayedPitchLfo = 0.0;
     std::uint32_t sampleAndHoldLfsr = 0;
     int sampleAndHoldBit = 0;

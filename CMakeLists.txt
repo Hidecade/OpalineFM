@@ -15,6 +15,7 @@ else()
 endif()
 
 add_library(dx21_engine STATIC
+    Source/Engine/Dx21ChipEnvelope.cpp
     Source/Engine/Dx21Envelope.cpp
     Source/Engine/Dx21Engine.cpp
     Source/Engine/Dx21PitchEnvelope.cpp

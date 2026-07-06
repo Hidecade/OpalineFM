@@ -429,6 +429,53 @@ double outputLevelToModulatorIndexHybrid(double level, double chipAmount)
 constexpr double kChipModulatorBlend = 0.50;
 ```
 
+ただし Nuked-OPM と比較して NEW Engine が実機よりまろやかに聞こえる場合、`chipIndex` 側へ寄せすぎると中間 LEVEL の Modulator が弱くなりやすい。
+DX21Native の現行 `oldIndex` は中間 LEVEL で倍音を作りやすいため、耳合わせでは以下を暫定値にする。
+
+```cpp
+constexpr double kChipModulatorBlend = 0.25;
+```
+
+また、NEW Engine では Modulator のアタック丸めを外す。
+Nuked-OPM は Operator 出力をそのまま次段位相へ入れるため、3ms 程度のソフトニングが残るとアタック成分が実機より丸くなりやすい。
+
+DX21Native の bus peak は約 9 rad 相当だが、Nuked-OPM の `op_phase = phase + mod` と比較すると通常の位相変調量が弱く聞こえる。
+NEW Engine の暫定耳合わせ値として、通常の phase modulation / feedback phase conversion に以下の倍率を掛ける。
+
+```cpp
+constexpr double kChipPhaseModGain = 1.6;
+```
+
+次に音へ出やすい差分として、NEW Engine の Operator core だけ以下を適用する。
+
+- Operator phase を 1024 step 相当に丸めてから波形参照する
+- Operator 出力を 14bit signed 相当に量子化する
+- Modulator bus も整数 bus 相当に丸める
+- NEW Engine では、波形値へ amplitude を単純乗算するのではなく、Nuked-OPM の `logsinrom` 実テーブルから quarter-wave 256 step の log-sine 減衰を作り、LEVEL/EG/Velocity/AM 由来の amplitude 減衰と足してから log attenuation step に丸める
+- 丸めた attenuation は Nuked-OPM の `exprom` 実テーブルと `op_pow = op_atten >> 8` 相当で出力へ戻し、最後に 14bit signed 相当へ丸める
+
+注意: 8bit mantissa + exponent 風の簡易近似は、attenuation step と exponent shift の単位を誤ると decay 中に大きな段差や音量の戻りを作る。
+`exprom` は `op_atten` の整数単位と `op_pow = op_atten >> 8` の関係をそのまま扱い、dB step 近似と混ぜない。
+
+Nuked-OPM は `logsinrom` / `exprom` / bit shift で Operator 出力を作るため、連続 `std::sin()` のままよりアタックや高域の質感が近づきやすい。
+現在の NEW Engine は `logsinrom` / `exprom` の両方を実テーブル化している。
+
+Phase modulation も NEW Engine では、最終的な radians phase に modulation を足してから 1024 step 化するのではなく、以下の順にする。
+
+```text
+op_phase = (basePhaseIndex + modulationIndex + feedbackIndex) & 1023
+```
+
+これは Nuked-OPM の `op_phase = (op_phase_in + op_mod_in) & 1023` に合わせるためである。
+
+複数 Modulator が同じ Operator へ入る場合、現行 DX21Native は依存 Operator の bus を単純加算している。
+Nuked-OPM では algorithm table の `mod1` / `mod2` を経由し、最後に `(mod1 + mod2) >> 1` で合流する。
+NEW Engine では最小変更として、複数入力時のみ modulation bus を 2 入力相当で平均化し、整数 bus に丸める。
+これにより、複数 Modulator 合流時の過剰な位相入力を抑え、チップ的な合流スケールに近づける。
+
+Carrier 合算後の voice output も、NEW Engine では 14bit signed 相当に丸める。
+Operator 内部を段階化しても、最終 sum が完全な浮動小数のままだとチップ由来の粗さが薄まるため、voice mixer 段でも最小限の量子化を入れる。
+
 ---
 
 # 6. EG 統合
@@ -482,6 +529,21 @@ const double amp = dbToAmplitude(totalDb);
 
 ただし、数学的には `levelAmp * envAmp` と近い結果になる。
 重要なのは、今後の Keyboard Scaling / Velocity / AM を dB / TL offset として統合しやすくすることである。
+
+NEW Engine の暫定実装では、EG 本体の clock/state machine 全置換の前段として、`envelopeAmp` を 10bit EG attenuation 相当に丸める。
+
+```cpp
+egIndex = round(envelopeDb / 128.0 * 1023.0);
+quantizedEnvelopeDb = egIndex * 128.0 / 1023.0;
+```
+
+これにより、既存の DX21 EG カーブを保ちながら、Nuked-OPM の `eg_out` に近い 10bit 段階感を NEW だけへ加える。
+完全な EG 寄せでは、次段階として Nuked-OPM の `eg_inc` / `eg_clock` / attack linearity を移植する。
+
+NEW Engine では次段階として `Dx21ChipEnvelope` を追加し、OLD の `Dx21Envelope` と分離する。
+`Dx21ChipEnvelope` は envelope level を 10bit index として保持し、`eg_inc` table による attack / decay / release の進行を行う。
+Attack は `egLevel -= egLevel * inc / 16` の非線形進行、Decay/Release は 10bit index への線形加算とする。
+これにより、既存 EG を 10bit に丸めるだけの段階から、NEW 専用の EG state machine へ移行する。
 
 ---
 
@@ -638,7 +700,7 @@ YM2151 / OPM 的な PMS は段階式である。
 PMS 0–7 のおおよそのピッチ幅:
 
 ```text
-PMS 0: 0 cent       = 0 semitone
+PMS 0: VIBRATO OSC  = PMS 5 相当の ±1.00 semitone
 PMS 1: ±5 cent      = ±0.05 semitone
 PMS 2: ±10 cent     = ±0.10 semitone
 PMS 3: ±20 cent     = ±0.20 semitone
@@ -648,11 +710,18 @@ PMS 6: ±400 cent    = ±4.00 semitone
 PMS 7: ±700 cent    = ±7.00 semitone
 ```
 
+DX21 実機仕様では、PMS=0 は「ピッチ変調なし」ではない。
+PMS=0 のときは LFO WAVE で選択した波形ではなく、VIBRATO OSC（三角波）によるビブラートがかかる。
+したがって PMS=0 は depth 0 ではなく、PMS=5 と同じ上下幅として扱う。
+
+また実機確認上、SQUARE 波形かつ PMS=7 の場合だけは、PMD=99 で ±8.00 semitone まで届く。
+PMS=6 は ±4.00 semitone のままでよい。
+
 実装:
 
 ```cpp
 static constexpr double kOpmPmsDepthSemitone[8] = {
-    0.0,
+    1.00, // PMS=0: VIBRATO OSC（三角波）で PMS=5 相当
     0.05,
     0.10,
     0.20,
@@ -675,9 +744,19 @@ double opmStylePitchModDepth2(int depth, int sensitivity)
 ```cpp
 const double pitchLfo = opmStylePitchModDepth2(patch.lfo.pitchDepth, patch.lfo.pitchSensitivity)
                       * delay
-                      * (0.35 + modWheel * 0.65)
                       * pitchLfoShape.second;
 ```
+
+PMD/PMS だけで指定された上下幅へ届く必要があるため、ここでは `modWheel` を深さ倍率として掛けない。
+`modWheel` をピッチLFOへどう足すかは、別のコントローラ仕様として扱う。
+
+波形側の注意:
+
+- TRIANGLE は 1/4 周期で +1.0、3/4 周期で -1.0 に届くようにする。
+- SAW UP は 8bit step 上で `index 127 = +1.0`、`index 128 = -1.0` へ届くようにする。
+- SQUARE は ±1.0 を直接出す。
+- PMS=0 は LFO WAVE ではなく VIBRATO OSC（三角波）を使う。
+- SQUARE + PMS=7 のときだけ ±8.00 semitone を許す。
 
 ---
 
@@ -707,6 +786,8 @@ shift = feedback + 6;
 
 最終的には feedback gain をテーブル化する。
 
+当初は以下のような `0..1` の直感的なテーブルを候補にした。
+
 ```cpp
 static constexpr double kFeedbackGainTable[8] = {
     0.0,
@@ -720,7 +801,37 @@ static constexpr double kFeedbackGainTable[8] = {
 };
 ```
 
-ただし現状で音色再現がある程度できているなら、Feedback は後回しでよい。
+しかし、DX21Native の `feedbackHistory` / `kOpmOperatorBusPeak` / `opmPhaseBusToRadians()` の bus 設計へこの値をそのまま入れると、従来 shift 式より約4倍強くなり、再現性が下がる。
+
+Nuked-OPM の実装では feedback は以下のように処理される。
+
+```c
+if (fb == 0)
+    mod = 0;
+else
+    mod = mod >> (9 - fb);
+```
+
+したがって `opmPhaseBusToRadians(bus)` に対する倍率としては、以下のテーブルが近い。
+
+```cpp
+static constexpr double kFeedbackGainTable[8] = {
+    0.0,
+    1.0 / 256.0,
+    1.0 / 128.0,
+    1.0 / 64.0,
+    1.0 / 32.0,
+    1.0 / 16.0,
+    1.0 / 8.0,
+    1.0 / 4.0
+};
+```
+
+つまり、Feedback table 化する場合は `0..1` テーブルではなく、Nuked-OPM の `mod >> (9 - fb)` に相当するスケールへ換算する。
+OLD には従来 shift 式を残し、NEW だけこの table を使うと比較しやすい。
+
+NEW Engine では feedback history の入力も `history[0] + history[1]` の単純加算ではなく、`(history[0] + history[1]) / 2` 相当で平均化してから table へ入れる。
+Nuked-OPM は modulation 合流段で `(mod1 + mod2) >> 1` を使うため、feedback も同じ bus scale へ揃える。
 
 ---
 
