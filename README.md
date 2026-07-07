@@ -6,6 +6,8 @@ It is inspired by classic 1980s digital FM instruments and supports compatible 3
 
 Opaline FM is an independent project and is not affiliated with Yamaha.
 
+![Opaline FM user interface](docs/images/opalinefm-ui.png)
+
 ## Features
 
 - 4-operator FM engine

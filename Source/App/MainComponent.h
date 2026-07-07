@@ -373,6 +373,8 @@ private:
     SplitPointSlider splitPointSlider;
     juce::Label volumeLabel;
     juce::Label transposeLabel;
+    juce::Label algorithmGraphLabel;
+    juce::Label pegGraphLabel;
     juce::Label algorithmLabel;
     juce::Label feedbackLabel;
     juce::Label lfoWaveLabel;

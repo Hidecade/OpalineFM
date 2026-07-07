@@ -441,51 +441,79 @@ void MainComponent::OpalineLookAndFeel::drawRotarySlider(juce::Graphics& g,
     const auto bounds = juce::Rectangle<float>(static_cast<float>(x),
                                               static_cast<float>(y),
                                               static_cast<float>(width),
-                                              static_cast<float>(height)).reduced(3.0f);
+                                              static_cast<float>(height)).reduced(2.0f);
     const auto knob = bounds.withSizeKeepingCentre(juce::jmin(bounds.getWidth(), bounds.getHeight()),
                                                    juce::jmin(bounds.getWidth(), bounds.getHeight()));
     const auto radius = knob.getWidth() * 0.46f;
     const auto centre = knob.getCentre();
     const auto angle = rotaryStartAngle + sliderPos * (rotaryEndAngle - rotaryStartAngle);
+    const auto arcRange = rotaryEndAngle - rotaryStartAngle;
 
-    juce::Path track;
-    track.addCentredArc(centre.x, centre.y, radius - 2.5f, radius - 2.5f, 0.0f, rotaryStartAngle, rotaryEndAngle, true);
-    g.setColour(juce::Colour(0xff4f554e));
-    g.strokePath(track, juce::PathStrokeType(3.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    g.setColour(juce::Colours::black.withAlpha(0.34f));
+    g.fillEllipse(knob.reduced(knob.getWidth() * 0.18f).translated(0.0f, 2.0f));
 
-    juce::Path active;
-    active.addCentredArc(centre.x, centre.y, radius - 2.5f, radius - 2.5f, 0.0f, rotaryStartAngle, angle, true);
-    g.setColour(kTeal);
-    g.strokePath(active, juce::PathStrokeType(3.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    constexpr int tickCount = 31;
+    const auto inactiveTick = juce::Colour(0xff47625d).withAlpha(0.72f);
+    const auto activeTick = kTeal;
+    const auto tickOuter = radius - 1.0f;
+    const auto activeIndex = static_cast<int>(std::round(sliderPos * static_cast<float>(tickCount - 1)));
 
-    const auto outer = knob.reduced(knob.getWidth() * 0.18f);
-    g.setGradientFill(juce::ColourGradient(juce::Colour(0xff3d3c36),
+    for (int i = 0; i < tickCount; ++i)
+    {
+        const auto tickPos = static_cast<float>(i) / static_cast<float>(tickCount - 1);
+        const auto tickAngle = rotaryStartAngle + tickPos * arcRange;
+        const bool majorTick = i == 0 || i == (tickCount - 1) / 2 || i == tickCount - 1;
+
+        g.setColour(i <= activeIndex ? activeTick : inactiveTick);
+        if (majorTick)
+        {
+            const auto tickStart = tickOuter - 1.7f;
+            const auto tickLength = 4.0f;
+            const auto start = centre.getPointOnCircumference(tickStart, tickAngle);
+            const auto end = centre.getPointOnCircumference(tickStart + tickLength, tickAngle);
+            g.drawLine({ start, end }, 1.2f);
+        }
+        else
+        {
+            const auto dotCentre = centre.getPointOnCircumference(tickOuter - 1.7f, tickAngle);
+            g.fillEllipse(juce::Rectangle<float>(2.0f, 2.0f).withCentre(dotCentre));
+        }
+    }
+
+    const auto outer = knob.reduced(knob.getWidth() * 0.27f);
+    g.setGradientFill(juce::ColourGradient(juce::Colour(0xff424039),
                                            outer.getX(),
                                            outer.getY(),
-                                           juce::Colour(0xff0b0b09),
+                                           juce::Colour(0xff070706),
                                            outer.getRight(),
                                            outer.getBottom(),
                                            false));
     g.fillEllipse(outer);
-    g.setColour(juce::Colour(0xff070909));
+    g.setColour(juce::Colour(0xff050505));
     g.drawEllipse(outer, 2.0f);
 
-    const auto inner = outer.reduced(outer.getWidth() * 0.18f);
-    g.setGradientFill(juce::ColourGradient(juce::Colour(0xff2d2c27),
+    const auto inner = outer.reduced(outer.getWidth() * 0.16f);
+    g.setGradientFill(juce::ColourGradient(juce::Colour(0xff22221f),
                                            inner.getX(),
                                            inner.getY(),
-                                           juce::Colour(0xff11110f),
+                                           juce::Colour(0xff0a0a09),
                                            inner.getRight(),
                                            inner.getBottom(),
                                            false));
     g.fillEllipse(inner);
-    g.setColour(juce::Colour(0xff050607));
-    g.drawEllipse(inner, 1.4f);
+    g.setColour(juce::Colour(0xff000000).withAlpha(0.75f));
+    g.drawEllipse(inner, 1.25f);
 
     juce::Path pointer;
-    pointer.addRoundedRectangle(-2.0f, -radius * 0.53f, 4.0f, radius * 0.42f, 1.4f);
+    pointer.addRoundedRectangle(-1.65f, -radius * 0.54f, 3.3f, radius * 0.43f, 1.2f);
     pointer.applyTransform(juce::AffineTransform::rotation(angle).translated(centre));
-    g.setColour(kEnvelope);
+    g.setGradientFill(juce::ColourGradient(juce::Colour(0xffe7d9b8),
+                                           centre.x,
+                                           centre.y - radius * 0.54f,
+                                           juce::Colour(0xff7f7663),
+                                           centre.x,
+                                           centre.y,
+                                           false));
     g.fillPath(pointer);
 }
 
@@ -766,6 +794,10 @@ juce::Label* MainComponent::OpalineLookAndFeel::createSliderTextBox(juce::Slider
     auto* label = juce::LookAndFeel_V4::createSliderTextBox(slider);
     label->setFont(juce::FontOptions(13.0f, juce::Font::plain));
     label->setJustificationType(juce::Justification::centred);
+    label->setColour(juce::Label::textColourId, kValueText);
+    label->setColour(juce::Label::backgroundColourId, juce::Colour(0xff030303));
+    label->setColour(juce::Label::outlineColourId, juce::Colour(0xff30291d));
+    label->setBorderSize(juce::BorderSize<int>(1));
     return label;
 }
 
@@ -1149,7 +1181,7 @@ void MainComponent::OperatorComponent::setupSlider(juce::Slider& slider, const d
     slider.setRange(min, max, step);
     slider.setValue(value, juce::dontSendNotification);
     slider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-    slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 42, 16);
+    slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 38, 16);
     slider.setLookAndFeel(&opalineLookAndFeel);
     slider.addListener(this);
 }
@@ -1348,13 +1380,28 @@ MainComponent::KeyboardComponent::KeyboardComponent(MainComponent& ownerIn)
 void MainComponent::KeyboardComponent::paint(juce::Graphics& g)
 {
     const auto bounds = getLocalBounds().toFloat();
-    g.fillAll(juce::Colour(0xff060707));
+    g.fillAll(juce::Colour(0xff050505));
 
-    const auto area = bounds.reduced(4.0f, 2.0f);
+    const auto frame = bounds.reduced(1.0f);
+    g.setGradientFill(juce::ColourGradient(juce::Colour(0xff1b1a16),
+                                           frame.getX(),
+                                           frame.getY(),
+                                           juce::Colour(0xff050505),
+                                           frame.getX(),
+                                           frame.getBottom(),
+                                           false));
+    g.fillRoundedRectangle(frame, 2.0f);
+    g.setColour(juce::Colour(0xff2b2923));
+    g.drawRoundedRectangle(frame, 2.0f, 1.0f);
+
+    const auto area = bounds.reduced(7.0f, 6.0f).withTrimmedTop(2.0f).withTrimmedBottom(3.0f);
     const int whiteKeyCount = whiteKeyIndexForNote(kFirstKeyboardNote + kKeyboardNoteCount);
     const float whiteWidth = area.getWidth() / static_cast<float>(whiteKeyCount);
-    const float blackWidth = whiteWidth * 0.66f;
-    const float blackHeight = area.getHeight() * 0.70f;
+    const float blackWidth = whiteWidth * 0.58f;
+    const float blackHeight = area.getHeight() * 0.62f;
+
+    g.setColour(juce::Colour(0xff000000).withAlpha(0.65f));
+    g.fillRect(area.withTrimmedTop(area.getHeight() - 4.0f));
 
     for (int i = 0; i < kKeyboardNoteCount; ++i)
     {
@@ -1363,28 +1410,33 @@ void MainComponent::KeyboardComponent::paint(juce::Graphics& g)
             continue;
 
         const int whiteIndex = whiteKeyIndexForNote(note);
-        const auto keyArea = juce::Rectangle<float>(area.getX() + whiteWidth * static_cast<float>(whiteIndex),
+        const auto keyArea = juce::Rectangle<float>(area.getX() + whiteWidth * static_cast<float>(whiteIndex) + 0.45f,
                                                    area.getY(),
-                                                   whiteWidth - 2.0f,
-                                                   area.getHeight() - 4.0f);
+                                                   whiteWidth - 0.9f,
+                                                   area.getHeight() - 2.0f);
         const bool held = note == heldNote || owner.isMidiUiNoteHeld(note);
-        g.setGradientFill(juce::ColourGradient(held ? juce::Colour(0xffa8ecff) : juce::Colour(0xfff4fbff),
+        g.setGradientFill(juce::ColourGradient(held ? juce::Colour(0xffb2efff) : juce::Colour(0xfff4eee1),
                                                keyArea.getX(),
                                                keyArea.getY(),
-                                               held ? juce::Colour(0xff74d6f5) : juce::Colour(0xffdde7ec),
+                                               held ? juce::Colour(0xff70cde7) : juce::Colour(0xffd8cdb7),
                                                keyArea.getX(),
                                                keyArea.getBottom(),
                                                false));
-        g.fillRoundedRectangle(keyArea, 5.0f);
-        g.setColour(juce::Colour(0xff252b2f));
-        g.drawRoundedRectangle(keyArea, 5.0f, 1.0f);
+        g.fillRoundedRectangle(keyArea, 1.7f);
+        g.setColour(juce::Colour(0xff5a5143).withAlpha(0.74f));
+        g.drawRoundedRectangle(keyArea, 1.7f, 1.0f);
+        g.setColour(juce::Colour(0xffffffff).withAlpha(held ? 0.18f : 0.25f));
+        g.fillRect(keyArea.withHeight(5.0f).reduced(1.2f, 0.0f));
+        g.setColour(juce::Colour(0xff000000).withAlpha(0.20f));
+        g.fillRect(keyArea.withTrimmedTop(keyArea.getHeight() - 4.0f));
+
         const int velocity = note == heldNote ? 104 : owner.heldVelocityForNote(note);
         if (held && velocity > 0)
         {
             const auto valueBox = keyArea.withSizeKeepingCentre(juce::jmin(34.0f, keyArea.getWidth() - 8.0f), 18.0f)
                                     .withY(keyArea.getBottom() - 28.0f);
             g.setColour(juce::Colour(0xff050606).withAlpha(0.82f));
-            g.fillRoundedRectangle(valueBox, 3.0f);
+            g.fillRoundedRectangle(valueBox, 2.0f);
             g.setColour(kValueText);
             g.setFont(juce::FontOptions(10.5f, juce::Font::bold));
             g.drawText(juce::String(velocity), valueBox, juce::Justification::centred);
@@ -1399,46 +1451,53 @@ void MainComponent::KeyboardComponent::paint(juce::Graphics& g)
 
         const int nextWhiteIndex = whiteKeyIndexForNote(note);
         const auto keyArea = juce::Rectangle<float>(area.getX() + whiteWidth * static_cast<float>(nextWhiteIndex) - blackWidth * 0.5f,
-                                                   area.getY(),
+                                                   area.getY() - 1.0f,
                                                    blackWidth,
                                                    blackHeight);
         const bool held = note == heldNote || owner.isMidiUiNoteHeld(note);
-        g.setGradientFill(juce::ColourGradient(held ? juce::Colour(0xff253f48) : juce::Colour(0xff111821),
+        g.setColour(juce::Colour(0xff000000).withAlpha(0.70f));
+        g.fillRoundedRectangle(keyArea.translated(0.0f, 2.2f), 1.4f);
+        g.setGradientFill(juce::ColourGradient(held ? juce::Colour(0xff284650) : juce::Colour(0xff20201c),
                                                keyArea.getX(),
                                                keyArea.getY(),
-                                               held ? juce::Colour(0xff0b98bd) : juce::Colour(0xff05070b),
+                                               held ? juce::Colour(0xff0d8aa8) : juce::Colour(0xff050504),
                                                keyArea.getX(),
                                                keyArea.getBottom(),
                                                false));
-        g.fillRoundedRectangle(keyArea, 4.0f);
-        g.setColour(juce::Colour(0xff020304));
-        g.drawRoundedRectangle(keyArea, 4.0f, 1.0f);
-        g.setColour(juce::Colour(0xffffffff).withAlpha(held ? 0.18f : 0.06f));
-        g.fillRoundedRectangle(keyArea.reduced(4.0f).withHeight(keyArea.getHeight() * 0.22f), 3.0f);
+        g.fillRoundedRectangle(keyArea, 1.4f);
+        g.setColour(juce::Colour(0xff000000));
+        g.drawRoundedRectangle(keyArea, 1.4f, 1.1f);
+        g.setColour(juce::Colour(0xffffffff).withAlpha(held ? 0.16f : 0.08f));
+        g.fillRoundedRectangle(keyArea.reduced(3.0f).withHeight(keyArea.getHeight() * 0.18f), 1.0f);
+        g.setColour(juce::Colour(0xff000000).withAlpha(0.35f));
+        g.fillRect(keyArea.withTrimmedTop(keyArea.getHeight() - 5.0f));
+
         const int velocity = note == heldNote ? 104 : owner.heldVelocityForNote(note);
         if (held && velocity > 0)
         {
             const auto valueBox = keyArea.withSizeKeepingCentre(juce::jmin(32.0f, keyArea.getWidth() - 6.0f), 17.0f)
                                     .withY(keyArea.getBottom() - 24.0f);
             g.setColour(juce::Colour(0xff050606).withAlpha(0.84f));
-            g.fillRoundedRectangle(valueBox, 3.0f);
+            g.fillRoundedRectangle(valueBox, 2.0f);
             g.setColour(kValueText);
             g.setFont(juce::FontOptions(9.5f, juce::Font::bold));
             g.drawText(juce::String(velocity), valueBox, juce::Justification::centred);
         }
     }
 
-    g.setColour(juce::Colour(0xff22251f));
-    g.drawRoundedRectangle(bounds.reduced(1.0f), 4.0f, 1.0f);
+    g.setColour(juce::Colour(0xff000000).withAlpha(0.76f));
+    g.drawRoundedRectangle(bounds.reduced(1.0f), 2.0f, 2.0f);
+    g.setColour(juce::Colour(0xff302d25));
+    g.drawRoundedRectangle(bounds.reduced(2.0f), 1.0f, 1.0f);
 }
 
 int MainComponent::KeyboardComponent::noteForPosition(const juce::Point<int> position) const
 {
-    const auto area = getLocalBounds().toFloat().reduced(4.0f, 2.0f);
+    const auto area = getLocalBounds().toFloat().reduced(7.0f, 6.0f).withTrimmedTop(2.0f).withTrimmedBottom(3.0f);
     const int whiteKeyCount = whiteKeyIndexForNote(kFirstKeyboardNote + kKeyboardNoteCount);
     const float whiteWidth = area.getWidth() / static_cast<float>(whiteKeyCount);
-    const float blackWidth = whiteWidth * 0.66f;
-    const float blackHeight = area.getHeight() * 0.70f;
+    const float blackWidth = whiteWidth * 0.58f;
+    const float blackHeight = area.getHeight() * 0.62f;
     const auto point = position.toFloat();
 
     if (point.y <= area.getY() + blackHeight)
@@ -1605,6 +1664,15 @@ MainComponent::MainComponent(const HostMode mode)
     transposeSlider.addListener(this);
     addAndMakeVisible(transposeSlider);
 
+    setupLabel(algorithmGraphLabel, "ALG");
+    algorithmGraphLabel.setJustificationType(juce::Justification::centred);
+    algorithmGraphLabel.setFont(juce::FontOptions(13.0f, juce::Font::bold));
+    addAndMakeVisible(algorithmGraphLabel);
+    setupLabel(pegGraphLabel, "PITCH EG");
+    pegGraphLabel.setJustificationType(juce::Justification::centred);
+    pegGraphLabel.setFont(juce::FontOptions(13.0f, juce::Font::bold));
+    addAndMakeVisible(pegGraphLabel);
+
     setupLabel(algorithmLabel, "ALG");
     setupSlider(algorithmSlider, 1, 8, 1, 1, juce::Slider::RotaryHorizontalVerticalDrag);
     algorithmSlider.addListener(this);
@@ -1709,8 +1777,9 @@ MainComponent::MainComponent(const HostMode mode)
     for (auto* label : { &effectReverbLabel, &effectMixLabel, &effectToneLabel, &effectChorusLabel, &effectDelayLabel })
         addAndMakeVisible(*label);
 
-    setupLabel(pitchWheelLabel, "Pitch");
+    setupLabel(pitchWheelLabel, "PITCH");
     pitchWheelLabel.setJustificationType(juce::Justification::centred);
+    pitchWheelLabel.setFont(juce::FontOptions(9.5f, juce::Font::bold));
     setupSlider(pitchWheelSlider, -1.0, 1.0, 0.01, 0.0, juce::Slider::LinearVertical);
     pitchWheelSlider.setName("wheelFader");
     pitchWheelSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
@@ -1720,8 +1789,9 @@ MainComponent::MainComponent(const HostMode mode)
     pitchWheelSlider.addListener(this);
     addAndMakeVisible(pitchWheelLabel);
     addAndMakeVisible(pitchWheelSlider);
-    setupLabel(modWheelLabel, "Mod");
+    setupLabel(modWheelLabel, "MODULATION");
     modWheelLabel.setJustificationType(juce::Justification::centred);
+    modWheelLabel.setFont(juce::FontOptions(8.0f, juce::Font::bold));
     setupSlider(modWheelSlider, 0.0, 1.0, 0.01, 0.0, juce::Slider::LinearVertical);
     modWheelSlider.setName("wheelFader");
     modWheelSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
@@ -2068,9 +2138,10 @@ void MainComponent::resized()
     lfoRightSeparator.setBounds(lfo.getRight() - 1, knobRow1Y - 8, 1, lfo.getBottom() - (knobRow1Y - 8));
 
     auto voiceContent = voice.reduced(0, 0);
-    algorithmLabel.setBounds(voiceContent.getX(), voiceContent.getY(), voiceContent.getWidth(), 22);
-    algorithmView.setBounds(voiceContent.getX(), voiceContent.getY() + 28, 84, 84);
-    pegGraph.setBounds(voiceContent.getX(), voiceContent.getY() + 124, 84, 64);
+    algorithmGraphLabel.setBounds(voiceContent.getX(), voiceContent.getY(), 84, 20);
+    algorithmView.setBounds(voiceContent.getX(), voiceContent.getY() + 24, 84, 84);
+    pegGraphLabel.setBounds(voiceContent.getX(), voiceContent.getY() + 112, 84, 18);
+    pegGraph.setBounds(voiceContent.getX(), voiceContent.getY() + 134, 84, 58);
     auto pegContent = peg.reduced(0, 0);
     const int pegTopY = knobRow1Y;
     const int pegCellWidth = juce::jmax(32, pegContent.getWidth() / 3);
@@ -2140,12 +2211,12 @@ void MainComponent::resized()
 
     area.removeFromTop(0);
     auto middle = area.removeFromTop(151);
-    auto pitchArea = middle.removeFromLeft(58).reduced(2, 0);
-    pitchWheelLabel.setBounds(pitchArea.removeFromTop(18));
-    pitchWheelSlider.setBounds(pitchArea);
-    auto modArea = middle.removeFromLeft(58).reduced(2, 0);
-    modWheelLabel.setBounds(modArea.removeFromTop(18));
-    modWheelSlider.setBounds(modArea);
+    auto pitchArea = middle.removeFromLeft(58).reduced(2, 4);
+    pitchWheelLabel.setBounds(pitchArea.removeFromBottom(14));
+    pitchWheelSlider.setBounds(pitchArea.reduced(6, 2));
+    auto modArea = middle.removeFromLeft(58).reduced(2, 4);
+    modWheelLabel.setBounds(modArea.removeFromBottom(14));
+    modWheelSlider.setBounds(modArea.reduced(6, 2));
     middle.removeFromLeft(4);
     keyboard.setBounds(middle.reduced(2));
 
@@ -2648,7 +2719,7 @@ void MainComponent::setupSlider(juce::Slider& slider,
     slider.setRange(min, max, step);
     slider.setValue(value, juce::dontSendNotification);
     slider.setSliderStyle(style);
-    slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 48, 16);
+    slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 38, 16);
     slider.setMouseDragSensitivity(130);
     if (style == juce::Slider::RotaryHorizontalVerticalDrag)
         slider.setLookAndFeel(&opalineLookAndFeel);
