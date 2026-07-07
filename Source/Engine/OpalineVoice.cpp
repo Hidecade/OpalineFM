@@ -13,18 +13,18 @@ namespace
 {
 // LEVEL、TL、変調指数の調整係数。ChipHybridでは従来値とOPM風の値を混ぜる。
 constexpr double kCarrierLevelDbRange = 48.0;
-constexpr double kModulatorIndexScale = 1.08;
-constexpr double kModulatorIndexBlend = 0.08;
+constexpr double kModulatorIndexScale = 0.82;
+constexpr double kModulatorIndexBlend = 0.05;
 constexpr double kModulatorIndexExponent = 2.2;
 constexpr double kOpmTlDbPerStep = 0.75;
 constexpr double kOpmLogAttenuationDbPerStep = 6.020599913279624 / 256.0;
 constexpr double kOpmEgDbRange = 128.0;
 constexpr double kOpmEgIndexMax = 1023.0;
 constexpr double kChipLevelBlend = 0.50;
-constexpr double kChipModulatorBlend = 0.25;
-constexpr double kChipModulatorIndexScale = 1.08;
+constexpr double kChipModulatorBlend = 0.14;
+constexpr double kChipModulatorIndexScale = 0.82;
 constexpr double kModulatorAttackSoftenSeconds = 0.003;
-constexpr double kChipPhaseModGain = 1.6;
+constexpr double kChipPhaseModGain = 1.0;
 constexpr double kModulatorAttackInitialScale = 0.96;
 constexpr double kOpmPhaseSteps = 1048576.0;
 constexpr double kOpmPhaseMaxIncrement = kOpmPhaseSteps - 1.0;
@@ -207,7 +207,7 @@ double operatorVelocityFactor(const int opVelocity, const int noteVelocity, cons
     const double velocity = clampDouble(static_cast<double>(noteVelocity), 1.0, 127.0) / 127.0;
     const double shapedVelocity = std::pow(velocity, 1.35);
     const double minimum = carrier ? 0.20 : 0.32;
-    const double maximum = carrier ? 1.85 : 2.55;
+    const double maximum = carrier ? 1.45 : 1.65;
     const double fullRangeFactor = minimum + (maximum - minimum) * shapedVelocity;
     return 1.0 + (fullRangeFactor - 1.0) * amount;
 }

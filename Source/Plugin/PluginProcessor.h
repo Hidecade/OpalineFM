@@ -57,7 +57,7 @@ private:
 
     opaline::OpalineEngine engine;
     opalineapp::SynthState state;
-    opaline::OpalineRenderModel renderModel = opaline::OpalineRenderModel::ChipHybrid;
+    opaline::OpalineRenderModel renderModel = opaline::OpalineRenderModel::Current;
     juce::AudioProcessorValueTreeState parameters;
     double currentSampleRate = 44100.0;
     double currentPitchBend = 0.0;

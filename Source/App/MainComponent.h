@@ -433,7 +433,7 @@ private:
     std::array<bool, 128> pcKeyboardHeldNotes {};
     std::array<int, 128> pcKeyboardHeldVelocities {};
 
-    float masterVolume = 0.8f;
+    float masterVolume = 0.65f;
     double audioSampleRate = 44100.0;
     double currentPitchBend = 0.0;
     double currentModWheel = 0.0;

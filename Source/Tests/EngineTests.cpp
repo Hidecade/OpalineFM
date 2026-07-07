@@ -316,6 +316,7 @@ void testEngineRendering()
     }
 
     expect(peak > 0.001, "engine renders non-silent note");
+    expect(peak < 0.98, "engine keeps headroom below full scale");
 
     engine.noteOff(60);
     for (int i = 0; i < 44100 * 4; ++i)
@@ -371,6 +372,7 @@ void testEngineEffectsRendering()
     }
 
     expect(peak > 0.001, "effect chain renders non-silent note");
+    expect(peak < 0.98, "effect chain keeps headroom below full scale");
 }
 
 std::array<std::uint8_t, opaline::kOpalineVmemVoiceSize> makeTestVmem()

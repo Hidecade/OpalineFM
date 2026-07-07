@@ -1933,7 +1933,7 @@ void MainComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo& buffer
         if (performanceState.mode != PerformanceMode::Single)
         {
             const auto sampleB = performanceEngineB.renderSample();
-            const float mixGain = performanceState.mode == PerformanceMode::Dual ? 0.72f : 1.0f;
+            const float mixGain = performanceState.mode == PerformanceMode::Dual ? 0.50f : 0.82f;
             sample.left = (sampleA.left + sampleB.left) * mixGain;
             sample.right = (sampleA.right + sampleB.right) * mixGain;
         }

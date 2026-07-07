@@ -8,9 +8,23 @@ namespace opaline
 namespace
 {
 // 最終段の余裕を残すための全体ゲインと、簡易エフェクト用の最大ディレイ長。
-constexpr double kOutputGain = 0.56;
+constexpr double kOutputGain = 0.38;
+constexpr double kLimiterThreshold = 0.86;
+constexpr double kLimiterCeiling = 0.96;
 constexpr double kMaxDelaySeconds = 0.8;
 constexpr double kMaxChorusSeconds = 0.04;
+
+double softLimit(const double sample)
+{
+    const double magnitude = std::abs(sample);
+    if (magnitude <= kLimiterThreshold)
+        return sample;
+
+    const double kneeRange = kLimiterCeiling - kLimiterThreshold;
+    const double excess = magnitude - kLimiterThreshold;
+    const double limited = kLimiterThreshold + kneeRange * (1.0 - std::exp(-excess / kneeRange));
+    return std::copysign(std::min(limited, kLimiterCeiling), sample);
+}
 
 }
 
@@ -90,7 +104,7 @@ void OpalineEngine::panic()
 
 double OpalineEngine::limitAndDeclick(const double sample)
 {
-    const double limited = std::tanh(sample * 0.92) * 0.98;
+    const double limited = softLimit(sample);
     const double delta = clampDouble(limited - lastOutput, -0.42, 0.42);
     lastOutput += delta;
     return lastOutput;
@@ -210,8 +224,8 @@ StereoSample OpalineEngine::processEffects(const double input)
 
     const double left = input * dryGain + toneLeft * wetGain + chorusLeft * chorus * 0.34;
     const double right = input * dryGain + toneRight * wetGain + chorusRight * chorus * 0.34;
-    const double limitedLeft = std::tanh(left * 0.98);
-    const double limitedRight = std::tanh(right * 0.98);
+    const double limitedLeft = softLimit(left);
+    const double limitedRight = softLimit(right);
     lastLeft += clampDouble(limitedLeft - lastLeft, -0.42, 0.42);
     lastRight += clampDouble(limitedRight - lastRight, -0.42, 0.42);
     return { static_cast<float>(lastLeft), static_cast<float>(lastRight) };
