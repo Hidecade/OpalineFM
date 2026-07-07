@@ -51,9 +51,10 @@ add_test(NAME dx21_engine_tests COMMAND dx21_engine_tests)
 
 set(DX21_JUCE_DIR "" CACHE PATH "Path to a JUCE checkout. If empty, external/JUCE is used when present.")
 option(DX21_BUILD_STANDALONE "Build the JUCE standalone app when JUCE is available." ON)
+option(DX21_BUILD_PLUGIN "Build the JUCE VST3 plugin when JUCE is available." ON)
 
 set(DX21_RESOLVED_JUCE_DIR "")
-if (NOT DX21_BUILD_STANDALONE)
+if (NOT DX21_BUILD_STANDALONE AND NOT DX21_BUILD_PLUGIN)
     set(DX21_RESOLVED_JUCE_DIR "")
 elseif (DX21_JUCE_DIR AND EXISTS "${DX21_JUCE_DIR}/CMakeLists.txt")
     set(DX21_RESOLVED_JUCE_DIR "${DX21_JUCE_DIR}")
@@ -64,6 +65,7 @@ endif()
 if (DX21_RESOLVED_JUCE_DIR)
     add_subdirectory("${DX21_RESOLVED_JUCE_DIR}" "${CMAKE_BINARY_DIR}/JUCE")
 
+    if (DX21_BUILD_STANDALONE)
     juce_add_gui_app(DX21Native_Standalone
         PRODUCT_NAME "DX21 Native"
         COMPANY_NAME "Hidecade"
@@ -98,6 +100,57 @@ if (DX21_RESOLVED_JUCE_DIR)
             juce::juce_recommended_lto_flags
             juce::juce_recommended_warning_flags
     )
+    endif()
+
+    if (DX21_BUILD_PLUGIN)
+    juce_add_plugin(DX21Native_Plugin
+        COMPANY_NAME "Hidecade"
+        IS_SYNTH TRUE
+        NEEDS_MIDI_INPUT TRUE
+        NEEDS_MIDI_OUTPUT FALSE
+        IS_MIDI_EFFECT FALSE
+        COPY_PLUGIN_AFTER_BUILD FALSE
+        PLUGIN_MANUFACTURER_CODE Hica
+        PLUGIN_CODE Dx21
+        FORMATS VST3 Standalone
+        PRODUCT_NAME "DX21 Native"
+        NEEDS_WEB_BROWSER FALSE
+        NEEDS_CURL FALSE
+    )
+
+    target_sources(DX21Native_Plugin
+        PRIVATE
+            Source/App/Dx21AppState.h
+            Source/App/Dx21StateSerialization.h
+            Source/App/MainComponent.cpp
+            Source/App/MainComponent.h
+            Source/Plugin/PluginEditor.cpp
+            Source/Plugin/PluginEditor.h
+            Source/Plugin/PluginProcessor.cpp
+            Source/Plugin/PluginProcessor.h
+    )
+
+    target_compile_definitions(DX21Native_Plugin
+        PUBLIC
+            JUCE_WEB_BROWSER=0
+            JUCE_USE_CURL=0
+            JUCE_VST3_CAN_REPLACE_VST2=0
+            DX21_ASSET_DIR="${CMAKE_CURRENT_SOURCE_DIR}/assets"
+    )
+
+    target_link_libraries(DX21Native_Plugin
+        PRIVATE
+            dx21_engine
+            juce::juce_audio_devices
+            juce::juce_audio_processors
+            juce::juce_audio_utils
+            juce::juce_gui_extra
+        PUBLIC
+            juce::juce_recommended_config_flags
+            juce::juce_recommended_lto_flags
+            juce::juce_recommended_warning_flags
+    )
+    endif()
 else()
-    message(STATUS "JUCE not found. Standalone target disabled. Set DX21_JUCE_DIR or place JUCE at external/JUCE.")
+    message(STATUS "JUCE not found. JUCE targets disabled. Set DX21_JUCE_DIR or place JUCE at external/JUCE.")
 endif()

@@ -1500,8 +1500,9 @@ void MainComponent::KeyboardComponent::mouseExit(const juce::MouseEvent&)
     updateHeldNote(-1);
 }
 
-MainComponent::MainComponent()
-    : keyboard(*this)
+MainComponent::MainComponent(const HostMode mode)
+    : keyboard(*this),
+      hostMode(mode)
 {
     setupLabel(titleLabel, "DX21 Synth");
     titleLabel.setFont(juce::FontOptions(22.0f, juce::Font::bold));
@@ -1748,9 +1749,27 @@ MainComponent::MainComponent()
     loadFactoryVoices();
     refreshPerformanceControls();
     applySelectedVoice();
-    populateAudioOutputSelect();
-    populateMidiInputSelect();
-    midiStatus = "MIDI: off";
+    if (hostMode == HostMode::StandaloneApp)
+    {
+        populateAudioOutputSelect();
+        populateMidiInputSelect();
+        midiStatus = "MIDI: off";
+    }
+    else
+    {
+        audioOutputSelect.addItem("Audio: Host", 1);
+        audioOutputSelect.setSelectedId(1, juce::dontSendNotification);
+        audioOutputSelect.setEnabled(false);
+        midiInputSelect.addItem("MIDI: Host", 1);
+        midiInputSelect.setSelectedId(1, juce::dontSendNotification);
+        midiInputSelect.setEnabled(false);
+        powerOn = true;
+        powerButton.setButtonText("HOST");
+        powerButton.setToggleState(true, juce::dontSendNotification);
+        powerButton.setEnabled(false);
+        audioStatus = "Audio: host";
+        midiStatus = "MIDI: host";
+    }
     refreshStatus();
 
     setWantsKeyboardFocus(true);
@@ -1800,6 +1819,31 @@ MainComponent::~MainComponent()
             audioDeviceManager->closeAudioDevice();
         }
     }
+}
+
+void MainComponent::setStateChangedCallback(StateChangedCallback callback)
+{
+    onStateChanged = std::move(callback);
+}
+
+void MainComponent::setRenderModelChangedCallback(RenderModelChangedCallback callback)
+{
+    onRenderModelChanged = std::move(callback);
+}
+
+void MainComponent::setNoteOnCallback(NoteOnCallback callback)
+{
+    onNoteOn = std::move(callback);
+}
+
+void MainComponent::setNoteOffCallback(NoteOffCallback callback)
+{
+    onNoteOff = std::move(callback);
+}
+
+void MainComponent::setAllNotesOffCallback(AllNotesOffCallback callback)
+{
+    onAllNotesOff = std::move(callback);
 }
 
 void MainComponent::prepareToPlay(int, const double sampleRate)
@@ -2446,8 +2490,15 @@ dx21app::SynthState MainComponent::captureSynthState() const
     return state;
 }
 
+void MainComponent::emitSynthStateChanged()
+{
+    if (!suppressStateCallback && onStateChanged)
+        onStateChanged(captureSynthState());
+}
+
 void MainComponent::applySynthState(const dx21app::SynthState& state)
 {
+    suppressStateCallback = true;
     currentPatch = dx21::normalizePatch(state.patch);
     performanceState = state.performance;
     masterVolume = juce::jlimit(0.0f, 1.0f, state.masterVolume);
@@ -2461,6 +2512,7 @@ void MainComponent::applySynthState(const dx21app::SynthState& state)
     applyPatchToEngine();
     refreshStatus();
     resized();
+    suppressStateCallback = false;
 }
 
 void MainComponent::applyPerformanceModeToEngines()
@@ -2473,15 +2525,20 @@ void MainComponent::applyPerformanceModeToEngines()
 
 void MainComponent::applyPatchToEngine()
 {
-    std::lock_guard<std::mutex> lock(engineMutex);
-    applyRenderModelToEnginesNoLock();
-    engine.setPatch(currentPatch);
-    performanceEngineB.setPatch(patchForVoiceIndex(performanceState.voiceBIndex));
-    engine.setPitchBend(currentPitchBend);
-    engine.setModWheel(currentModWheel);
-    performanceEngineB.setPitchBend(juce::jlimit(-1.0, 1.0, currentPitchBend + static_cast<double>(performanceState.dualDetune) / 64.0));
-    performanceEngineB.setModWheel(currentModWheel);
+    {
+        std::lock_guard<std::mutex> lock(engineMutex);
+        applyRenderModelToEnginesNoLock();
+        engine.setPatch(currentPatch);
+        performanceEngineB.setPatch(patchForVoiceIndex(performanceState.voiceBIndex));
+        engine.setPitchBend(currentPitchBend);
+        engine.setModWheel(currentModWheel);
+        performanceEngineB.setPitchBend(juce::jlimit(-1.0, 1.0, currentPitchBend + static_cast<double>(performanceState.dualDetune) / 64.0));
+        performanceEngineB.setModWheel(currentModWheel);
+    }
     refreshLcd();
+    emitSynthStateChanged();
+    if (onRenderModelChanged)
+        onRenderModelChanged(currentRenderModel());
 }
 
 dx21::Dx21RenderModel MainComponent::currentRenderModel() const
@@ -2617,6 +2674,9 @@ void MainComponent::refreshStatus()
 
 bool MainComponent::ensureAudioStarted()
 {
+    if (hostMode == HostMode::PluginEditor)
+        return true;
+
     if (audioStarted)
         return true;
 
@@ -2736,6 +2796,12 @@ bool MainComponent::startPlayback()
 {
     if (powerOn)
         return true;
+
+    if (hostMode == HostMode::PluginEditor)
+    {
+        powerOn = true;
+        return true;
+    }
 
     if (!ensureAudioStarted())
         return false;
@@ -2924,6 +2990,13 @@ void MainComponent::noteOn(const int note, const int velocity)
         repaintKeyboardAsync();
     }
 
+    if (hostMode == HostMode::PluginEditor)
+    {
+        if (onNoteOn)
+            onNoteOn(note, velocity);
+        return;
+    }
+
     std::lock_guard<std::mutex> lock(engineMutex);
     performNoteOnNoLock(note, velocity);
 }
@@ -2935,6 +3008,13 @@ void MainComponent::noteOff(const int note)
         gMidiUiHeldNotes[static_cast<std::size_t>(note)].store(false, std::memory_order_relaxed);
         gMidiUiHeldVelocities[static_cast<std::size_t>(note)].store(0, std::memory_order_relaxed);
         repaintKeyboardAsync();
+    }
+
+    if (hostMode == HostMode::PluginEditor)
+    {
+        if (onNoteOff)
+            onNoteOff(note);
+        return;
     }
 
     std::lock_guard<std::mutex> lock(engineMutex);
@@ -2978,6 +3058,13 @@ void MainComponent::allNotesOff()
     pcKeyboardHeldNotes.fill(false);
     pcKeyboardHeldVelocities.fill(0);
     repaintKeyboardAsync();
+
+    if (hostMode == HostMode::PluginEditor)
+    {
+        if (onAllNotesOff)
+            onAllNotesOff();
+        return;
+    }
 
     std::lock_guard<std::mutex> lock(engineMutex);
     engine.panic();
@@ -3286,6 +3373,7 @@ void MainComponent::sliderValueChanged(juce::Slider* slider)
     if (slider == &volumeSlider)
     {
         masterVolume = static_cast<float>(volumeSlider.getValue());
+        emitSynthStateChanged();
     }
     else if (slider == &transposeSlider)
     {

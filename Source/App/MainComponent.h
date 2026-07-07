@@ -25,8 +25,29 @@ class MainComponent final : public juce::Component,
                             private juce::Timer
 {
 public:
-    MainComponent();
+    enum class HostMode
+    {
+        StandaloneApp,
+        PluginEditor
+    };
+
+    using StateChangedCallback = std::function<void(const dx21app::SynthState&)>;
+    using RenderModelChangedCallback = std::function<void(dx21::Dx21RenderModel)>;
+    using NoteOnCallback = std::function<void(int, int)>;
+    using NoteOffCallback = std::function<void(int)>;
+    using AllNotesOffCallback = std::function<void()>;
+
+    explicit MainComponent(HostMode mode = HostMode::StandaloneApp);
     ~MainComponent() override;
+
+    dx21app::SynthState captureSynthState() const;
+    void applySynthState(const dx21app::SynthState& state);
+    dx21::Dx21RenderModel currentRenderModel() const;
+    void setStateChangedCallback(StateChangedCallback callback);
+    void setRenderModelChangedCallback(RenderModelChangedCallback callback);
+    void setNoteOnCallback(NoteOnCallback callback);
+    void setNoteOffCallback(NoteOffCallback callback);
+    void setAllNotesOffCallback(AllNotesOffCallback callback);
 
     void prepareToPlay(int samplesPerBlockExpected, double sampleRate) override;
     void getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferToFill) override;
@@ -130,6 +151,22 @@ private:
         dx21::Dx21PitchEnvelopeParams envelope;
     };
 
+    class StepWheelSlider final : public juce::Slider
+    {
+    public:
+        void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails& wheel) override
+        {
+            const float delta = std::abs(wheel.deltaY) >= std::abs(wheel.deltaX) ? wheel.deltaY : wheel.deltaX;
+            if (delta == 0.0f)
+                return;
+
+            const double interval = getInterval() > 0.0 ? getInterval() : 1.0;
+            const double direction = delta > 0.0f ? 1.0 : -1.0;
+            setValue(juce::jlimit(getMinimum(), getMaximum(), getValue() + direction * interval),
+                     juce::sendNotificationSync);
+        }
+    };
+
     class OperatorComponent final : public juce::Component,
                                     private juce::Slider::Listener,
                                     private juce::Button::Listener
@@ -162,9 +199,9 @@ private:
         juce::TextButton ampModButton { "AM" };
         juce::Label roleLabel;
         std::array<juce::Label, 6> opLabels;
-        std::array<juce::Slider, 6> opSliders;
+        std::array<StepWheelSlider, 6> opSliders;
         std::array<juce::Label, 5> egLabels;
-        std::array<juce::Slider, 5> egSliders;
+        std::array<StepWheelSlider, 5> egSliders;
     };
 
     class KeyboardComponent final : public juce::Component
@@ -243,11 +280,9 @@ private:
     void updatePatchFromGlobalControls();
     void applyPatchToEngine();
     void applyPerformanceModeToEngines();
-    dx21::Dx21RenderModel currentRenderModel() const;
     void applyRenderModelToEnginesNoLock();
     void refreshEngineModelButton();
-    dx21app::SynthState captureSynthState() const;
-    void applySynthState(const dx21app::SynthState& state);
+    void emitSynthStateChanged();
     void updatePerformanceFromControls();
     void refreshPerformanceControls();
     void refreshLcd();
@@ -304,25 +339,25 @@ private:
     juce::ToggleButton lfoSyncButton { "Sync" };
     juce::Slider volumeSlider;
     juce::Slider transposeSlider;
-    juce::Slider algorithmSlider;
-    juce::Slider feedbackSlider;
-    juce::Slider lfoSpeedSlider;
-    juce::Slider lfoDelaySlider;
-    juce::Slider lfoPitchDepthSlider;
-    juce::Slider lfoAmpDepthSlider;
-    juce::Slider lfoPitchSensitivitySlider;
-    juce::Slider lfoAmpSensitivitySlider;
-    juce::Slider pegRate1Slider;
-    juce::Slider pegRate2Slider;
-    juce::Slider pegRate3Slider;
-    juce::Slider pegLevel1Slider;
-    juce::Slider pegLevel2Slider;
-    juce::Slider pegLevel3Slider;
-    juce::Slider effectReverbSlider;
-    juce::Slider effectMixSlider;
-    juce::Slider effectToneSlider;
-    juce::Slider effectChorusSlider;
-    juce::Slider effectDelaySlider;
+    StepWheelSlider algorithmSlider;
+    StepWheelSlider feedbackSlider;
+    StepWheelSlider lfoSpeedSlider;
+    StepWheelSlider lfoDelaySlider;
+    StepWheelSlider lfoPitchDepthSlider;
+    StepWheelSlider lfoAmpDepthSlider;
+    StepWheelSlider lfoPitchSensitivitySlider;
+    StepWheelSlider lfoAmpSensitivitySlider;
+    StepWheelSlider pegRate1Slider;
+    StepWheelSlider pegRate2Slider;
+    StepWheelSlider pegRate3Slider;
+    StepWheelSlider pegLevel1Slider;
+    StepWheelSlider pegLevel2Slider;
+    StepWheelSlider pegLevel3Slider;
+    StepWheelSlider effectReverbSlider;
+    StepWheelSlider effectMixSlider;
+    StepWheelSlider effectToneSlider;
+    StepWheelSlider effectChorusSlider;
+    StepWheelSlider effectDelaySlider;
     juce::Slider pitchWheelSlider;
     juce::Slider modWheelSlider;
     juce::Slider dualDetuneSlider;
@@ -397,6 +432,13 @@ private:
     bool audioStarted = false;
     bool chipRenderModel = false;
     bool syncingUi = false;
+    bool suppressStateCallback = false;
+    HostMode hostMode = HostMode::StandaloneApp;
+    StateChangedCallback onStateChanged;
+    RenderModelChangedCallback onRenderModelChanged;
+    NoteOnCallback onNoteOn;
+    NoteOffCallback onNoteOff;
+    AllNotesOffCallback onAllNotesOff;
     juce::String midiStatus = "MIDI: not connected";
     juce::String audioStatus = "Audio: off";
 };

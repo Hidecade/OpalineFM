@@ -26,7 +26,8 @@
       "architecture": "x64",
       "binaryDir": "${sourceDir}/build/engine-vs-debug",
       "cacheVariables": {
-        "DX21_BUILD_STANDALONE": "OFF"
+        "DX21_BUILD_STANDALONE": "OFF",
+        "DX21_BUILD_PLUGIN": "OFF"
       }
     },
     {
@@ -36,7 +37,8 @@
       "architecture": "x64",
       "binaryDir": "${sourceDir}/build/standalone-vs-debug",
       "cacheVariables": {
-        "DX21_BUILD_STANDALONE": "ON"
+        "DX21_BUILD_STANDALONE": "ON",
+        "DX21_BUILD_PLUGIN": "ON"
       }
     }
   ],
@@ -63,6 +65,22 @@
       "configuration": "Debug",
       "targets": [
         "DX21Native_Standalone"
+      ]
+    },
+    {
+      "name": "plugin-vs-debug",
+      "configurePreset": "standalone-vs-debug",
+      "configuration": "Debug",
+      "targets": [
+        "DX21Native_Plugin_VST3"
+      ]
+    },
+    {
+      "name": "plugin-standalone-vs-debug",
+      "configurePreset": "standalone-vs-debug",
+      "configuration": "Debug",
+      "targets": [
+        "DX21Native_Plugin_Standalone"
       ]
     }
   ],

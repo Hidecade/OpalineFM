@@ -156,7 +156,7 @@ void testPitchEnvelope()
     envelope.reset(1000.0);
 
     dx21::Dx21PitchEnvelopeParams params;
-    params.rate1 = 99;
+    params.rate1 = 90;
     params.rate2 = 99;
     params.rate3 = 99;
     params.level1 = 99;
@@ -165,10 +165,10 @@ void testPitchEnvelope()
 
     envelope.noteOn(params);
     const double first = envelope.nextSemitones();
-    expect(first > 0.0 && first < 47.04, "PEG starts moving from PL3 toward PL1");
+    expect(first > 0.0 && first < 48.0, "PEG starts moving from PL3 toward PL1");
 
     double value = first;
-    for (int i = 0; i < 90; ++i)
+    for (int i = 0; i < 500; ++i)
         value = envelope.nextSemitones();
 
     expectNear(value, 0.0, 0.0001, "PEG reaches PL2 sustain after stage 1 and 2");
@@ -177,11 +177,14 @@ void testPitchEnvelope()
     params.level1 = 50;
     params.level2 = 99;
     params.level3 = 50;
+    params.rate1 = 99;
+    params.rate2 = 99;
+    params.rate3 = 99;
     envelope.noteOn(params);
     for (int i = 0; i < 50; ++i)
         value = envelope.nextSemitones();
 
-    expectNear(value, 47.04, 0.0001, "PEG sustains PL2");
+    expectNear(value, 48.0, 0.0001, "PEG sustains PL2");
     envelope.noteOff();
     for (int i = 0; i < 50; ++i)
         value = envelope.nextSemitones();
@@ -200,8 +203,16 @@ void testPitchEnvelope()
         { 40, 2403 },
         { 60, 1129 },
         { 80, 579 },
-        { 90, 429 },
-        { 99, 35 }
+        { 90, 270 },
+        { 91, 258 },
+        { 92, 240 },
+        { 93, 230 },
+        { 94, 216 },
+        { 95, 204 },
+        { 96, 179 },
+        { 97, 175 },
+        { 98, 155 },
+        { 99, 6 }
     };
 
     for (const auto& expected : measuredRates)
@@ -227,7 +238,49 @@ void testPitchEnvelope()
                    static_cast<double>(expected.expectedSamples),
                    6.0,
                    "PEG measured PR reaches PL1/PL2 in expected time");
-        expectNear(value, 47.04, 0.0001, "PEG measured PR reaches PL99");
+        expectNear(value, 48.0, 0.0001, "PEG measured PR reaches PL99");
+    }
+
+    struct PegLevelExpectation
+    {
+        int level = 50;
+        double expectedSemitones = 0.0;
+    };
+
+    const PegLevelExpectation measuredLevels[] {
+        { 0, -48.0 },
+        { 5, -40.5284 },
+        { 10, -33.0135 },
+        { 25, -17.0667 },
+        { 35, -7.5298 },
+        { 40, -4.9894 },
+        { 45, -2.5853 },
+        { 47, -1.55118 },
+        { 50, 0.0 },
+        { 64, 6.9846 },
+        { 65, 8.0370 },
+        { 80, 23.4970 },
+        { 90, 34.5158 },
+        { 99, 48.0 }
+    };
+
+    for (const auto& expected : measuredLevels)
+    {
+        envelope.reset(1000.0);
+        params.rate1 = 99;
+        params.rate2 = 99;
+        params.rate3 = 99;
+        params.level1 = expected.level;
+        params.level2 = expected.level;
+        params.level3 = 50;
+        envelope.noteOn(params);
+        for (int i = 0; i < 10; ++i)
+            value = envelope.nextSemitones();
+
+        expectNear(value,
+                   expected.expectedSemitones,
+                   0.0001,
+                   "PEG measured PL reaches expected pitch offset");
     }
 }
 

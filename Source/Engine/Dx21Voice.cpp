@@ -706,7 +706,16 @@ OperatorRender Dx21Voice::renderOperator(const int opIndex,
     for (int i = 0; i < algorithm.depCounts[opSize]; ++i)
     {
         const int dep = algorithm.deps[opSize][static_cast<std::size_t>(i)];
-        phaseModulation += renderOperator(dep, patch, algorithm, baseFrequency, ampDepth, lfoAm, renderModel, computed, outputs).modulation;
+        phaseModulation += renderOperator(dep,
+                                          patch,
+                                          algorithm,
+                                          baseFrequency,
+                                          ampDepth,
+                                          lfoAm,
+                                          renderModel,
+                                          computed,
+                                          outputs)
+                               .modulation;
     }
     phaseModulation = mixPhaseModulationForModel(phaseModulation, algorithm.depCounts[opSize], renderModel);
 
@@ -838,7 +847,16 @@ double Dx21Voice::render(const Dx21Patch& patch,
     for (int i = 0; i < algorithm.carrierCount; ++i)
     {
         const int carrier = algorithm.carriers[static_cast<std::size_t>(i)];
-        sum += renderOperator(carrier, patch, algorithm, baseFrequency, ampDepth, lfo.first, renderModel, computed, outputs).audio;
+        sum += renderOperator(carrier,
+                              patch,
+                              algorithm,
+                              baseFrequency,
+                              ampDepth,
+                              lfo.first,
+                              renderModel,
+                              computed,
+                              outputs)
+                   .audio;
     }
 
     if (!std::isfinite(sum))
