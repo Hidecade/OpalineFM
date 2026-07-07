@@ -1,17 +1,17 @@
-﻿#include "Engine/Dx21PitchEnvelope.h"
+﻿#include "Engine/OpalinePitchEnvelope.h"
 
 #include <algorithm>
 #include <cmath>
 
-namespace dx21
+namespace opaline
 {
 namespace
 {
 // PL50を中心に、実機録音から得た上下方向のテーブルを使う。
 constexpr double kPegRateReferenceCents = 4800.0;
-constexpr double kDx21PegTickHz = 3579545.0 / 64.0 / 3.0;
+constexpr double kOpalinePegTickHz = 3579545.0 / 64.0 / 3.0;
 constexpr double kPegRate0Seconds = 63.55;
-constexpr double kPegRate99Seconds = 100.0 / kDx21PegTickHz;
+constexpr double kPegRate99Seconds = 100.0 / kOpalinePegTickHz;
 constexpr double kPegLowerLevelAnchorCents[] {
     -4800.0,
     -4052.84,
@@ -100,7 +100,7 @@ double interpolateLowerLevelCents(const int value)
 }
 }
 
-void Dx21PitchEnvelope::reset(const double sampleRate)
+void OpalinePitchEnvelope::reset(const double sampleRate)
 {
     currentSampleRate = sampleRate > 0.0 ? sampleRate : 44100.0;
     currentParams = {};
@@ -110,22 +110,22 @@ void Dx21PitchEnvelope::reset(const double sampleRate)
     centsPerSample = 0.0;
 }
 
-void Dx21PitchEnvelope::noteOn(const Dx21PitchEnvelopeParams& params)
+void OpalinePitchEnvelope::noteOn(const OpalinePitchEnvelopeParams& params)
 {
     currentParams = params;
 
-    // DX21のPEGはPL3を初期値として、PR1/PL1からPR2/PL2へ進む。
+    // compatibleのPEGはPL3を初期値として、PR1/PL1からPR2/PL2へ進む。
     currentCents = levelToCents(currentParams.level3);
     startSegment(Stage::Stage1, currentParams.level1, currentParams.rate1);
 }
 
-void Dx21PitchEnvelope::noteOff()
+void OpalinePitchEnvelope::noteOff()
 {
     if (currentStage != Stage::Off && currentStage != Stage::Finished)
         startSegment(Stage::Release, currentParams.level3, currentParams.rate3);
 }
 
-double Dx21PitchEnvelope::nextSemitones()
+double OpalinePitchEnvelope::nextSemitones()
 {
     if (currentStage == Stage::Stage1 || currentStage == Stage::Stage2 || currentStage == Stage::Release)
         advanceSegment();
@@ -135,7 +135,7 @@ double Dx21PitchEnvelope::nextSemitones()
     return currentCents / 100.0;
 }
 
-void Dx21PitchEnvelope::startSegment(const Stage stage, const int targetLevel, const int rate)
+void OpalinePitchEnvelope::startSegment(const Stage stage, const int targetLevel, const int rate)
 {
     currentStage = stage;
     targetCents = levelToCents(targetLevel);
@@ -158,7 +158,7 @@ void Dx21PitchEnvelope::startSegment(const Stage stage, const int targetLevel, c
     centsPerSample = distance / samples;
 }
 
-void Dx21PitchEnvelope::advanceSegment()
+void OpalinePitchEnvelope::advanceSegment()
 {
     if (currentCents < targetCents)
         currentCents = std::min(targetCents, currentCents + centsPerSample);
@@ -176,7 +176,7 @@ void Dx21PitchEnvelope::advanceSegment()
         currentStage = Stage::Finished;
 }
 
-double Dx21PitchEnvelope::levelToCents(const int level)
+double OpalinePitchEnvelope::levelToCents(const int level)
 {
     const int value = clampInt(level, 0, 99);
     if (value >= 50)
@@ -185,7 +185,7 @@ double Dx21PitchEnvelope::levelToCents(const int level)
     return interpolateLowerLevelCents(value);
 }
 
-double Dx21PitchEnvelope::rateToBaseTimeSeconds(const int rate)
+double OpalinePitchEnvelope::rateToBaseTimeSeconds(const int rate)
 {
     const int value = clampInt(rate, 0, 99);
     if (value <= 0)
@@ -198,4 +198,4 @@ double Dx21PitchEnvelope::rateToBaseTimeSeconds(const int rate)
     const double pr = static_cast<double>(value);
     return std::exp(0.0001099 * pr * pr - 0.04875 * pr + 2.6507);
 }
-} // namespace dx21
+} // namespace opaline

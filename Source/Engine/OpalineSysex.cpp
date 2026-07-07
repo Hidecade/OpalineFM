@@ -1,15 +1,15 @@
-﻿#include "Engine/Dx21Sysex.h"
+﻿#include "Engine/OpalineSysex.h"
 
 #include <stdexcept>
 
-namespace dx21
+namespace opaline
 {
 namespace
 {
-constexpr std::array<int, kOperatorCount> kDx21VmemOperatorOrder { 3, 1, 2, 0 };
-constexpr std::array<std::uint8_t, kDx21BulkVoiceDataOffset> kDx21BulkHeader { 0xf0u, 0x43u, 0x00u, 0x04u, 0x20u, 0x00u };
+constexpr std::array<int, kOperatorCount> kOpalineVmemOperatorOrder { 3, 1, 2, 0 };
+constexpr std::array<std::uint8_t, kOpalineBulkVoiceDataOffset> kOpalineBulkHeader { 0xf0u, 0x43u, 0x00u, 0x04u, 0x20u, 0x00u };
 
-std::string readVoiceName(const std::array<std::uint8_t, kDx21VmemVoiceSize>& vmem)
+std::string readVoiceName(const std::array<std::uint8_t, kOpalineVmemVoiceSize>& vmem)
 {
     std::string name;
     for (int i = 57; i <= 66; ++i)
@@ -25,9 +25,9 @@ std::string readVoiceName(const std::array<std::uint8_t, kDx21VmemVoiceSize>& vm
     return name;
 }
 
-Dx21Operator decodeOperatorBlock(const std::array<std::uint8_t, kDx21VmemVoiceSize>& vmem, const int base)
+OpalineOperator decodeOperatorBlock(const std::array<std::uint8_t, kOpalineVmemVoiceSize>& vmem, const int base)
 {
-    Dx21Operator op;
+    OpalineOperator op;
     op.envelope.attackRate = vmem[static_cast<std::size_t>(base + 0)];
     op.envelope.decay1Rate = vmem[static_cast<std::size_t>(base + 1)];
     op.envelope.decay2Rate = vmem[static_cast<std::size_t>(base + 2)];
@@ -48,7 +48,7 @@ Dx21Operator decodeOperatorBlock(const std::array<std::uint8_t, kDx21VmemVoiceSi
     return op;
 }
 
-void writeVoiceName(std::array<std::uint8_t, kDx21VmemVoiceSize>& vmem, const std::string& name)
+void writeVoiceName(std::array<std::uint8_t, kOpalineVmemVoiceSize>& vmem, const std::string& name)
 {
     for (int i = 57; i <= 66; ++i)
         vmem[static_cast<std::size_t>(i)] = static_cast<std::uint8_t>(' ');
@@ -60,9 +60,9 @@ void writeVoiceName(std::array<std::uint8_t, kDx21VmemVoiceSize>& vmem, const st
     }
 }
 
-void encodeOperatorBlock(std::array<std::uint8_t, kDx21VmemVoiceSize>& vmem,
+void encodeOperatorBlock(std::array<std::uint8_t, kOpalineVmemVoiceSize>& vmem,
                          const int base,
-                         const Dx21Operator& op)
+                         const OpalineOperator& op)
 {
     vmem[static_cast<std::size_t>(base + 0)] = static_cast<std::uint8_t>(clampInt(op.envelope.attackRate, 0, 31));
     vmem[static_cast<std::size_t>(base + 1)] = static_cast<std::uint8_t>(clampInt(op.envelope.decay1Rate, 0, 31));
@@ -87,19 +87,19 @@ std::uint8_t yamahaChecksum(const std::vector<std::uint8_t>& bytes, const std::s
 }
 } // namespace
 
-std::vector<Dx21VmemPreset> parseDx21BulkVmem(const std::vector<std::uint8_t>& bytes)
+std::vector<OpalineVmemPreset> parseCompatibleBulkVmem(const std::vector<std::uint8_t>& bytes)
 {
-    if (bytes.size() < kDx21BulkMinimumSize || bytes.front() != 0xf0u || bytes.back() != 0xf7u)
-        throw std::runtime_error("Expected a DX21 32-voice bulk SysEx file.");
+    if (bytes.size() < kOpalineBulkMinimumSize || bytes.front() != 0xf0u || bytes.back() != 0xf7u)
+        throw std::runtime_error("Expected a compatible 32-voice bulk SysEx file.");
 
-    std::vector<Dx21VmemPreset> presets;
-    presets.reserve(kDx21BulkVoiceCount);
+    std::vector<OpalineVmemPreset> presets;
+    presets.reserve(kOpalineBulkVoiceCount);
 
-    for (int voice = 0; voice < kDx21BulkVoiceCount; ++voice)
+    for (int voice = 0; voice < kOpalineBulkVoiceCount; ++voice)
     {
-        Dx21VmemPreset preset;
-        const auto offset = static_cast<std::size_t>(kDx21BulkVoiceDataOffset + voice * kDx21VmemVoiceSize);
-        for (int i = 0; i < kDx21VmemVoiceSize; ++i)
+        OpalineVmemPreset preset;
+        const auto offset = static_cast<std::size_t>(kOpalineBulkVoiceDataOffset + voice * kOpalineVmemVoiceSize);
+        for (int i = 0; i < kOpalineVmemVoiceSize; ++i)
             preset.vmem[static_cast<std::size_t>(i)] = bytes[offset + static_cast<std::size_t>(i)];
 
         preset.name = readVoiceName(preset.vmem);
@@ -109,9 +109,9 @@ std::vector<Dx21VmemPreset> parseDx21BulkVmem(const std::vector<std::uint8_t>& b
     return presets;
 }
 
-Dx21PatchWithMetadata decodeDx21VmemVoice(const std::array<std::uint8_t, kDx21VmemVoiceSize>& vmem)
+OpalinePatchWithMetadata decodeCompatibleVmemVoice(const std::array<std::uint8_t, kOpalineVmemVoiceSize>& vmem)
 {
-    Dx21PatchWithMetadata result;
+    OpalinePatchWithMetadata result;
     result.name = readVoiceName(vmem);
     result.hasVmem = true;
     result.vmem = vmem;
@@ -141,7 +141,7 @@ Dx21PatchWithMetadata decodeDx21VmemVoice(const std::array<std::uint8_t, kDx21Vm
 
     for (int block = 0; block < kOperatorCount; ++block)
     {
-        const int opIndex = kDx21VmemOperatorOrder[static_cast<std::size_t>(block)];
+        const int opIndex = kOpalineVmemOperatorOrder[static_cast<std::size_t>(block)];
         patch.operators[static_cast<std::size_t>(opIndex)] = decodeOperatorBlock(vmem, block * 10);
     }
 
@@ -149,14 +149,14 @@ Dx21PatchWithMetadata decodeDx21VmemVoice(const std::array<std::uint8_t, kDx21Vm
     return result;
 }
 
-std::array<std::uint8_t, kDx21VmemVoiceSize> encodeDx21VmemVoice(const Dx21PatchWithMetadata& voice)
+std::array<std::uint8_t, kOpalineVmemVoiceSize> encodeCompatibleVmemVoice(const OpalinePatchWithMetadata& voice)
 {
-    auto vmem = voice.hasVmem ? voice.vmem : std::array<std::uint8_t, kDx21VmemVoiceSize> {};
+    auto vmem = voice.hasVmem ? voice.vmem : std::array<std::uint8_t, kOpalineVmemVoiceSize> {};
     const auto patch = normalizePatch(voice.patch);
 
     for (int block = 0; block < kOperatorCount; ++block)
     {
-        const int opIndex = kDx21VmemOperatorOrder[static_cast<std::size_t>(block)];
+        const int opIndex = kOpalineVmemOperatorOrder[static_cast<std::size_t>(block)];
         encodeOperatorBlock(vmem, block * 10, patch.operators[static_cast<std::size_t>(opIndex)]);
     }
 
@@ -181,42 +181,42 @@ std::array<std::uint8_t, kDx21VmemVoiceSize> encodeDx21VmemVoice(const Dx21Patch
     return vmem;
 }
 
-std::vector<std::uint8_t> encodeDx21BulkVmem(const std::vector<Dx21PatchWithMetadata>& voices)
+std::vector<std::uint8_t> encodeCompatibleBulkVmem(const std::vector<OpalinePatchWithMetadata>& voices)
 {
     if (voices.empty())
-        throw std::runtime_error("Cannot encode an empty DX21 voice bank.");
+        throw std::runtime_error("Cannot encode an empty compatible voice bank.");
 
-    std::vector<std::uint8_t> bytes(static_cast<std::size_t>(kDx21BulkMinimumSize), 0);
-    for (std::size_t i = 0; i < kDx21BulkHeader.size(); ++i)
-        bytes[i] = kDx21BulkHeader[i];
+    std::vector<std::uint8_t> bytes(static_cast<std::size_t>(kOpalineBulkMinimumSize), 0);
+    for (std::size_t i = 0; i < kOpalineBulkHeader.size(); ++i)
+        bytes[i] = kOpalineBulkHeader[i];
 
-    for (int voice = 0; voice < kDx21BulkVoiceCount; ++voice)
+    for (int voice = 0; voice < kOpalineBulkVoiceCount; ++voice)
     {
         const auto& source = voices[static_cast<std::size_t>(voice) % voices.size()];
-        const auto vmem = encodeDx21VmemVoice(source);
-        const auto offset = static_cast<std::size_t>(kDx21BulkVoiceDataOffset + voice * kDx21VmemVoiceSize);
-        for (int i = 0; i < kDx21VmemVoiceSize; ++i)
+        const auto vmem = encodeCompatibleVmemVoice(source);
+        const auto offset = static_cast<std::size_t>(kOpalineBulkVoiceDataOffset + voice * kOpalineVmemVoiceSize);
+        for (int i = 0; i < kOpalineVmemVoiceSize; ++i)
             bytes[offset + static_cast<std::size_t>(i)] = vmem[static_cast<std::size_t>(i)] & 0x7f;
     }
 
-    bytes[static_cast<std::size_t>(kDx21BulkVoiceDataOffset + kDx21BulkVoiceDataSize)] =
-        yamahaChecksum(bytes, kDx21BulkVoiceDataOffset, kDx21BulkVoiceDataSize);
+    bytes[static_cast<std::size_t>(kOpalineBulkVoiceDataOffset + kOpalineBulkVoiceDataSize)] =
+        yamahaChecksum(bytes, kOpalineBulkVoiceDataOffset, kOpalineBulkVoiceDataSize);
     bytes.back() = 0xf7u;
     return bytes;
 }
 
-Dx21PatchWithMetadata withVmemPreset(const Dx21Patch& basePatch, const Dx21VmemPreset& preset)
+OpalinePatchWithMetadata withVmemPreset(const OpalinePatch& basePatch, const OpalineVmemPreset& preset)
 {
-    Dx21PatchWithMetadata patch = decodeDx21VmemVoice(preset.vmem);
+    OpalinePatchWithMetadata patch = decodeCompatibleVmemVoice(preset.vmem);
     if (!preset.name.empty())
         patch.name = preset.name;
 
     return patch;
 }
 
-void clearVmemPreset(Dx21PatchWithMetadata& patch)
+void clearVmemPreset(OpalinePatchWithMetadata& patch)
 {
     patch.hasVmem = false;
     patch.vmem = {};
 }
-} // namespace dx21
+} // namespace opaline

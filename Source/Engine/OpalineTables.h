@@ -2,7 +2,7 @@
 
 #include <array>
 
-namespace dx21
+namespace opaline
 {
 // carriersは最終出力、depsは各OPへ入る上流モジュレータを表す。
 struct Algorithm
@@ -13,9 +13,9 @@ struct Algorithm
     std::array<int, 4> depCounts {};
 };
 
-const std::array<double, 64>& dx21Ratios();
-const std::array<Algorithm, 8>& dx21Algorithms();
+const std::array<double, 64>& opalineRatios();
+const std::array<Algorithm, 8>& opalineAlgorithms();
 double sineLookup(double phase);
-double dx21LfoSpeedToHz(int speed);
+double opalineLfoSpeedToHz(int speed);
 double opmStyleDt1FrequencyOffset(double baseFrequency, double ratio, int detune, int note);
-} // namespace dx21
+} // namespace opaline

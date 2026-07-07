@@ -1,15 +1,15 @@
 ﻿#pragma once
 
-#include "Engine/Dx21ChipEnvelope.h"
-#include "Engine/Dx21Envelope.h"
-#include "Engine/Dx21PitchEnvelope.h"
-#include "Engine/Dx21Types.h"
+#include "Engine/OpalineChipEnvelope.h"
+#include "Engine/OpalineEnvelope.h"
+#include "Engine/OpalinePitchEnvelope.h"
+#include "Engine/OpalineTypes.h"
 
 #include <array>
 #include <cstdint>
 #include <utility>
 
-namespace dx21
+namespace opaline
 {
 struct Algorithm;
 
@@ -21,27 +21,27 @@ struct OperatorRender
 };
 
 // 1音分のFMボイス。OLD/NEWの状態を持ち、renderModelで鳴らし分ける。
-class Dx21Voice
+class OpalineVoice
 {
 public:
-    void start(const Dx21Patch& patch, int midiNote, int velocity, double sampleRate);
+    void start(const OpalinePatch& patch, int midiNote, int velocity, double sampleRate);
     void release();
     bool isActive() const;
     int note() const { return midiNote; }
-    double render(const Dx21Patch& patch,
+    double render(const OpalinePatch& patch,
                   double pitchBend,
                   double modWheel,
                   double globalLfoAge,
-                  Dx21RenderModel renderModel);
+                  OpalineRenderModel renderModel);
 
 private:
     OperatorRender renderOperator(int opIndex,
-                                  const Dx21Patch& patch,
+                                  const OpalinePatch& patch,
                                   const Algorithm& algorithm,
                                   double baseFrequency,
                                   double ampDepth,
                                   double lfoAm,
-                                  Dx21RenderModel renderModel,
+                                  OpalineRenderModel renderModel,
                                   std::array<bool, kOperatorCount>& computed,
                                   std::array<OperatorRender, kOperatorCount>& outputs);
     double nextOperatorLevel(int index, int targetLevel);
@@ -57,10 +57,10 @@ private:
     std::array<double, kOperatorCount> phases {};
     std::array<double, kOperatorCount> operatorOppTlUnits {};
     std::array<double, kOperatorCount> operatorTlAccumulators {};
-    std::array<Dx21Envelope, kOperatorCount> envelopes {};
-    std::array<Dx21ChipEnvelope, kOperatorCount> chipEnvelopes {};
-    Dx21PitchEnvelope pitchEnvelope;
-    Dx21RenderModel activeRenderModel = Dx21RenderModel::Current;
+    std::array<OpalineEnvelope, kOperatorCount> envelopes {};
+    std::array<OpalineChipEnvelope, kOperatorCount> chipEnvelopes {};
+    OpalinePitchEnvelope pitchEnvelope;
+    OpalineRenderModel activeRenderModel = OpalineRenderModel::Current;
     double delayedPitchLfo = 0.0;
     std::uint32_t sampleAndHoldLfsr = 0;
     int sampleAndHoldBit = 0;
@@ -69,4 +69,4 @@ private:
     std::array<double, 2> feedbackHistory {};
     bool failed = false;
 };
-} // namespace dx21
+} // namespace opaline

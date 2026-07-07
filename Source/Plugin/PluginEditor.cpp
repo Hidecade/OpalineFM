@@ -1,16 +1,16 @@
-#include "PluginEditor.h"
+﻿#include "PluginEditor.h"
 
 #include "PluginProcessor.h"
 
-Dx21NativeAudioProcessorEditor::Dx21NativeAudioProcessorEditor(Dx21NativeAudioProcessor& processor)
+OpalineAudioProcessorEditor::OpalineAudioProcessorEditor(OpalineAudioProcessor& processor)
     : AudioProcessorEditor(processor),
       audioProcessor(processor)
 {
-    mainComponent.setStateChangedCallback([this](const dx21app::SynthState& state)
+    mainComponent.setStateChangedCallback([this](const opalineapp::SynthState& state)
     {
         audioProcessor.setSynthStateFromEditor(state);
     });
-    mainComponent.setRenderModelChangedCallback([this](const dx21::Dx21RenderModel renderModel)
+    mainComponent.setRenderModelChangedCallback([this](const opaline::OpalineRenderModel renderModel)
     {
         audioProcessor.setRenderModelFromEditor(renderModel);
     });
@@ -46,17 +46,17 @@ Dx21NativeAudioProcessorEditor::Dx21NativeAudioProcessorEditor(Dx21NativeAudioPr
     startTimerHz(12);
 }
 
-Dx21NativeAudioProcessorEditor::~Dx21NativeAudioProcessorEditor()
+OpalineAudioProcessorEditor::~OpalineAudioProcessorEditor()
 {
     stopTimer();
 }
 
-void Dx21NativeAudioProcessorEditor::resized()
+void OpalineAudioProcessorEditor::resized()
 {
     mainComponent.setBounds(getLocalBounds());
 }
 
-void Dx21NativeAudioProcessorEditor::timerCallback()
+void OpalineAudioProcessorEditor::timerCallback()
 {
     mainComponent.applySynthState(audioProcessor.getSynthState());
     mainComponent.setExternalMidiNoteState(audioProcessor.getMidiUiVelocities());

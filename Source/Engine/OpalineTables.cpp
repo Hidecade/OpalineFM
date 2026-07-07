@@ -1,13 +1,13 @@
-﻿#include "Engine/Dx21Tables.h"
+﻿#include "Engine/OpalineTables.h"
 
-#include "Engine/Dx21Types.h"
+#include "Engine/OpalineTypes.h"
 
 #include <array>
 #include <cmath>
 
-namespace dx21
+namespace opaline
 {
-const std::array<double, 64>& dx21Ratios()
+const std::array<double, 64>& opalineRatios()
 {
     static const std::array<double, 64> ratios {
         0.50, 0.71, 0.78, 0.87, 1.00, 1.41, 1.57, 1.73,
@@ -44,7 +44,7 @@ static Algorithm makeAlgorithm(const std::initializer_list<int> carriers,
     return algorithm;
 }
 
-const std::array<Algorithm, 8>& dx21Algorithms()
+const std::array<Algorithm, 8>& opalineAlgorithms()
 {
     static const std::array<Algorithm, 8> algorithms {
         makeAlgorithm({ 0 }, { { 1 }, { 2 }, { 3 }, {} }),          // 4>3>2>1
@@ -64,7 +64,7 @@ double sineLookup(const double phase)
     return std::sin(phase);
 }
 
-double dx21LfoSpeedToHz(const int speed)
+double opalineLfoSpeedToHz(const int speed)
 {
     const auto normalized = static_cast<double>(clampInt(speed, 0, 99)) / 99.0;
     if (normalized <= 0.0)
@@ -95,4 +95,4 @@ double opmStyleDt1FrequencyOffset(const double baseFrequency, const double ratio
     const int baseUnits = std::max(1, (kOpmBaseFnum << block) >> 2);
     return sign * baseFrequency * ratio * static_cast<double>(detuneUnits) / static_cast<double>(baseUnits);
 }
-} // namespace dx21
+} // namespace opaline

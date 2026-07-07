@@ -1,9 +1,9 @@
-#include "Engine/Dx21Engine.h"
-#include "Engine/Dx21Envelope.h"
-#include "Engine/Dx21PitchEnvelope.h"
-#include "Engine/Dx21Sysex.h"
-#include "Engine/Dx21Tables.h"
-#include "Engine/Dx21VoiceLibrary.h"
+﻿#include "Engine/OpalineEngine.h"
+#include "Engine/OpalineEnvelope.h"
+#include "Engine/OpalinePitchEnvelope.h"
+#include "Engine/OpalineSysex.h"
+#include "Engine/OpalineTables.h"
+#include "Engine/OpalineVoiceLibrary.h"
 
 #include <array>
 #include <cmath>
@@ -38,30 +38,30 @@ void expectNear(double actual, double expected, double tolerance, const std::str
 
 void testTables()
 {
-    const auto& ratios = dx21::dx21Ratios();
-    expect(ratios.size() == 64, "DX21 ratio table has 64 entries");
+    const auto& ratios = opaline::opalineRatios();
+    expect(ratios.size() == 64, "compatible ratio table has 64 entries");
     expectNear(ratios[0], 0.50, 0.0001, "ratio[0]");
     expectNear(ratios[4], 1.00, 0.0001, "ratio[4]");
     expectNear(ratios[63], 25.95, 0.0001, "ratio[63]");
 
-    const auto& algorithms = dx21::dx21Algorithms();
+    const auto& algorithms = opaline::opalineAlgorithms();
     expect(algorithms.size() == 8, "algorithm table has 8 entries");
     expect(algorithms[0].carrierCount == 1 && algorithms[0].carriers[0] == 0, "algorithm 1 carrier");
     expect(algorithms[0].depCounts[0] == 1 && algorithms[0].deps[0][0] == 1, "algorithm 1 OP2 modulates OP1");
     expect(algorithms[2].carrierCount == 1 && algorithms[2].depCounts[0] == 2
                && algorithms[2].deps[0][0] == 1 && algorithms[2].deps[0][1] == 3,
-           "algorithm 3 matches WebDX21 dependency graph");
+           "algorithm 3 matches Webcompatible dependency graph");
     expect(algorithms[3].carrierCount == 1 && algorithms[3].depCounts[0] == 2
                && algorithms[3].deps[0][0] == 1 && algorithms[3].deps[0][1] == 2,
-           "algorithm 4 matches WebDX21 dependency graph");
+           "algorithm 4 matches Webcompatible dependency graph");
     expect(algorithms[7].carrierCount == 4, "algorithm 8 has four carriers");
-    expectNear(dx21::dx21LfoSpeedToHz(35), 6.7, 0.02, "LFO speed 35 matches DX21 manual");
-    expectNear(dx21::dx21LfoSpeedToHz(99), 55.0, 0.0001, "LFO speed 99 matches WebDX21");
+    expectNear(opaline::opalineLfoSpeedToHz(35), 6.7, 0.02, "LFO speed 35 matches compatible manual");
+    expectNear(opaline::opalineLfoSpeedToHz(99), 55.0, 0.0001, "LFO speed 99 matches Webcompatible");
 }
 
 void testPatchNormalization()
 {
-    dx21::Dx21Patch patch;
+    opaline::OpalinePatch patch;
     patch.algorithm = 99;
     patch.feedback = -5;
     patch.transpose = 100;
@@ -81,7 +81,7 @@ void testPatchNormalization()
     patch.operators[0].detune = -99;
     patch.operators[0].envelope.decay1Level = 100;
 
-    const auto normalized = dx21::normalizePatch(patch);
+    const auto normalized = opaline::normalizePatch(patch);
     expect(normalized.algorithm == 8, "algorithm clamps high");
     expect(normalized.feedback == 0, "feedback clamps low");
     expect(normalized.transpose == 24, "transpose clamps high");
@@ -104,10 +104,10 @@ void testPatchNormalization()
 
 void testEnvelope()
 {
-    dx21::Dx21Envelope envelope;
+    opaline::OpalineEnvelope envelope;
     envelope.reset(44100.0);
 
-    dx21::Dx21EnvelopeParams params;
+    opaline::OpalineEnvelopeParams params;
     params.attackRate = 31;
     params.decay1Rate = 20;
     params.decay1Level = 10;
@@ -131,10 +131,10 @@ void testEnvelope()
 
 void testFastAttackTiming()
 {
-    dx21::Dx21Envelope envelope;
+    opaline::OpalineEnvelope envelope;
     envelope.reset(44100.0);
 
-    dx21::Dx21EnvelopeParams params;
+    opaline::OpalineEnvelopeParams params;
     params.attackRate = 31;
     params.decay1Rate = 0;
     params.decay1Level = 15;
@@ -147,15 +147,15 @@ void testFastAttackTiming()
         ampAt100Ms = envelope.next();
 
     expect(ampAt100Ms > 0.5, "AR31 reaches a strong level within 100 ms");
-    expect(envelope.stage() != dx21::Dx21Envelope::Stage::Attack, "AR31 leaves attack stage quickly");
+    expect(envelope.stage() != opaline::OpalineEnvelope::Stage::Attack, "AR31 leaves attack stage quickly");
 }
 
 void testPitchEnvelope()
 {
-    dx21::Dx21PitchEnvelope envelope;
+    opaline::OpalinePitchEnvelope envelope;
     envelope.reset(1000.0);
 
-    dx21::Dx21PitchEnvelopeParams params;
+    opaline::OpalinePitchEnvelopeParams params;
     params.rate1 = 90;
     params.rate2 = 99;
     params.rate3 = 99;
@@ -172,7 +172,7 @@ void testPitchEnvelope()
         value = envelope.nextSemitones();
 
     expectNear(value, 0.0, 0.0001, "PEG reaches PL2 sustain after stage 1 and 2");
-    expect(envelope.stage() == dx21::Dx21PitchEnvelope::Stage::Sustain, "PEG enters sustain");
+    expect(envelope.stage() == opaline::OpalinePitchEnvelope::Stage::Sustain, "PEG enters sustain");
 
     params.level1 = 50;
     params.level2 = 99;
@@ -190,7 +190,7 @@ void testPitchEnvelope()
         value = envelope.nextSemitones();
 
     expectNear(value, 0.0, 0.0001, "PEG releases from current value to PL3");
-    expect(envelope.stage() == dx21::Dx21PitchEnvelope::Stage::Finished, "PEG finishes release");
+    expect(envelope.stage() == opaline::OpalinePitchEnvelope::Stage::Finished, "PEG finishes release");
 
     struct PegRateExpectation
     {
@@ -228,7 +228,7 @@ void testPitchEnvelope()
 
         int samples = 0;
         value = 0.0;
-        while (envelope.stage() != dx21::Dx21PitchEnvelope::Stage::Sustain && samples < expected.expectedSamples + 200)
+        while (envelope.stage() != opaline::OpalinePitchEnvelope::Stage::Sustain && samples < expected.expectedSamples + 200)
         {
             value = envelope.nextSemitones();
             ++samples;
@@ -286,7 +286,7 @@ void testPitchEnvelope()
 
 void testEngineRendering()
 {
-    dx21::Dx21Patch patch;
+    opaline::OpalinePatch patch;
     patch.algorithm = 8;
     patch.feedback = 0;
     for (auto& op : patch.operators)
@@ -301,7 +301,7 @@ void testEngineRendering()
     patch.operators[0].level = 95;
     patch.operators[0].ratioIndex = 4;
 
-    dx21::Dx21Engine engine;
+    opaline::OpalineEngine engine;
     engine.prepare(44100.0, 4);
     engine.setPatch(patch);
     engine.noteOn(60, 104);
@@ -326,9 +326,9 @@ void testEngineRendering()
 
 void testVoiceLimit()
 {
-    dx21::Dx21Engine engine;
+    opaline::OpalineEngine engine;
     engine.prepare(44100.0, 2);
-    engine.setPatch(dx21::Dx21Patch {});
+    engine.setPatch(opaline::OpalinePatch {});
     engine.noteOn(60, 100);
     engine.noteOn(62, 100);
     engine.noteOn(64, 100);
@@ -337,7 +337,7 @@ void testVoiceLimit()
 
 void testEngineEffectsRendering()
 {
-    dx21::Dx21Patch patch;
+    opaline::OpalinePatch patch;
     patch.algorithm = 8;
     patch.feedback = 0;
     patch.effects.reverb = 70;
@@ -356,7 +356,7 @@ void testEngineEffectsRendering()
     }
     patch.operators[0].level = 95;
 
-    dx21::Dx21Engine engine;
+    opaline::OpalineEngine engine;
     engine.prepare(44100.0, 4);
     engine.setPatch(patch);
     engine.noteOn(60, 104);
@@ -373,9 +373,9 @@ void testEngineEffectsRendering()
     expect(peak > 0.001, "effect chain renders non-silent note");
 }
 
-std::array<std::uint8_t, dx21::kDx21VmemVoiceSize> makeTestVmem()
+std::array<std::uint8_t, opaline::kOpalineVmemVoiceSize> makeTestVmem()
 {
-    std::array<std::uint8_t, dx21::kDx21VmemVoiceSize> vmem {};
+    std::array<std::uint8_t, opaline::kOpalineVmemVoiceSize> vmem {};
     const std::string name = "TESTVOICE ";
     for (std::size_t i = 0; i < name.size(); ++i)
         vmem.at(57 + i) = static_cast<std::uint8_t>(name[i]);
@@ -394,7 +394,7 @@ std::array<std::uint8_t, dx21::kDx21VmemVoiceSize> makeTestVmem()
     vmem[71] = 65;
     vmem[72] = 66;
 
-    for (int block = 0; block < dx21::kOperatorCount; ++block)
+    for (int block = 0; block < opaline::kOperatorCount; ++block)
     {
         const int base = block * 10;
         vmem.at(static_cast<std::size_t>(base + 0)) = static_cast<std::uint8_t>(10 + block);
@@ -414,16 +414,16 @@ std::array<std::uint8_t, dx21::kDx21VmemVoiceSize> makeTestVmem()
 
 std::vector<std::uint8_t> makeTestBulk()
 {
-    std::vector<std::uint8_t> bytes(static_cast<std::size_t>(dx21::kDx21BulkMinimumSize), 0);
+    std::vector<std::uint8_t> bytes(static_cast<std::size_t>(opaline::kOpalineBulkMinimumSize), 0);
     bytes.front() = 0xf0u;
     bytes.back() = 0xf7u;
 
     const auto vmem = makeTestVmem();
-    for (int voice = 0; voice < dx21::kDx21BulkVoiceCount; ++voice)
+    for (int voice = 0; voice < opaline::kOpalineBulkVoiceCount; ++voice)
     {
-        const auto offset = static_cast<std::size_t>(dx21::kDx21BulkVoiceDataOffset
-            + voice * dx21::kDx21VmemVoiceSize);
-        for (int i = 0; i < dx21::kDx21VmemVoiceSize; ++i)
+        const auto offset = static_cast<std::size_t>(opaline::kOpalineBulkVoiceDataOffset
+            + voice * opaline::kOpalineVmemVoiceSize);
+        for (int i = 0; i < opaline::kOpalineVmemVoiceSize; ++i)
             bytes.at(offset + static_cast<std::size_t>(i)) = vmem.at(static_cast<std::size_t>(i));
     }
 
@@ -432,8 +432,8 @@ std::vector<std::uint8_t> makeTestBulk()
 
 void testSysexBulkParsing()
 {
-    const auto presets = dx21::parseDx21BulkVmem(makeTestBulk());
-    expect(presets.size() == dx21::kDx21BulkVoiceCount, "bulk parser returns 32 voices");
+    const auto presets = opaline::parseCompatibleBulkVmem(makeTestBulk());
+    expect(presets.size() == opaline::kOpalineBulkVoiceCount, "bulk parser returns 32 voices");
     expect(presets[0].name == "TESTVOICE", "bulk parser trims ASCII voice name");
     expect(presets[0].vmem[40] == static_cast<std::uint8_t>((6 - 1) | (5 << 3) | 0x40),
            "bulk parser copies raw VMEM bytes");
@@ -442,7 +442,7 @@ void testSysexBulkParsing()
     try
     {
         std::vector<std::uint8_t> invalid(12, 0);
-        dx21::parseDx21BulkVmem(invalid);
+        opaline::parseCompatibleBulkVmem(invalid);
     }
     catch (const std::exception&)
     {
@@ -454,7 +454,7 @@ void testSysexBulkParsing()
 void testVmemDecodeAndPatchMerge()
 {
     const auto vmem = makeTestVmem();
-    const auto decoded = dx21::decodeDx21VmemVoice(vmem);
+    const auto decoded = opaline::decodeCompatibleVmemVoice(vmem);
 
     expect(decoded.name == "TESTVOICE", "decoder reads voice name");
     expect(decoded.hasVmem, "decoder marks patch as VMEM-backed");
@@ -478,7 +478,7 @@ void testVmemDecodeAndPatchMerge()
 
     auto lfoNoiseVmem = vmem;
     lfoNoiseVmem[45] = 115; // S/H wave, AMS=0, PMS=7.
-    const auto lfoNoise = dx21::decodeDx21VmemVoice(lfoNoiseVmem);
+    const auto lfoNoise = opaline::decodeCompatibleVmemVoice(lfoNoiseVmem);
     expect(lfoNoise.patch.lfo.wave == 3, "decoder reads S/H wave from B07-style LFO byte");
     expect(lfoNoise.patch.lfo.ampSensitivity == 0, "decoder reads AMS=0 from B07-style LFO byte");
     expect(lfoNoise.patch.lfo.pitchSensitivity == 7, "decoder reads PMS=7 from B07-style LFO byte");
@@ -494,28 +494,28 @@ void testVmemDecodeAndPatchMerge()
     expect(decoded.patch.operators[0].detune == 3, "operator detune is decoded");
     expect(decoded.patch.operators[0].rateScale == 3, "operator rate scale is decoded");
 
-    dx21::Dx21Patch base;
+    opaline::OpalinePatch base;
     base.transpose = -7;
-    dx21::Dx21VmemPreset preset;
+    opaline::OpalineVmemPreset preset;
     preset.name = "MERGED";
     preset.vmem = vmem;
-    auto merged = dx21::withVmemPreset(base, preset);
+    auto merged = opaline::withVmemPreset(base, preset);
     expect(merged.name == "MERGED", "withVmemPreset applies preset name");
     expect(merged.patch.transpose == 7, "withVmemPreset applies VMEM transpose");
     expect(merged.hasVmem, "withVmemPreset keeps raw VMEM backing");
 
-    dx21::clearVmemPreset(merged);
+    opaline::clearVmemPreset(merged);
     expect(!merged.hasVmem, "clearVmemPreset removes VMEM backing flag");
     expect(merged.vmem[40] == 0, "clearVmemPreset clears raw VMEM bytes");
 }
 
 void testSysexEncoding()
 {
-    auto decoded = dx21::decodeDx21VmemVoice(makeTestVmem());
+    auto decoded = opaline::decodeCompatibleVmemVoice(makeTestVmem());
     decoded.name = "ROUNDTRIP";
 
-    const auto encodedVmem = dx21::encodeDx21VmemVoice(decoded);
-    const auto roundTrip = dx21::decodeDx21VmemVoice(encodedVmem);
+    const auto encodedVmem = opaline::encodeCompatibleVmemVoice(decoded);
+    const auto roundTrip = opaline::decodeCompatibleVmemVoice(encodedVmem);
     expect(roundTrip.name == "ROUNDTRIP", "VMEM encoder writes voice name");
     expect(roundTrip.patch.algorithm == decoded.patch.algorithm, "VMEM encoder preserves algorithm");
     expect(roundTrip.patch.feedback == decoded.patch.feedback, "VMEM encoder preserves feedback");
@@ -528,40 +528,40 @@ void testSysexEncoding()
     expect(roundTrip.patch.operators[0].level == decoded.patch.operators[0].level,
            "VMEM encoder preserves operator level");
 
-    const std::vector<dx21::Dx21PatchWithMetadata> voices { decoded };
-    const auto bulk = dx21::encodeDx21BulkVmem(voices);
-    expect(bulk.size() == dx21::kDx21BulkMinimumSize, "bulk encoder writes full DX21 bank size");
+    const std::vector<opaline::OpalinePatchWithMetadata> voices { decoded };
+    const auto bulk = opaline::encodeCompatibleBulkVmem(voices);
+    expect(bulk.size() == opaline::kOpalineBulkMinimumSize, "bulk encoder writes full compatible bank size");
     expect(bulk.front() == 0xf0u, "bulk encoder writes SysEx start");
     expect(bulk.back() == 0xf7u, "bulk encoder writes SysEx end");
 
-    const auto presets = dx21::parseDx21BulkVmem(bulk);
-    expect(presets.size() == dx21::kDx21BulkVoiceCount, "encoded bulk parses as 32 voices");
+    const auto presets = opaline::parseCompatibleBulkVmem(bulk);
+    expect(presets.size() == opaline::kOpalineBulkVoiceCount, "encoded bulk parses as 32 voices");
     expect(presets[0].name == "ROUNDTRIP", "encoded bulk contains first voice name");
     expect(presets[31].name == "ROUNDTRIP", "bulk encoder repeats short banks to 32 voices");
 }
 
 void testVoiceLibrary()
 {
-    const auto library = dx21::makeInitVoiceLibrary();
-    expect(library.banks.size() == dx21::kDx21VoiceBankCount, "voice library has 8 banks");
-    expect(library.banks[0].voices.size() == dx21::kDx21VoiceBankSize, "voice bank has 32 voices");
-    expect(dx21::voiceAt(library, 0, 0).name == "INIT 1", "voiceAt reads first init voice");
-    expect(dx21::voiceAt(library, 7, 31).name == "INIT 32", "voiceAt reads last init voice");
+    const auto library = opaline::makeInitVoiceLibrary();
+    expect(library.banks.size() == opaline::kOpalineVoiceBankCount, "voice library has 8 banks");
+    expect(library.banks[0].voices.size() == opaline::kOpalineVoiceBankSize, "voice bank has 32 voices");
+    expect(opaline::voiceAt(library, 0, 0).name == "INIT 1", "voiceAt reads first init voice");
+    expect(opaline::voiceAt(library, 7, 31).name == "INIT 32", "voiceAt reads last init voice");
 
-    const auto imported = dx21::voiceBankFromSysex(makeTestBulk(), "Imported");
+    const auto imported = opaline::voiceBankFromSysex(makeTestBulk(), "Imported");
     expect(imported.name == "Imported", "voice bank import stores bank name");
     expect(imported.voices[0].name == "TESTVOICE", "voice bank import decodes voice names");
     expect(imported.voices[0].hasVmem, "voice bank import keeps VMEM backing");
 
-    const auto exported = dx21::voiceBankToSysex(imported);
-    const auto exportedPresets = dx21::parseDx21BulkVmem(exported);
-    expect(exportedPresets.size() == dx21::kDx21VoiceBankSize, "voice bank export writes 32 voices");
+    const auto exported = opaline::voiceBankToSysex(imported);
+    const auto exportedPresets = opaline::parseCompatibleBulkVmem(exported);
+    expect(exportedPresets.size() == opaline::kOpalineVoiceBankSize, "voice bank export writes 32 voices");
     expect(exportedPresets[0].name == "TESTVOICE", "voice bank export preserves voice name");
 
     bool threw = false;
     try
     {
-        (void) dx21::voiceAt(library, 8, 0);
+        (void) opaline::voiceAt(library, 8, 0);
     }
     catch (const std::out_of_range&)
     {
@@ -572,18 +572,18 @@ void testVoiceLibrary()
 
 void testOptionalAssetSysex()
 {
-#ifdef DX21_TEST_ASSET_DIR
-    const std::string path = std::string(DX21_TEST_ASSET_DIR) + "/DX21.syx";
+#ifdef OPALINE_TEST_ASSET_DIR
+    const std::string path = std::string(OPALINE_TEST_ASSET_DIR) + "/factory.syx";
     std::ifstream input(path, std::ios::binary);
     if (!input)
         return;
 
     std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
-    const auto presets = dx21::parseDx21BulkVmem(bytes);
-    expect(presets.size() == dx21::kDx21BulkVoiceCount, "assets/DX21.syx parses as 32 voices");
+    const auto presets = opaline::parseCompatibleBulkVmem(bytes);
+    expect(presets.size() == opaline::kOpalineBulkVoiceCount, "assets/factory.syx parses as 32 voices");
 
-    const auto decoded = dx21::decodeDx21VmemVoice(presets[0].vmem);
-    expect(decoded.hasVmem, "assets/DX21.syx first voice keeps VMEM backing");
+    const auto decoded = opaline::decodeCompatibleVmemVoice(presets[0].vmem);
+    expect(decoded.hasVmem, "assets/factory.syx first voice keeps VMEM backing");
 #endif
 }
 
@@ -611,6 +611,6 @@ int main()
         return EXIT_FAILURE;
     }
 
-    std::cout << "dx21_engine_tests passed\n";
+    std::cout << "opaline_engine_tests passed\n";
     return EXIT_SUCCESS;
 }

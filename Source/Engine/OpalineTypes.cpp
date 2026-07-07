@@ -1,9 +1,9 @@
-﻿#include "Engine/Dx21Types.h"
+﻿#include "Engine/OpalineTypes.h"
 
 #include <algorithm>
 #include <cmath>
 
-namespace dx21
+namespace opaline
 {
 double clampDouble(const double value, const double low, const double high)
 {
@@ -20,9 +20,9 @@ double midiNoteToFrequency(const double midiNote)
     return 440.0 * std::pow(2.0, (midiNote - 69.0) / 12.0);
 }
 
-Dx21Patch normalizePatch(const Dx21Patch& patch)
+OpalinePatch normalizePatch(const OpalinePatch& patch)
 {
-    Dx21Patch normalized = patch;
+    OpalinePatch normalized = patch;
     normalized.algorithm = clampInt(normalized.algorithm, 1, 8);
     normalized.feedback = clampInt(normalized.feedback, 0, 7);
     normalized.transpose = clampInt(normalized.transpose, -24, 24);
@@ -65,4 +65,4 @@ Dx21Patch normalizePatch(const Dx21Patch& patch)
 
     return normalized;
 }
-} // namespace dx21
+} // namespace opaline

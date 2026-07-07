@@ -1,11 +1,11 @@
 ﻿#pragma once
 
-#include "Engine/Dx21Types.h"
+#include "Engine/OpalineTypes.h"
 
-namespace dx21
+namespace opaline
 {
 // NEWモデル用EG。10bit EGインデックスを直接進めてチップ寄りの段差を残す。
-class Dx21ChipEnvelope
+class OpalineChipEnvelope
 {
 public:
     enum class Stage
@@ -18,7 +18,7 @@ public:
     };
 
     void reset(double sampleRate);
-    void noteOn(const Dx21EnvelopeParams& params, int rateScale, int note);
+    void noteOn(const OpalineEnvelopeParams& params, int rateScale, int note);
     void noteOff();
     double next();
     bool isActive() const;
@@ -30,7 +30,7 @@ private:
     void advanceAttack();
     void advanceDecay(int rate, double targetIndex, Stage nextStage, Stage rateStage);
 
-    Dx21EnvelopeParams currentParams;
+    OpalineEnvelopeParams currentParams;
     Stage currentStage = Stage::Off;
     double currentSampleRate = 44100.0;
     double egLevel = 1023.0;
@@ -39,4 +39,4 @@ private:
     int egCounter = 0;
     double egRemainder = 0.0;
 };
-} // namespace dx21
+} // namespace opaline

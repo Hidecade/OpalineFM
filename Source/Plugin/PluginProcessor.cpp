@@ -1,6 +1,6 @@
-#include "PluginProcessor.h"
+﻿#include "PluginProcessor.h"
 
-#include "App/Dx21StateSerialization.h"
+#include "App/OpalineStateSerialization.h"
 #include "PluginEditor.h"
 
 #include <juce_core/juce_core.h>
@@ -37,7 +37,7 @@ constexpr const char* effectDelay = "effectDelay";
 
 double pitchWheelToUnitBend(const int pitchWheelValue)
 {
-    return dx21::clampDouble((static_cast<double>(pitchWheelValue) - 8192.0) / 8192.0, -1.0, 1.0);
+    return opaline::clampDouble((static_cast<double>(pitchWheelValue) - 8192.0) / 8192.0, -1.0, 1.0);
 }
 
 int parameterInt(juce::AudioProcessorValueTreeState& parameters, const juce::StringRef id, const int fallback)
@@ -78,36 +78,36 @@ void setApvtsParameter(juce::AudioProcessorValueTreeState& parameters, const juc
 }
 } // namespace
 
-Dx21NativeAudioProcessor::Dx21NativeAudioProcessor()
+OpalineAudioProcessor::OpalineAudioProcessor()
     : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       parameters(*this, nullptr, "OpalineFMParameters", createParameterLayout())
 {
-    state.patch = dx21::normalizePatch(state.patch);
+    state.patch = opaline::normalizePatch(state.patch);
     state.renderModel = renderModel;
     syncParametersFromState();
 }
 
-void Dx21NativeAudioProcessor::prepareToPlay(const double sampleRate, int)
+void OpalineAudioProcessor::prepareToPlay(const double sampleRate, int)
 {
     const juce::ScopedLock lock(engineLock);
     currentSampleRate = sampleRate > 0.0 ? sampleRate : 44100.0;
-    engine.prepare(currentSampleRate, dx21::kDefaultMaxVoices);
+    engine.prepare(currentSampleRate, opaline::kDefaultMaxVoices);
     applyStateToEngine();
 }
 
-void Dx21NativeAudioProcessor::releaseResources()
+void OpalineAudioProcessor::releaseResources()
 {
     const juce::ScopedLock lock(engineLock);
     engine.panic();
 }
 
-bool Dx21NativeAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
+bool OpalineAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
 {
     const auto& output = layouts.getMainOutputChannelSet();
     return output == juce::AudioChannelSet::mono() || output == juce::AudioChannelSet::stereo();
 }
 
-juce::AudioProcessorValueTreeState::ParameterLayout Dx21NativeAudioProcessor::createParameterLayout()
+juce::AudioProcessorValueTreeState::ParameterLayout OpalineAudioProcessor::createParameterLayout()
 {
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
     const auto intRange = [](const float min, const float max)
@@ -140,7 +140,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout Dx21NativeAudioProcessor::cr
     params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::effectChorus, "Chorus", intRange(0.0f, 99.0f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::effectDelay, "Delay", intRange(0.0f, 99.0f), 0.0f));
 
-    for (int op = 0; op < dx21::kOperatorCount; ++op)
+    for (int op = 0; op < opaline::kOperatorCount; ++op)
     {
         params.push_back(std::make_unique<juce::AudioParameterBool>(opParamId(op, "Enabled"), opParamName(op, "Enabled"), true));
         params.push_back(std::make_unique<juce::AudioParameterBool>(opParamId(op, "AmpMod"), opParamName(op, "AM"), true));
@@ -160,7 +160,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout Dx21NativeAudioProcessor::cr
     return { params.begin(), params.end() };
 }
 
-void Dx21NativeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
+void OpalineAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
     juce::ScopedNoDenormals noDenormals;
     const juce::ScopedLock lock(engineLock);
@@ -190,44 +190,44 @@ void Dx21NativeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
     midiMessages.clear();
 }
 
-juce::AudioProcessorEditor* Dx21NativeAudioProcessor::createEditor()
+juce::AudioProcessorEditor* OpalineAudioProcessor::createEditor()
 {
-    return new Dx21NativeAudioProcessorEditor(*this);
+    return new OpalineAudioProcessorEditor(*this);
 }
 
-const juce::String Dx21NativeAudioProcessor::getProgramName(int)
+const juce::String OpalineAudioProcessor::getProgramName(int)
 {
     const juce::ScopedLock lock(engineLock);
     return currentProgramName;
 }
 
-void Dx21NativeAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
+void OpalineAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
     const juce::ScopedLock lock(engineLock);
-    const auto tree = dx21app::synthStateToValueTree(state);
+    const auto tree = opalineapp::synthStateToValueTree(state);
     if (auto xml = tree.createXml())
         copyXmlToBinary(*xml, destData);
 }
 
-void Dx21NativeAudioProcessor::setStateInformation(const void* data, const int sizeInBytes)
+void OpalineAudioProcessor::setStateInformation(const void* data, const int sizeInBytes)
 {
     if (auto xml = getXmlFromBinary(data, sizeInBytes))
     {
         const auto tree = juce::ValueTree::fromXml(*xml);
         const juce::ScopedLock lock(engineLock);
-        state = dx21app::synthStateFromValueTree(tree, state);
+        state = opalineapp::synthStateFromValueTree(tree, state);
         applyStateToEngine();
         syncParametersFromState();
     }
 }
 
-dx21app::SynthState Dx21NativeAudioProcessor::getSynthState() const
+opalineapp::SynthState OpalineAudioProcessor::getSynthState() const
 {
     const juce::ScopedLock lock(engineLock);
     return state;
 }
 
-void Dx21NativeAudioProcessor::setSynthStateFromEditor(const dx21app::SynthState& newState)
+void OpalineAudioProcessor::setSynthStateFromEditor(const opalineapp::SynthState& newState)
 {
     const juce::ScopedLock lock(engineLock);
     state = newState;
@@ -235,7 +235,7 @@ void Dx21NativeAudioProcessor::setSynthStateFromEditor(const dx21app::SynthState
     syncParametersFromState();
 }
 
-void Dx21NativeAudioProcessor::setRenderModelFromEditor(const dx21::Dx21RenderModel newRenderModel)
+void OpalineAudioProcessor::setRenderModelFromEditor(const opaline::OpalineRenderModel newRenderModel)
 {
     const juce::ScopedLock lock(engineLock);
     renderModel = newRenderModel;
@@ -243,19 +243,19 @@ void Dx21NativeAudioProcessor::setRenderModelFromEditor(const dx21::Dx21RenderMo
     engine.setRenderModel(renderModel);
 }
 
-void Dx21NativeAudioProcessor::noteOnFromEditor(const int note, const int velocity)
+void OpalineAudioProcessor::noteOnFromEditor(const int note, const int velocity)
 {
     const juce::ScopedLock lock(engineLock);
     engine.noteOn(note, velocity);
 }
 
-void Dx21NativeAudioProcessor::noteOffFromEditor(const int note)
+void OpalineAudioProcessor::noteOffFromEditor(const int note)
 {
     const juce::ScopedLock lock(engineLock);
     engine.noteOff(note);
 }
 
-void Dx21NativeAudioProcessor::allNotesOffFromEditor()
+void OpalineAudioProcessor::allNotesOffFromEditor()
 {
     const juce::ScopedLock lock(engineLock);
     engine.panic();
@@ -263,39 +263,39 @@ void Dx21NativeAudioProcessor::allNotesOffFromEditor()
         velocity.store(0, std::memory_order_relaxed);
 }
 
-void Dx21NativeAudioProcessor::setPitchBendFromEditor(const double value)
+void OpalineAudioProcessor::setPitchBendFromEditor(const double value)
 {
     const juce::ScopedLock lock(engineLock);
-    currentPitchBend = dx21::clampDouble(value, -1.0, 1.0);
+    currentPitchBend = opaline::clampDouble(value, -1.0, 1.0);
     engine.setPitchBend(currentPitchBend);
 }
 
-void Dx21NativeAudioProcessor::setModWheelFromEditor(const double value)
+void OpalineAudioProcessor::setModWheelFromEditor(const double value)
 {
     const juce::ScopedLock lock(engineLock);
-    currentModWheel = dx21::clampDouble(value, 0.0, 1.0);
+    currentModWheel = opaline::clampDouble(value, 0.0, 1.0);
     engine.setModWheel(currentModWheel);
 }
 
-void Dx21NativeAudioProcessor::setProgramNameFromEditor(const juce::String& name)
+void OpalineAudioProcessor::setProgramNameFromEditor(const juce::String& name)
 {
     const juce::ScopedLock lock(engineLock);
     currentProgramName = name.isNotEmpty() ? name : "Opaline FM";
 }
 
-double Dx21NativeAudioProcessor::getCurrentPitchBend() const
+double OpalineAudioProcessor::getCurrentPitchBend() const
 {
     const juce::ScopedLock lock(engineLock);
     return currentPitchBend;
 }
 
-double Dx21NativeAudioProcessor::getCurrentModWheel() const
+double OpalineAudioProcessor::getCurrentModWheel() const
 {
     const juce::ScopedLock lock(engineLock);
     return currentModWheel;
 }
 
-std::array<int, 128> Dx21NativeAudioProcessor::getMidiUiVelocities() const
+std::array<int, 128> OpalineAudioProcessor::getMidiUiVelocities() const
 {
     std::array<int, 128> velocities {};
     for (std::size_t i = 0; i < velocities.size(); ++i)
@@ -303,7 +303,7 @@ std::array<int, 128> Dx21NativeAudioProcessor::getMidiUiVelocities() const
     return velocities;
 }
 
-void Dx21NativeAudioProcessor::handleMidiMessage(const juce::MidiMessage& message)
+void OpalineAudioProcessor::handleMidiMessage(const juce::MidiMessage& message)
 {
     if (message.isNoteOn())
     {
@@ -341,14 +341,14 @@ void Dx21NativeAudioProcessor::handleMidiMessage(const juce::MidiMessage& messag
 
     if (message.isController() && message.getControllerNumber() == 1)
     {
-        currentModWheel = dx21::clampDouble(static_cast<double>(message.getControllerValue()) / 127.0, 0.0, 1.0);
+        currentModWheel = opaline::clampDouble(static_cast<double>(message.getControllerValue()) / 127.0, 0.0, 1.0);
         engine.setModWheel(currentModWheel);
     }
 }
 
-void Dx21NativeAudioProcessor::applyStateToEngine()
+void OpalineAudioProcessor::applyStateToEngine()
 {
-    state.patch = dx21::normalizePatch(state.patch);
+    state.patch = opaline::normalizePatch(state.patch);
     state.masterVolume = juce::jlimit(0.0f, 1.0f, state.masterVolume);
     renderModel = state.renderModel;
     engine.setRenderModel(renderModel);
@@ -357,12 +357,12 @@ void Dx21NativeAudioProcessor::applyStateToEngine()
     engine.setModWheel(currentModWheel);
 }
 
-void Dx21NativeAudioProcessor::applyParametersToState()
+void OpalineAudioProcessor::applyParametersToState()
 {
     state.masterVolume = juce::jlimit(0.0f, 1.0f, parameterFloat(parameters, param_ids::masterVolume, state.masterVolume));
     state.renderModel = parameterInt(parameters, param_ids::renderModel, static_cast<int>(state.renderModel)) == 0
-        ? dx21::Dx21RenderModel::Current
-        : dx21::Dx21RenderModel::ChipHybrid;
+        ? opaline::OpalineRenderModel::Current
+        : opaline::OpalineRenderModel::ChipHybrid;
 
     auto patch = state.patch;
     patch.algorithm = parameterInt(parameters, param_ids::algorithm, patch.algorithm);
@@ -388,7 +388,7 @@ void Dx21NativeAudioProcessor::applyParametersToState()
     patch.effects.chorus = parameterInt(parameters, param_ids::effectChorus, patch.effects.chorus);
     patch.effects.delay = parameterInt(parameters, param_ids::effectDelay, patch.effects.delay);
 
-    for (int opIndex = 0; opIndex < dx21::kOperatorCount; ++opIndex)
+    for (int opIndex = 0; opIndex < opaline::kOperatorCount; ++opIndex)
     {
         auto& op = patch.operators[static_cast<std::size_t>(opIndex)];
         op.enabled = parameterBool(parameters, opParamId(opIndex, "Enabled"), op.enabled);
@@ -406,14 +406,14 @@ void Dx21NativeAudioProcessor::applyParametersToState()
         op.envelope.releaseRate = parameterInt(parameters, opParamId(opIndex, "RR"), op.envelope.releaseRate);
     }
 
-    state.patch = dx21::normalizePatch(patch);
+    state.patch = opaline::normalizePatch(patch);
     applyStateToEngine();
 }
 
-void Dx21NativeAudioProcessor::syncParametersFromState()
+void OpalineAudioProcessor::syncParametersFromState()
 {
     setApvtsParameter(parameters, param_ids::masterVolume, state.masterVolume);
-    setApvtsParameter(parameters, param_ids::renderModel, state.renderModel == dx21::Dx21RenderModel::ChipHybrid ? 1.0f : 0.0f);
+    setApvtsParameter(parameters, param_ids::renderModel, state.renderModel == opaline::OpalineRenderModel::ChipHybrid ? 1.0f : 0.0f);
     setApvtsParameter(parameters, param_ids::algorithm, static_cast<float>(state.patch.algorithm));
     setApvtsParameter(parameters, param_ids::feedback, static_cast<float>(state.patch.feedback));
     setApvtsParameter(parameters, param_ids::transpose, static_cast<float>(state.patch.transpose));
@@ -437,7 +437,7 @@ void Dx21NativeAudioProcessor::syncParametersFromState()
     setApvtsParameter(parameters, param_ids::effectChorus, static_cast<float>(state.patch.effects.chorus));
     setApvtsParameter(parameters, param_ids::effectDelay, static_cast<float>(state.patch.effects.delay));
 
-    for (int opIndex = 0; opIndex < dx21::kOperatorCount; ++opIndex)
+    for (int opIndex = 0; opIndex < opaline::kOperatorCount; ++opIndex)
     {
         const auto& op = state.patch.operators[static_cast<std::size_t>(opIndex)];
         setApvtsParameter(parameters, opParamId(opIndex, "Enabled"), op.enabled ? 1.0f : 0.0f);
@@ -458,5 +458,5 @@ void Dx21NativeAudioProcessor::syncParametersFromState()
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
-    return new Dx21NativeAudioProcessor();
+    return new OpalineAudioProcessor();
 }

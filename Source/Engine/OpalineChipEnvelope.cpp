@@ -1,9 +1,9 @@
-﻿#include "Engine/Dx21ChipEnvelope.h"
+﻿#include "Engine/OpalineChipEnvelope.h"
 
 #include <array>
 #include <cmath>
 
-namespace dx21
+namespace opaline
 {
 namespace
 {
@@ -11,7 +11,7 @@ namespace
 constexpr double kEgIndexMax = 1023.0;
 constexpr double kEgIndexDbRange = 128.0;
 constexpr double kQuietDb = 96.0;
-constexpr double kDx21EgTickHz = 3579545.0 / 64.0 / 3.0;
+constexpr double kOpalineEgTickHz = 3579545.0 / 64.0 / 3.0;
 constexpr double kAttackRateScale = 2.0;
 constexpr double kDecayRateScale = 1.85;
 constexpr double kReleaseRateScale = 3.75;
@@ -58,9 +58,9 @@ int opmStyleKeyScaleValue(const int note, const int rateScale)
     return midiNoteToKeyScaleCode(note) >> (scale ^ 3);
 }
 
-double dx21EgRate(const int rate, const int note, const int rateScale, const Dx21ChipEnvelope::Stage stage)
+double opalineEgRate(const int rate, const int note, const int rateScale, const OpalineChipEnvelope::Stage stage)
 {
-    const bool release = stage == Dx21ChipEnvelope::Stage::Release;
+    const bool release = stage == OpalineChipEnvelope::Stage::Release;
     const int value = clampInt(rate, 0, release ? 15 : 31);
     if (!release && value <= 0)
         return 0.0;
@@ -69,17 +69,17 @@ double dx21EgRate(const int rate, const int note, const int rateScale, const Dx2
     if (release)
         return clampDouble(static_cast<double>(value) * kReleaseRateScale + kReleaseRateBias + ksv, 0.0, 63.0);
 
-    const double scale = stage == Dx21ChipEnvelope::Stage::Attack ? kAttackRateScale : kDecayRateScale;
+    const double scale = stage == OpalineChipEnvelope::Stage::Attack ? kAttackRateScale : kDecayRateScale;
     return clampDouble(static_cast<double>(value) * scale + ksv, 0.0, 63.0);
 }
 
-EgRateInfo egRateInfo(const double rate, const Dx21ChipEnvelope::Stage stage)
+EgRateInfo egRateInfo(const double rate, const OpalineChipEnvelope::Stage stage)
 {
     const int effective = clampInt(static_cast<int>(std::round(rate)), 0, 63);
     if (effective <= 0)
         return {};
 
-    if (stage == Dx21ChipEnvelope::Stage::Attack && effective >= 62)
+    if (stage == OpalineChipEnvelope::Stage::Attack && effective >= 62)
         return { true, 0, 17 * kEgRateSteps };
 
     const int main = effective >> 2;
@@ -105,7 +105,7 @@ double egIndexToAmp(const double index)
 }
 }
 
-void Dx21ChipEnvelope::reset(const double sampleRate)
+void OpalineChipEnvelope::reset(const double sampleRate)
 {
     currentSampleRate = sampleRate > 0.0 ? sampleRate : 44100.0;
     currentStage = Stage::Off;
@@ -116,7 +116,7 @@ void Dx21ChipEnvelope::reset(const double sampleRate)
     egRemainder = 0.0;
 }
 
-void Dx21ChipEnvelope::noteOn(const Dx21EnvelopeParams& params, const int rateScale, const int note)
+void OpalineChipEnvelope::noteOn(const OpalineEnvelopeParams& params, const int rateScale, const int note)
 {
     currentParams = params;
     currentRateScale = rateScale;
@@ -127,15 +127,15 @@ void Dx21ChipEnvelope::noteOn(const Dx21EnvelopeParams& params, const int rateSc
     egRemainder = 0.0;
 }
 
-void Dx21ChipEnvelope::noteOff()
+void OpalineChipEnvelope::noteOff()
 {
     if (currentStage != Stage::Off)
         currentStage = Stage::Release;
 }
 
-int Dx21ChipEnvelope::egIncrement(const int rate, const Stage stage) const
+int OpalineChipEnvelope::egIncrement(const int rate, const Stage stage) const
 {
-    const auto info = egRateInfo(dx21EgRate(rate, currentNote, currentRateScale, stage), stage);
+    const auto info = egRateInfo(opalineEgRate(rate, currentNote, currentRateScale, stage), stage);
     if (!info.active)
         return 0;
 
@@ -149,7 +149,7 @@ int Dx21ChipEnvelope::egIncrement(const int rate, const Stage stage) const
     return kEgInc[static_cast<std::size_t>(index)];
 }
 
-double Dx21ChipEnvelope::decay1TargetIndex() const
+double OpalineChipEnvelope::decay1TargetIndex() const
 {
     if (currentParams.decay1Level >= 15)
         return 0.0;
@@ -158,7 +158,7 @@ double Dx21ChipEnvelope::decay1TargetIndex() const
     return clampDouble(targetDb, 0.0, kEgIndexDbRange) * kEgIndexMax / kEgIndexDbRange;
 }
 
-void Dx21ChipEnvelope::advanceAttack()
+void OpalineChipEnvelope::advanceAttack()
 {
     const int increment = egIncrement(currentParams.attackRate, Stage::Attack);
     if (increment <= 0)
@@ -177,7 +177,7 @@ void Dx21ChipEnvelope::advanceAttack()
     }
 }
 
-void Dx21ChipEnvelope::advanceDecay(const int rate, const double targetIndex, const Stage nextStage, const Stage rateStage)
+void OpalineChipEnvelope::advanceDecay(const int rate, const double targetIndex, const Stage nextStage, const Stage rateStage)
 {
     const int increment = egIncrement(rate, rateStage);
     if (increment <= 0)
@@ -191,7 +191,7 @@ void Dx21ChipEnvelope::advanceDecay(const int rate, const double targetIndex, co
     }
 }
 
-void Dx21ChipEnvelope::advanceEgTick()
+void OpalineChipEnvelope::advanceEgTick()
 {
     if (currentStage == Stage::Attack)
         advanceAttack();
@@ -206,9 +206,9 @@ void Dx21ChipEnvelope::advanceEgTick()
         advanceDecay(currentParams.releaseRate, kEgIndexMax, Stage::Off, Stage::Release);
 }
 
-double Dx21ChipEnvelope::next()
+double OpalineChipEnvelope::next()
 {
-    egRemainder += kDx21EgTickHz / currentSampleRate;
+    egRemainder += kOpalineEgTickHz / currentSampleRate;
     while (egRemainder >= 1.0)
     {
         egRemainder -= 1.0;
@@ -219,8 +219,8 @@ double Dx21ChipEnvelope::next()
     return egIndexToAmp(std::round(clampDouble(egLevel, 0.0, kEgIndexMax)));
 }
 
-bool Dx21ChipEnvelope::isActive() const
+bool OpalineChipEnvelope::isActive() const
 {
     return currentStage != Stage::Off;
 }
-} // namespace dx21
+} // namespace opaline

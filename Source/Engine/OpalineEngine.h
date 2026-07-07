@@ -1,26 +1,26 @@
 ﻿#pragma once
 
-#include "Engine/Dx21Types.h"
-#include "Engine/Dx21Voice.h"
+#include "Engine/OpalineTypes.h"
+#include "Engine/OpalineVoice.h"
 
 #include <array>
 #include <vector>
 
-namespace dx21
+namespace opaline
 {
 // パッチ、発音中ボイス、グローバルLFO、簡易エフェクトを束ねる音源本体。
-class Dx21Engine
+class OpalineEngine
 {
 public:
     void prepare(double sampleRate, int maxVoices = kDefaultMaxVoices);
-    void setPatch(const Dx21Patch& newPatch);
-    const Dx21Patch& getPatch() const { return patch; }
+    void setPatch(const OpalinePatch& newPatch);
+    const OpalinePatch& getPatch() const { return patch; }
 
     void noteOn(int note, int velocity);
     void noteOff(int note);
     void setPitchBend(double value);
     void setModWheel(double value);
-    void setRenderModel(Dx21RenderModel model) { renderModel = model; }
+    void setRenderModel(OpalineRenderModel model) { renderModel = model; }
     void panic();
 
     void renderBlock(float* left, float* right, int numSamples);
@@ -33,8 +33,8 @@ private:
     double readDelay(const std::vector<double>& buffer, int writeIndex, double delaySamples) const;
     void resetEffects();
 
-    Dx21Patch patch;
-    std::vector<Dx21Voice> voices;
+    OpalinePatch patch;
+    std::vector<OpalineVoice> voices;
     std::vector<double> delayBufferLeft;
     std::vector<double> delayBufferRight;
     std::vector<double> chorusBufferLeft;
@@ -48,7 +48,7 @@ private:
     int maxVoiceCount = kDefaultMaxVoices;
     double pitchBend = 0.0;
     double modWheel = 0.0;
-    Dx21RenderModel renderModel = Dx21RenderModel::Current;
+    OpalineRenderModel renderModel = OpalineRenderModel::Current;
     double globalLfoAge = 0.0;
     double chorusPhase = 0.0;
     double toneLeft = 0.0;
@@ -57,4 +57,4 @@ private:
     double lastLeft = 0.0;
     double lastRight = 0.0;
 };
-} // namespace dx21
+} // namespace opaline

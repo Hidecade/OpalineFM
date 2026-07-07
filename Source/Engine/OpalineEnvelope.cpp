@@ -1,16 +1,16 @@
-﻿#include "Engine/Dx21Envelope.h"
+﻿#include "Engine/OpalineEnvelope.h"
 
 #include <array>
 #include <cmath>
 
-namespace dx21
+namespace opaline
 {
 namespace
 {
 constexpr double kQuietDb = 96.0;
 constexpr double kEgIndexDbRange = 128.0;
 constexpr double kEgIndexMax = 1023.0;
-constexpr double kDx21EgTickHz = 3579545.0 / 64.0 / 3.0;
+constexpr double kOpalineEgTickHz = 3579545.0 / 64.0 / 3.0;
 constexpr double kAttackRateScale = 2.0;
 constexpr double kDecayRateScale = 1.85;
 constexpr double kReleaseRateScale = 3.75;
@@ -72,9 +72,9 @@ double attenuationDbToAmp(const double db)
     return std::pow(10.0, -clampDouble(db, 0.0, kQuietDb) / 20.0);
 }
 
-double dx21EgRate(const int rate, const int note, const int rateScale, const Dx21Envelope::Stage stage)
+double opalineEgRate(const int rate, const int note, const int rateScale, const OpalineEnvelope::Stage stage)
 {
-    const bool release = stage == Dx21Envelope::Stage::Release;
+    const bool release = stage == OpalineEnvelope::Stage::Release;
     const int value = clampInt(rate, 0, release ? 15 : 31);
     if (!release && value <= 0)
         return 0.0;
@@ -83,17 +83,17 @@ double dx21EgRate(const int rate, const int note, const int rateScale, const Dx2
     if (release)
         return clampDouble(static_cast<double>(value) * kReleaseRateScale + kReleaseRateBias + ksv, 0.0, 63.0);
 
-    const double scale = stage == Dx21Envelope::Stage::Attack ? kAttackRateScale : kDecayRateScale;
+    const double scale = stage == OpalineEnvelope::Stage::Attack ? kAttackRateScale : kDecayRateScale;
     return clampDouble(static_cast<double>(value) * scale + ksv, 0.0, 63.0);
 }
 
-EgRateInfo egRateInfo(const double rate, const Dx21Envelope::Stage stage)
+EgRateInfo egRateInfo(const double rate, const OpalineEnvelope::Stage stage)
 {
     const int effective = clampInt(static_cast<int>(std::round(rate)), 0, 63);
     if (effective <= 0)
         return {};
 
-    if (stage == Dx21Envelope::Stage::Attack && effective >= 62)
+    if (stage == OpalineEnvelope::Stage::Attack && effective >= 62)
         return { true, 0, 17 * kEgRateSteps };
 
     const int main = effective >> 2;
@@ -113,7 +113,7 @@ EgRateInfo egRateInfo(const double rate, const Dx21Envelope::Stage stage)
 }
 }
 
-void Dx21Envelope::reset(const double sampleRate)
+void OpalineEnvelope::reset(const double sampleRate)
 {
     currentSampleRate = sampleRate > 0.0 ? sampleRate : 44100.0;
     currentStage = Stage::Off;
@@ -124,7 +124,7 @@ void Dx21Envelope::reset(const double sampleRate)
     egRemainder = 0.0;
 }
 
-void Dx21Envelope::noteOn(const Dx21EnvelopeParams& params, const int rateScale, const int note)
+void OpalineEnvelope::noteOn(const OpalineEnvelopeParams& params, const int rateScale, const int note)
 {
     currentParams = params;
     currentRateScale = rateScale;
@@ -135,15 +135,15 @@ void Dx21Envelope::noteOn(const Dx21EnvelopeParams& params, const int rateScale,
     egRemainder = 0.0;
 }
 
-void Dx21Envelope::noteOff()
+void OpalineEnvelope::noteOff()
 {
     if (currentStage != Stage::Off)
         currentStage = Stage::Release;
 }
 
-int Dx21Envelope::egIncrement(const int rate, const Stage stage) const
+int OpalineEnvelope::egIncrement(const int rate, const Stage stage) const
 {
-    const auto info = egRateInfo(dx21EgRate(rate, currentNote, currentRateScale, stage), stage);
+    const auto info = egRateInfo(opalineEgRate(rate, currentNote, currentRateScale, stage), stage);
     if (!info.active)
         return 0;
 
@@ -156,7 +156,7 @@ int Dx21Envelope::egIncrement(const int rate, const Stage stage) const
     return kEgInc[static_cast<std::size_t>(index)];
 }
 
-void Dx21Envelope::advanceAttack()
+void OpalineEnvelope::advanceAttack()
 {
     const int increment = egIncrement(currentParams.attackRate, Stage::Attack);
     if (increment <= 0)
@@ -166,7 +166,7 @@ void Dx21Envelope::advanceAttack()
     attenuationDb = egIndexToAttenuationDb(index - (index * static_cast<double>(increment)) / 16.0);
 }
 
-void Dx21Envelope::advanceDecay(const int rate, const double targetDb, const Stage nextStage, const Stage rateStage)
+void OpalineEnvelope::advanceDecay(const int rate, const double targetDb, const Stage nextStage, const Stage rateStage)
 {
     const int increment = egIncrement(rate, rateStage);
     if (increment <= 0)
@@ -183,7 +183,7 @@ void Dx21Envelope::advanceDecay(const int rate, const double targetDb, const Sta
     }
 }
 
-void Dx21Envelope::advanceEgTick(const double targetD1Db)
+void OpalineEnvelope::advanceEgTick(const double targetD1Db)
 {
     if (currentStage == Stage::Attack)
     {
@@ -209,18 +209,18 @@ void Dx21Envelope::advanceEgTick(const double targetD1Db)
     }
 }
 
-double Dx21Envelope::decay1LevelDb() const
+double OpalineEnvelope::decay1LevelDb() const
 {
     if (currentParams.decay1Level >= 15)
         return 0.0;
     return static_cast<double>(15 - currentParams.decay1Level) * 3.0;
 }
 
-double Dx21Envelope::next()
+double OpalineEnvelope::next()
 {
     const double targetD1Db = decay1LevelDb();
 
-    egRemainder += kDx21EgTickHz / currentSampleRate;
+    egRemainder += kOpalineEgTickHz / currentSampleRate;
     while (egRemainder >= 1.0)
     {
         egRemainder -= 1.0;
@@ -231,8 +231,8 @@ double Dx21Envelope::next()
     return attenuationDbToAmp(attenuationDb);
 }
 
-bool Dx21Envelope::isActive() const
+bool OpalineEnvelope::isActive() const
 {
     return currentStage != Stage::Off;
 }
-} // namespace dx21
+} // namespace opaline

@@ -1,11 +1,11 @@
 ﻿#pragma once
 
-#include "Engine/Dx21Types.h"
+#include "Engine/OpalineTypes.h"
 
-namespace dx21
+namespace opaline
 {
-// DX21のPitch EG。音量EGとは別に、音程をセント単位で段階遷移させる。
-class Dx21PitchEnvelope
+// compatibleのPitch EG。音量EGとは別に、音程をセント単位で段階遷移させる。
+class OpalinePitchEnvelope
 {
 public:
     enum class Stage
@@ -19,7 +19,7 @@ public:
     };
 
     void reset(double sampleRate);
-    void noteOn(const Dx21PitchEnvelopeParams& params);
+    void noteOn(const OpalinePitchEnvelopeParams& params);
     void noteOff();
     double nextSemitones();
     Stage stage() const { return currentStage; }
@@ -30,11 +30,11 @@ private:
     static double levelToCents(int level);
     static double rateToBaseTimeSeconds(int rate);
 
-    Dx21PitchEnvelopeParams currentParams;
+    OpalinePitchEnvelopeParams currentParams;
     Stage currentStage = Stage::Off;
     double currentSampleRate = 44100.0;
     double currentCents = 0.0;
     double targetCents = 0.0;
     double centsPerSample = 0.0;
 };
-} // namespace dx21
+} // namespace opaline

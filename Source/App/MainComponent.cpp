@@ -1,7 +1,7 @@
 #include "MainComponent.h"
 
-#include "App/Dx21StateSerialization.h"
-#include "Engine/Dx21Tables.h"
+#include "App/OpalineStateSerialization.h"
+#include "Engine/OpalineTables.h"
 
 #include <algorithm>
 #include <cstring>
@@ -62,47 +62,47 @@ bool writeBinaryFile(const juce::File& file, const std::vector<std::uint8_t>& by
     return output.write(bytes.data(), static_cast<int>(bytes.size()));
 }
 
-juce::ValueTree voiceToValueTree(const dx21::Dx21PatchWithMetadata& voice, const int index)
+juce::ValueTree voiceToValueTree(const opaline::OpalinePatchWithMetadata& voice, const int index)
 {
     juce::ValueTree tree { "Voice" };
     tree.setProperty("index", index, nullptr);
     tree.setProperty("name", juce::String(voice.name), nullptr);
 
-    const auto vmem = dx21::encodeDx21VmemVoice(voice);
+    const auto vmem = opaline::encodeCompatibleVmemVoice(voice);
     juce::MemoryBlock block(vmem.data(), vmem.size());
     tree.setProperty("vmem", block.toBase64Encoding(), nullptr);
     return tree;
 }
 
-juce::ValueTree bankToValueTree(const dx21::Dx21VoiceBank& bank, const int index)
+juce::ValueTree bankToValueTree(const opaline::OpalineVoiceBank& bank, const int index)
 {
     juce::ValueTree tree { "Bank" };
     tree.setProperty("index", index, nullptr);
     tree.setProperty("name", juce::String(bank.name), nullptr);
 
-    for (int i = 0; i < dx21::kDx21VoiceBankSize; ++i)
+    for (int i = 0; i < opaline::kOpalineVoiceBankSize; ++i)
         tree.addChild(voiceToValueTree(bank.voices[static_cast<std::size_t>(i)], i), -1, nullptr);
 
     return tree;
 }
 
-std::unique_ptr<juce::XmlElement> voiceLibraryToXml(const dx21::Dx21VoiceLibrary& library)
+std::unique_ptr<juce::XmlElement> voiceLibraryToXml(const opaline::OpalineVoiceLibrary& library)
 {
-    juce::ValueTree tree { "DX21VoiceLibrary" };
+    juce::ValueTree tree { "compatibleVoiceLibrary" };
     tree.setProperty("version", 1, nullptr);
-    for (int i = 0; i < dx21::kDx21VoiceBankCount; ++i)
+    for (int i = 0; i < opaline::kOpalineVoiceBankCount; ++i)
         tree.addChild(bankToValueTree(library.banks[static_cast<std::size_t>(i)], i), -1, nullptr);
 
     return tree.createXml();
 }
 
-bool voiceLibraryFromXml(const juce::XmlElement& xml, dx21::Dx21VoiceLibrary& library)
+bool voiceLibraryFromXml(const juce::XmlElement& xml, opaline::OpalineVoiceLibrary& library)
 {
     const auto tree = juce::ValueTree::fromXml(xml);
-    if (!tree.hasType("DX21VoiceLibrary"))
+    if (!tree.hasType("compatibleVoiceLibrary"))
         return false;
 
-    auto restored = dx21::makeInitVoiceLibrary();
+    auto restored = opaline::makeInitVoiceLibrary();
     for (int childIndex = 0; childIndex < tree.getNumChildren(); ++childIndex)
     {
         const auto bankTree = tree.getChild(childIndex);
@@ -110,7 +110,7 @@ bool voiceLibraryFromXml(const juce::XmlElement& xml, dx21::Dx21VoiceLibrary& li
             continue;
 
         const int bankIndex = juce::jlimit(0,
-                                           dx21::kDx21VoiceBankCount - 1,
+                                           opaline::kOpalineVoiceBankCount - 1,
                                            static_cast<int>(bankTree.getProperty("index", childIndex)));
         auto& bank = restored.banks[static_cast<std::size_t>(bankIndex)];
         const auto bankName = bankTree.getProperty("name").toString();
@@ -124,18 +124,18 @@ bool voiceLibraryFromXml(const juce::XmlElement& xml, dx21::Dx21VoiceLibrary& li
                 continue;
 
             const int voiceIndex = juce::jlimit(0,
-                                                dx21::kDx21VoiceBankSize - 1,
+                                                opaline::kOpalineVoiceBankSize - 1,
                                                 static_cast<int>(voiceTree.getProperty("index", voiceChild)));
             juce::MemoryBlock block;
             if (!block.fromBase64Encoding(voiceTree.getProperty("vmem").toString())
-                || block.getSize() != static_cast<std::size_t>(dx21::kDx21VmemVoiceSize))
+                || block.getSize() != static_cast<std::size_t>(opaline::kOpalineVmemVoiceSize))
             {
                 continue;
             }
 
-            std::array<std::uint8_t, dx21::kDx21VmemVoiceSize> vmem {};
+            std::array<std::uint8_t, opaline::kOpalineVmemVoiceSize> vmem {};
             std::memcpy(vmem.data(), block.getData(), vmem.size());
-            auto voice = dx21::decodeDx21VmemVoice(vmem);
+            auto voice = opaline::decodeCompatibleVmemVoice(vmem);
             const auto name = voiceTree.getProperty("name").toString();
             if (name.isNotEmpty())
                 voice.name = name.toStdString();
@@ -147,7 +147,7 @@ bool voiceLibraryFromXml(const juce::XmlElement& xml, dx21::Dx21VoiceLibrary& li
     return true;
 }
 
-juce::String displayNameForVoice(int index, const dx21::Dx21PatchWithMetadata& voice)
+juce::String displayNameForVoice(int index, const opaline::OpalinePatchWithMetadata& voice)
 {
     const auto number = juce::String(index + 1).paddedLeft('0', 2);
     const auto name = voice.name.empty() ? juce::String("VOICE") : juce::String(voice.name);
@@ -222,7 +222,7 @@ bool isUnsafeAsioDeviceName(const juce::String& deviceName)
     return name.contains("built-in")
         || name.contains("generic")
         || name.contains("low latency")
-        || name.contains("ä½Žãƒ¬ã‚¤ãƒ†ãƒ³ã‚·");
+        || name.contains("’áƒŒƒCƒeƒ“ƒV");
 }
 
 std::vector<juce::String> wasapiLowLatencyTypeOrder(const juce::String& requestedTypeName)
@@ -255,15 +255,15 @@ juce::String lfoWaveName(const int wave)
     return names[static_cast<std::size_t>(juce::jlimit(0, 3, wave))];
 }
 
-juce::String operatorRole(const dx21::Dx21Patch& patch, const int opIndex)
+juce::String operatorRole(const opaline::OpalinePatch& patch, const int opIndex)
 {
-    const auto& algorithm = dx21::dx21Algorithms()[static_cast<std::size_t>(juce::jlimit(1, 8, patch.algorithm) - 1)];
+    const auto& algorithm = opaline::opalineAlgorithms()[static_cast<std::size_t>(juce::jlimit(1, 8, patch.algorithm) - 1)];
     bool carrier = false;
     juce::StringArray targets;
     for (int i = 0; i < algorithm.carrierCount; ++i)
         carrier = carrier || algorithm.carriers[static_cast<std::size_t>(i)] == opIndex;
 
-    for (int target = 0; target < dx21::kOperatorCount; ++target)
+    for (int target = 0; target < opaline::kOperatorCount; ++target)
     {
         for (int dep = 0; dep < algorithm.depCounts[static_cast<std::size_t>(target)]; ++dep)
         {
@@ -419,7 +419,7 @@ std::array<std::uint8_t, 5> lcdGlyph(juce::juce_wchar character)
 }
 } // namespace
 
-MainComponent::Dx21LookAndFeel::Dx21LookAndFeel()
+MainComponent::OpalineLookAndFeel::OpalineLookAndFeel()
 {
     setColour(juce::Slider::textBoxTextColourId, kValueText);
     setColour(juce::Slider::textBoxBackgroundColourId, juce::Colour(0x00000000));
@@ -428,7 +428,7 @@ MainComponent::Dx21LookAndFeel::Dx21LookAndFeel()
     setColour(juce::Slider::rotarySliderOutlineColourId, juce::Colour(0xff5e625a));
 }
 
-void MainComponent::Dx21LookAndFeel::drawRotarySlider(juce::Graphics& g,
+void MainComponent::OpalineLookAndFeel::drawRotarySlider(juce::Graphics& g,
                                                       const int x,
                                                       const int y,
                                                       const int width,
@@ -489,7 +489,7 @@ void MainComponent::Dx21LookAndFeel::drawRotarySlider(juce::Graphics& g,
     g.fillPath(pointer);
 }
 
-void MainComponent::Dx21LookAndFeel::drawLinearSlider(juce::Graphics& g,
+void MainComponent::OpalineLookAndFeel::drawLinearSlider(juce::Graphics& g,
                                                       const int x,
                                                       const int y,
                                                       const int width,
@@ -656,7 +656,7 @@ void MainComponent::Dx21LookAndFeel::drawLinearSlider(juce::Graphics& g,
     g.fillRoundedRectangle(slot.reduced(1.5f).withTrimmedTop(slot.getHeight() * 0.72f), 3.0f);
 }
 
-void MainComponent::Dx21LookAndFeel::drawButtonBackground(juce::Graphics& g,
+void MainComponent::OpalineLookAndFeel::drawButtonBackground(juce::Graphics& g,
                                                           juce::Button& button,
                                                           const juce::Colour& backgroundColour,
                                                           const bool shouldDrawButtonAsHighlighted,
@@ -694,7 +694,7 @@ void MainComponent::Dx21LookAndFeel::drawButtonBackground(juce::Graphics& g,
     g.drawRoundedRectangle(bounds, 4.0f, 1.2f);
 }
 
-void MainComponent::Dx21LookAndFeel::drawButtonText(juce::Graphics& g,
+void MainComponent::OpalineLookAndFeel::drawButtonText(juce::Graphics& g,
                                                     juce::TextButton& button,
                                                     const bool,
                                                     const bool shouldDrawButtonAsDown)
@@ -726,7 +726,7 @@ void MainComponent::Dx21LookAndFeel::drawButtonText(juce::Graphics& g,
     g.drawFittedText(button.getButtonText(), bounds, juce::Justification::centred, 1);
 }
 
-void MainComponent::Dx21LookAndFeel::drawToggleButton(juce::Graphics& g,
+void MainComponent::OpalineLookAndFeel::drawToggleButton(juce::Graphics& g,
                                                       juce::ToggleButton& button,
                                                       const bool shouldDrawButtonAsHighlighted,
                                                       const bool shouldDrawButtonAsDown)
@@ -761,7 +761,7 @@ void MainComponent::Dx21LookAndFeel::drawToggleButton(juce::Graphics& g,
                      1);
 }
 
-juce::Label* MainComponent::Dx21LookAndFeel::createSliderTextBox(juce::Slider& slider)
+juce::Label* MainComponent::OpalineLookAndFeel::createSliderTextBox(juce::Slider& slider)
 {
     auto* label = juce::LookAndFeel_V4::createSliderTextBox(slider);
     label->setFont(juce::FontOptions(13.0f, juce::Font::plain));
@@ -769,12 +769,12 @@ juce::Label* MainComponent::Dx21LookAndFeel::createSliderTextBox(juce::Slider& s
     return label;
 }
 
-juce::Font MainComponent::Dx21LookAndFeel::getComboBoxFont(juce::ComboBox&)
+juce::Font MainComponent::OpalineLookAndFeel::getComboBoxFont(juce::ComboBox&)
 {
     return juce::Font(juce::FontOptions(13.0f, juce::Font::plain));
 }
 
-juce::Font MainComponent::Dx21LookAndFeel::getPopupMenuFont()
+juce::Font MainComponent::OpalineLookAndFeel::getPopupMenuFont()
 {
     return juce::Font(juce::FontOptions(13.0f, juce::Font::plain));
 }
@@ -983,7 +983,7 @@ void MainComponent::AlgorithmComponent::paint(juce::Graphics& g)
         g.strokePath(feedbackPath, juce::PathStrokeType(1.4f, juce::PathStrokeType::curved, juce::PathStrokeType::butt));
 
     g.setFont(juce::FontOptions(juce::jmax(6.5f, boxSize * 0.62f), juce::Font::bold));
-    for (int i = 0; i < dx21::kOperatorCount; ++i)
+    for (int i = 0; i < opaline::kOperatorCount; ++i)
     {
         const auto box = juce::Rectangle<float>(p[static_cast<std::size_t>(i)].x - 13.0f,
                                                 p[static_cast<std::size_t>(i)].y - 10.0f,
@@ -1039,7 +1039,7 @@ void MainComponent::ScopeComponent::paint(juce::Graphics& g)
     g.strokePath(path, juce::PathStrokeType(1.5f));
 }
 
-void MainComponent::PitchEnvelopeGraphComponent::setEnvelope(const dx21::Dx21PitchEnvelopeParams& params)
+void MainComponent::PitchEnvelopeGraphComponent::setEnvelope(const opaline::OpalinePitchEnvelopeParams& params)
 {
     envelope = params;
     repaint();
@@ -1100,12 +1100,12 @@ MainComponent::OperatorComponent::OperatorComponent(const int operatorIndex, Cha
       enableButton("OP" + juce::String(operatorIndex + 1))
 {
     enableButton.setName("opEnableButton");
-    enableButton.setLookAndFeel(&dx21LookAndFeel);
+    enableButton.setLookAndFeel(&opalineLookAndFeel);
     addAndMakeVisible(enableButton);
     enableButton.addListener(this);
 
     ampModButton.setName("opAmpModButton");
-    ampModButton.setLookAndFeel(&dx21LookAndFeel);
+    ampModButton.setLookAndFeel(&opalineLookAndFeel);
     addAndMakeVisible(ampModButton);
     ampModButton.addListener(this);
 
@@ -1150,7 +1150,7 @@ void MainComponent::OperatorComponent::setupSlider(juce::Slider& slider, const d
     slider.setValue(value, juce::dontSendNotification);
     slider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
     slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 42, 16);
-    slider.setLookAndFeel(&dx21LookAndFeel);
+    slider.setLookAndFeel(&opalineLookAndFeel);
     slider.addListener(this);
 }
 
@@ -1164,7 +1164,7 @@ void MainComponent::OperatorComponent::addLabeledSlider(juce::Label& label, juce
     addAndMakeVisible(slider);
 }
 
-void MainComponent::OperatorComponent::setOperator(const dx21::Dx21Operator& newOperator)
+void MainComponent::OperatorComponent::setOperator(const opaline::OpalineOperator& newOperator)
 {
     op = newOperator;
     opSliders[0].setValue(op.ratioIndex, juce::dontSendNotification);
@@ -1523,7 +1523,7 @@ MainComponent::MainComponent(const HostMode mode)
         button->setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff1c1a15));
         button->setColour(juce::TextButton::textColourOffId, kTextPrimary);
         button->setColour(juce::TextButton::textColourOnId, kTextPrimary);
-        button->setLookAndFeel(&dx21LookAndFeel);
+        button->setLookAndFeel(&opalineLookAndFeel);
         button->addListener(this);
         addAndMakeVisible(*button);
     }
@@ -1591,7 +1591,7 @@ MainComponent::MainComponent(const HostMode mode)
     setupSlider(volumeSlider, 0.0, 1.0, 0.01, masterVolume, juce::Slider::LinearVertical);
     volumeSlider.setName("mainFader");
     volumeSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
-    volumeSlider.setLookAndFeel(&dx21LookAndFeel);
+    volumeSlider.setLookAndFeel(&opalineLookAndFeel);
     volumeSlider.addListener(this);
     addAndMakeVisible(volumeSlider);
 
@@ -1601,7 +1601,7 @@ MainComponent::MainComponent(const HostMode mode)
     setupSlider(transposeSlider, -24.0, 24.0, 1.0, 0.0, juce::Slider::LinearVertical);
     transposeSlider.setName("mainFader");
     transposeSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
-    transposeSlider.setLookAndFeel(&dx21LookAndFeel);
+    transposeSlider.setLookAndFeel(&opalineLookAndFeel);
     transposeSlider.addListener(this);
     addAndMakeVisible(transposeSlider);
 
@@ -1630,7 +1630,7 @@ MainComponent::MainComponent(const HostMode mode)
     addAndMakeVisible(lfoWaveLabel);
     addAndMakeVisible(lfoWaveSelect);
     lfoSyncButton.setName("lfoSyncButton");
-    lfoSyncButton.setLookAndFeel(&dx21LookAndFeel);
+    lfoSyncButton.setLookAndFeel(&opalineLookAndFeel);
     lfoSyncButton.setColour(juce::ToggleButton::textColourId, kTextMuted);
     lfoSyncButton.setColour(juce::ToggleButton::tickColourId, kTeal);
     lfoSyncButton.setColour(juce::ToggleButton::tickDisabledColourId, juce::Colour(0xff555044));
@@ -1716,7 +1716,7 @@ MainComponent::MainComponent(const HostMode mode)
     pitchWheelSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
     pitchWheelSlider.setScrollWheelEnabled(false);
     pitchWheelSlider.setDoubleClickReturnValue(true, 0.0);
-    pitchWheelSlider.setLookAndFeel(&dx21LookAndFeel);
+    pitchWheelSlider.setLookAndFeel(&opalineLookAndFeel);
     pitchWheelSlider.addListener(this);
     addAndMakeVisible(pitchWheelLabel);
     addAndMakeVisible(pitchWheelSlider);
@@ -1727,18 +1727,18 @@ MainComponent::MainComponent(const HostMode mode)
     modWheelSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
     modWheelSlider.setScrollWheelEnabled(false);
     modWheelSlider.setDoubleClickReturnValue(true, 0.0);
-    modWheelSlider.setLookAndFeel(&dx21LookAndFeel);
+    modWheelSlider.setLookAndFeel(&opalineLookAndFeel);
     modWheelSlider.addListener(this);
     addAndMakeVisible(modWheelLabel);
     addAndMakeVisible(modWheelSlider);
 
     addAndMakeVisible(keyboard);
 
-    for (int i = 0; i < dx21::kOperatorCount; ++i)
+    for (int i = 0; i < opaline::kOperatorCount; ++i)
     {
         operatorPanels[static_cast<std::size_t>(i)] = std::make_unique<OperatorComponent>(
             i,
-            [this](const int index, const dx21::Dx21Operator& op)
+            [this](const int index, const opaline::OpalineOperator& op)
             {
                 currentPatch.operators[static_cast<std::size_t>(index)] = op;
                 applyPatchToEngine();
@@ -2151,9 +2151,9 @@ void MainComponent::resized()
 
     area.removeFromTop(10);
     auto ops = area;
-    const int panelWidth = ops.getWidth() / dx21::kOperatorCount;
+    const int panelWidth = ops.getWidth() / opaline::kOperatorCount;
     const int panelHeight = juce::jmin(ops.getHeight(), 272);
-    for (int i = 0; i < dx21::kOperatorCount; ++i)
+    for (int i = 0; i < opaline::kOperatorCount; ++i)
     {
         operatorPanels[static_cast<std::size_t>(i)]->setBounds(ops.getX() + i * panelWidth,
                                                                ops.getY(),
@@ -2164,20 +2164,20 @@ void MainComponent::resized()
 
 void MainComponent::loadFactoryVoices()
 {
-    voiceLibrary = dx21::makeInitVoiceLibrary();
+    voiceLibrary = opaline::makeInitVoiceLibrary();
 
-#ifdef DX21_ASSET_DIR
-    const auto syxFile = juce::File(juce::String(DX21_ASSET_DIR)).getChildFile("DX21.syx");
+#ifdef OPALINE_ASSET_DIR
+    const auto syxFile = juce::File(juce::String(OPALINE_ASSET_DIR)).getChildFile("factory.syx");
     const auto bytes = readBinaryFile(syxFile);
     if (!bytes.empty())
     {
         try
         {
-            voiceLibrary.banks[0] = dx21::voiceBankFromSysex(bytes, "Factory");
+            voiceLibrary.banks[0] = opaline::voiceBankFromSysex(bytes, "Factory");
         }
         catch (const std::exception&)
         {
-            voiceLibrary.banks[0] = dx21::makeInitVoiceBank("Factory");
+            voiceLibrary.banks[0] = opaline::makeInitVoiceBank("Factory");
         }
     }
 #endif
@@ -2191,7 +2191,7 @@ void MainComponent::loadFactoryVoices()
 void MainComponent::populateVoiceBankSelect()
 {
     voiceBankSelect.clear(juce::dontSendNotification);
-    for (int i = 0; i < dx21::kDx21VoiceBankCount; ++i)
+    for (int i = 0; i < opaline::kOpalineVoiceBankCount; ++i)
     {
         const auto& bank = voiceLibrary.banks[static_cast<std::size_t>(i)];
         const auto name = bank.name.empty() ? juce::String("Bank ") + juce::String(i + 1) : juce::String(bank.name);
@@ -2204,7 +2204,7 @@ void MainComponent::populateVoiceBankSelect()
 void MainComponent::refreshVoiceLists()
 {
     factoryVoices.clear();
-    const auto& bank = voiceLibrary.banks[static_cast<std::size_t>(juce::jlimit(0, dx21::kDx21VoiceBankCount - 1, currentVoiceBankIndex))];
+    const auto& bank = voiceLibrary.banks[static_cast<std::size_t>(juce::jlimit(0, opaline::kOpalineVoiceBankCount - 1, currentVoiceBankIndex))];
     for (const auto& voice : bank.voices)
         factoryVoices.push_back(voice);
 
@@ -2226,7 +2226,7 @@ void MainComponent::refreshVoiceLists()
 
 void MainComponent::setCurrentVoiceBank(const int bankIndex)
 {
-    const int safeBank = juce::jlimit(0, dx21::kDx21VoiceBankCount - 1, bankIndex);
+    const int safeBank = juce::jlimit(0, opaline::kOpalineVoiceBankCount - 1, bankIndex);
     if (safeBank == currentVoiceBankIndex)
         return;
 
@@ -2243,12 +2243,12 @@ void MainComponent::storeCurrentPatchToSelectedVoice()
     if (factoryVoices.empty())
         return;
 
-    const int voiceIndex = juce::jlimit(0, dx21::kDx21VoiceBankSize - 1, performanceState.voiceAIndex);
+    const int voiceIndex = juce::jlimit(0, opaline::kOpalineVoiceBankSize - 1, performanceState.voiceAIndex);
     auto& voice = voiceLibrary.banks[static_cast<std::size_t>(currentVoiceBankIndex)].voices[static_cast<std::size_t>(voiceIndex)];
-    voice.patch = dx21::normalizePatch(currentPatch);
+    voice.patch = opaline::normalizePatch(currentPatch);
     if (voice.name.empty())
         voice.name = "VOICE " + std::to_string(voiceIndex + 1);
-    voice.vmem = dx21::encodeDx21VmemVoice(voice);
+    voice.vmem = opaline::encodeCompatibleVmemVoice(voice);
     voice.hasVmem = true;
     factoryVoices[static_cast<std::size_t>(voiceIndex)] = voice;
 }
@@ -2272,7 +2272,7 @@ void MainComponent::loadVoiceBankFromFile(const juce::File& file)
     {
         allNotesOff();
         voiceLibrary.banks[static_cast<std::size_t>(currentVoiceBankIndex)] =
-            dx21::voiceBankFromSysex(bytes, file.getFileNameWithoutExtension().toStdString());
+            opaline::voiceBankFromSysex(bytes, file.getFileNameWithoutExtension().toStdString());
         populateVoiceBankSelect();
         refreshVoiceLists();
         applySelectedVoice();
@@ -2290,7 +2290,7 @@ void MainComponent::loadVoiceLibraryFromFile(const juce::File& file)
     try
     {
         const auto xml = juce::parseXML(file.loadFileAsString());
-        dx21::Dx21VoiceLibrary imported;
+        opaline::OpalineVoiceLibrary imported;
         if (xml == nullptr || !voiceLibraryFromXml(*xml, imported))
         {
             statusLabel.setText("Library load failed: invalid file", juce::dontSendNotification);
@@ -2299,7 +2299,7 @@ void MainComponent::loadVoiceLibraryFromFile(const juce::File& file)
 
         allNotesOff();
         voiceLibrary = std::move(imported);
-        currentVoiceBankIndex = juce::jlimit(0, dx21::kDx21VoiceBankCount - 1, currentVoiceBankIndex);
+        currentVoiceBankIndex = juce::jlimit(0, opaline::kOpalineVoiceBankCount - 1, currentVoiceBankIndex);
         populateVoiceBankSelect();
         refreshVoiceLists();
         applySelectedVoice();
@@ -2316,7 +2316,7 @@ void MainComponent::saveCurrentVoiceBankToFile(const juce::File& file)
 {
     try
     {
-        const auto bytes = dx21::voiceBankToSysex(voiceLibrary.banks[static_cast<std::size_t>(currentVoiceBankIndex)]);
+        const auto bytes = opaline::voiceBankToSysex(voiceLibrary.banks[static_cast<std::size_t>(currentVoiceBankIndex)]);
         if (!writeBinaryFile(file, bytes))
         {
             statusLabel.setText("Voice save failed", juce::dontSendNotification);
@@ -2364,7 +2364,7 @@ bool MainComponent::restoreSavedVoiceLibraryState()
         return false;
 
     currentVoiceBankIndex = juce::jlimit(0,
-                                         dx21::kDx21VoiceBankCount - 1,
+                                         opaline::kOpalineVoiceBankCount - 1,
                                          settings.getIntValue(kVoiceBankIndexSetting, currentVoiceBankIndex));
     performanceState.voiceAIndex = settings.getIntValue(kVoiceAIndexSetting, performanceState.voiceAIndex);
     performanceState.voiceBIndex = settings.getIntValue(kVoiceBIndexSetting, performanceState.voiceBIndex);
@@ -2463,10 +2463,10 @@ void MainComponent::updatePatchFromGlobalControls()
     refreshAlgorithmAndRoles();
 }
 
-dx21::Dx21Patch MainComponent::patchForVoiceIndex(const int index) const
+opaline::OpalinePatch MainComponent::patchForVoiceIndex(const int index) const
 {
     if (factoryVoices.empty())
-        return dx21::Dx21Patch {};
+        return opaline::OpalinePatch {};
 
     const int safeIndex = juce::jlimit(0, static_cast<int>(factoryVoices.size()) - 1, index);
     return factoryVoices[static_cast<std::size_t>(safeIndex)].patch;
@@ -2539,9 +2539,9 @@ void MainComponent::updatePerformanceFromControls()
     performanceState.splitPoint = static_cast<int>(splitPointSlider.getValue());
 }
 
-dx21app::SynthState MainComponent::captureSynthState() const
+opalineapp::SynthState MainComponent::captureSynthState() const
 {
-    dx21app::SynthState state;
+    opalineapp::SynthState state;
     state.patch = currentPatch;
     state.performance = performanceState;
     state.masterVolume = masterVolume;
@@ -2555,13 +2555,25 @@ void MainComponent::emitSynthStateChanged()
         onStateChanged(captureSynthState());
 }
 
-void MainComponent::applySynthState(const dx21app::SynthState& state)
+void MainComponent::applySynthState(const opalineapp::SynthState& state)
 {
     suppressStateCallback = true;
-    currentPatch = dx21::normalizePatch(state.patch);
+    currentPatch = opaline::normalizePatch(state.patch);
     performanceState = state.performance;
+    if (!factoryVoices.empty())
+    {
+        const int maxVoiceIndex = juce::jmax(0, static_cast<int>(factoryVoices.size()) - 1);
+        performanceState.voiceAIndex = juce::jlimit(0, maxVoiceIndex, performanceState.voiceAIndex);
+
+        auto& voice = voiceLibrary.banks[static_cast<std::size_t>(currentVoiceBankIndex)]
+                          .voices[static_cast<std::size_t>(performanceState.voiceAIndex)];
+        voice.patch = currentPatch;
+        voice.vmem = opaline::encodeCompatibleVmemVoice(voice);
+        voice.hasVmem = true;
+        factoryVoices[static_cast<std::size_t>(performanceState.voiceAIndex)] = voice;
+    }
     masterVolume = juce::jlimit(0.0f, 1.0f, state.masterVolume);
-    chipRenderModel = state.renderModel == dx21::Dx21RenderModel::ChipHybrid;
+    chipRenderModel = state.renderModel == opaline::OpalineRenderModel::ChipHybrid;
 
     syncingUi = true;
     volumeSlider.setValue(masterVolume, juce::dontSendNotification);
@@ -2603,9 +2615,9 @@ void MainComponent::applyPatchToEngine()
         onRenderModelChanged(currentRenderModel());
 }
 
-dx21::Dx21RenderModel MainComponent::currentRenderModel() const
+opaline::OpalineRenderModel MainComponent::currentRenderModel() const
 {
-    return chipRenderModel ? dx21::Dx21RenderModel::ChipHybrid : dx21::Dx21RenderModel::Current;
+    return chipRenderModel ? opaline::OpalineRenderModel::ChipHybrid : opaline::OpalineRenderModel::Current;
 }
 
 void MainComponent::applyRenderModelToEnginesNoLock()
@@ -2639,7 +2651,7 @@ void MainComponent::setupSlider(juce::Slider& slider,
     slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 48, 16);
     slider.setMouseDragSensitivity(130);
     if (style == juce::Slider::RotaryHorizontalVerticalDrag)
-        slider.setLookAndFeel(&dx21LookAndFeel);
+        slider.setLookAndFeel(&opalineLookAndFeel);
 }
 
 void MainComponent::setupLabel(juce::Label& label, const juce::String& text)
@@ -2652,7 +2664,7 @@ void MainComponent::setupLabel(juce::Label& label, const juce::String& text)
 
 void MainComponent::setupComboBox(juce::ComboBox& comboBox)
 {
-    comboBox.setLookAndFeel(&dx21LookAndFeel);
+    comboBox.setLookAndFeel(&opalineLookAndFeel);
     comboBox.setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xff1c1a15));
     comboBox.setColour(juce::ComboBox::textColourId, kTextPrimary);
     comboBox.setColour(juce::ComboBox::outlineColourId, juce::Colour(0xff3a3529));
@@ -2710,7 +2722,7 @@ void MainComponent::populateMidiInputSelect()
 void MainComponent::refreshAlgorithmAndRoles()
 {
     algorithmView.setAlgorithm(currentPatch.algorithm, currentPatch.feedback);
-    for (int i = 0; i < dx21::kOperatorCount; ++i)
+    for (int i = 0; i < opaline::kOperatorCount; ++i)
     {
         auto& panel = operatorPanels[static_cast<std::size_t>(i)];
         if (panel)
@@ -3380,7 +3392,7 @@ void MainComponent::buttonClicked(juce::Button* button)
     }
     else if (button == &loadVoiceBankButton)
     {
-        fileChooser = std::make_unique<juce::FileChooser>("Load DX21 voice bank or library",
+        fileChooser = std::make_unique<juce::FileChooser>("Load compatible voice bank or library",
                                                           juce::File {},
                                                           "*.syx;*.xml");
         fileChooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
@@ -3398,7 +3410,7 @@ void MainComponent::buttonClicked(juce::Button* button)
         const auto defaultName = (bankName.isEmpty() ? juce::String("OpalineFM_Bank_") + juce::String(currentVoiceBankIndex + 1)
                                                      : bankName)
             + ".syx";
-        fileChooser = std::make_unique<juce::FileChooser>("Save current DX21 voice bank",
+        fileChooser = std::make_unique<juce::FileChooser>("Save current compatible voice bank",
                                                           juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile(defaultName),
                                                           "*.syx");
         fileChooser->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
@@ -3414,9 +3426,9 @@ void MainComponent::buttonClicked(juce::Button* button)
     }
     else if (button == &exportVoiceLibraryButton)
     {
-        fileChooser = std::make_unique<juce::FileChooser>("Export all DX21 voice data",
+        fileChooser = std::make_unique<juce::FileChooser>("Export all Opaline voice data",
                                                           juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
-                                                              .getChildFile("OpalineFM_Voice_Library.dx21library.xml"),
+                                                              .getChildFile("OpalineFM_Voice_Library.opalinelibrary.xml"),
                                                           "*.xml");
         fileChooser->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
                                  [this](const juce::FileChooser& chooser)

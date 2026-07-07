@@ -1,9 +1,9 @@
-﻿#include "Engine/Dx21Engine.h"
+﻿#include "Engine/OpalineEngine.h"
 
 #include <algorithm>
 #include <cmath>
 
-namespace dx21
+namespace opaline
 {
 namespace
 {
@@ -14,7 +14,7 @@ constexpr double kMaxChorusSeconds = 0.04;
 
 }
 
-void Dx21Engine::prepare(const double sampleRate, const int maxVoices)
+void OpalineEngine::prepare(const double sampleRate, const int maxVoices)
 {
     currentSampleRate = sampleRate > 0.0 ? sampleRate : 44100.0;
     maxVoiceCount = clampInt(maxVoices, 1, 32);
@@ -36,19 +36,19 @@ void Dx21Engine::prepare(const double sampleRate, const int maxVoices)
     panic();
 }
 
-void Dx21Engine::setPatch(const Dx21Patch& newPatch)
+void OpalineEngine::setPatch(const OpalinePatch& newPatch)
 {
     patch = normalizePatch(newPatch);
 }
 
-void Dx21Engine::noteOn(const int note, const int velocity)
+void OpalineEngine::noteOn(const int note, const int velocity)
 {
     voices.erase(std::remove_if(voices.begin(),
                                 voices.end(),
-                                [note](const Dx21Voice& voice) { return voice.note() == note; }),
+                                [note](const OpalineVoice& voice) { return voice.note() == note; }),
                  voices.end());
 
-    Dx21Voice voice;
+    OpalineVoice voice;
     voice.start(patch, clampInt(note, 0, 127), clampInt(velocity, 0, 127), currentSampleRate);
     voices.push_back(voice);
 
@@ -59,7 +59,7 @@ void Dx21Engine::noteOn(const int note, const int velocity)
         globalLfoAge = 0.0;
 }
 
-void Dx21Engine::noteOff(const int note)
+void OpalineEngine::noteOff(const int note)
 {
     for (auto& voice : voices)
     {
@@ -68,17 +68,17 @@ void Dx21Engine::noteOff(const int note)
     }
 }
 
-void Dx21Engine::setPitchBend(const double value)
+void OpalineEngine::setPitchBend(const double value)
 {
     pitchBend = clampDouble(value, -1.0, 1.0);
 }
 
-void Dx21Engine::setModWheel(const double value)
+void OpalineEngine::setModWheel(const double value)
 {
     modWheel = clampDouble(value, 0.0, 1.0);
 }
 
-void Dx21Engine::panic()
+void OpalineEngine::panic()
 {
     voices.clear();
     globalLfoAge = 0.0;
@@ -88,7 +88,7 @@ void Dx21Engine::panic()
     resetEffects();
 }
 
-double Dx21Engine::limitAndDeclick(const double sample)
+double OpalineEngine::limitAndDeclick(const double sample)
 {
     const double limited = std::tanh(sample * 0.92) * 0.98;
     const double delta = clampDouble(limited - lastOutput, -0.42, 0.42);
@@ -96,7 +96,7 @@ double Dx21Engine::limitAndDeclick(const double sample)
     return lastOutput;
 }
 
-void Dx21Engine::resetEffects()
+void OpalineEngine::resetEffects()
 {
     std::fill(delayBufferLeft.begin(), delayBufferLeft.end(), 0.0);
     std::fill(delayBufferRight.begin(), delayBufferRight.end(), 0.0);
@@ -114,7 +114,7 @@ void Dx21Engine::resetEffects()
     toneRight = 0.0;
 }
 
-double Dx21Engine::readDelay(const std::vector<double>& buffer, const int writeIndex, const double delaySamples) const
+double OpalineEngine::readDelay(const std::vector<double>& buffer, const int writeIndex, const double delaySamples) const
 {
     if (buffer.empty())
         return 0.0;
@@ -132,7 +132,7 @@ double Dx21Engine::readDelay(const std::vector<double>& buffer, const int writeI
     return buffer[static_cast<std::size_t>(i0)] * (1.0 - fraction) + buffer[static_cast<std::size_t>(i1)] * fraction;
 }
 
-StereoSample Dx21Engine::processEffects(const double input)
+StereoSample OpalineEngine::processEffects(const double input)
 {
     const auto& fx = patch.effects;
     const double reverb = static_cast<double>(fx.reverb) / 99.0;
@@ -217,7 +217,7 @@ StereoSample Dx21Engine::processEffects(const double input)
     return { static_cast<float>(lastLeft), static_cast<float>(lastRight) };
 }
 
-StereoSample Dx21Engine::renderSample()
+StereoSample OpalineEngine::renderSample()
 {
     globalLfoAge += 1.0 / currentSampleRate;
     double mixed = 0.0;
@@ -227,14 +227,14 @@ StereoSample Dx21Engine::renderSample()
 
     voices.erase(std::remove_if(voices.begin(),
                                 voices.end(),
-                                [](const Dx21Voice& voice) { return !voice.isActive(); }),
+                                [](const OpalineVoice& voice) { return !voice.isActive(); }),
                  voices.end());
 
     const double output = limitAndDeclick(mixed * kOutputGain);
     return processEffects(output);
 }
 
-void Dx21Engine::renderBlock(float* left, float* right, const int numSamples)
+void OpalineEngine::renderBlock(float* left, float* right, const int numSamples)
 {
     if (left == nullptr || right == nullptr || numSamples <= 0)
         return;
@@ -246,4 +246,4 @@ void Dx21Engine::renderBlock(float* left, float* right, const int numSamples)
         right[i] = sample.right;
     }
 }
-} // namespace dx21
+} // namespace opaline

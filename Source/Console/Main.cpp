@@ -1,4 +1,4 @@
-#include "Engine/Dx21Engine.h"
+﻿#include "Engine/OpalineEngine.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -70,13 +70,13 @@ int main(int argc, char** argv)
 {
     try
     {
-        const std::string output = argc > 1 ? argv[1] : "dx21_render.wav";
+        const std::string output = argc > 1 ? argv[1] : "opaline_render.wav";
         const int note = parseIntArg(argv, argc, 2, 60);
         const int velocity = parseIntArg(argv, argc, 3, 104);
         const double seconds = parseDoubleArg(argv, argc, 4, 3.0);
         const int sampleRate = parseIntArg(argv, argc, 5, 44100);
 
-        dx21::Dx21Patch patch;
+        opaline::OpalinePatch patch;
         patch.algorithm = 5;
         patch.feedback = 3;
         patch.lfo.speed = 32;
@@ -91,7 +91,7 @@ int main(int argc, char** argv)
         patch.operators[2].ratioIndex = 4;
         patch.operators[3].ratioIndex = 13;
 
-        dx21::Dx21Engine engine;
+        opaline::OpalineEngine engine;
         engine.prepare(static_cast<double>(sampleRate));
         engine.setPatch(patch);
         engine.noteOn(note, velocity);

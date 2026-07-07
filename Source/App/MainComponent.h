@@ -1,9 +1,9 @@
-#pragma once
+﻿#pragma once
 
-#include "App/Dx21AppState.h"
-#include "Engine/Dx21Engine.h"
-#include "Engine/Dx21Sysex.h"
-#include "Engine/Dx21VoiceLibrary.h"
+#include "App/OpalineAppState.h"
+#include "Engine/OpalineEngine.h"
+#include "Engine/OpalineSysex.h"
+#include "Engine/OpalineVoiceLibrary.h"
 
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_gui_extra/juce_gui_extra.h>
@@ -31,8 +31,8 @@ public:
         PluginEditor
     };
 
-    using StateChangedCallback = std::function<void(const dx21app::SynthState&)>;
-    using RenderModelChangedCallback = std::function<void(dx21::Dx21RenderModel)>;
+    using StateChangedCallback = std::function<void(const opalineapp::SynthState&)>;
+    using RenderModelChangedCallback = std::function<void(opaline::OpalineRenderModel)>;
     using NoteOnCallback = std::function<void(int, int)>;
     using NoteOffCallback = std::function<void(int)>;
     using AllNotesOffCallback = std::function<void()>;
@@ -42,9 +42,9 @@ public:
     explicit MainComponent(HostMode mode = HostMode::StandaloneApp);
     ~MainComponent() override;
 
-    dx21app::SynthState captureSynthState() const;
-    void applySynthState(const dx21app::SynthState& state);
-    dx21::Dx21RenderModel currentRenderModel() const;
+    opalineapp::SynthState captureSynthState() const;
+    void applySynthState(const opalineapp::SynthState& state);
+    opaline::OpalineRenderModel currentRenderModel() const;
     void setStateChangedCallback(StateChangedCallback callback);
     void setRenderModelChangedCallback(RenderModelChangedCallback callback);
     void setNoteOnCallback(NoteOnCallback callback);
@@ -65,10 +65,10 @@ public:
     void resized() override;
 
 private:
-    class Dx21LookAndFeel final : public juce::LookAndFeel_V4
+    class OpalineLookAndFeel final : public juce::LookAndFeel_V4
     {
     public:
-        Dx21LookAndFeel();
+        OpalineLookAndFeel();
         void drawRotarySlider(juce::Graphics& g,
                               int x,
                               int y,
@@ -152,11 +152,11 @@ private:
     class PitchEnvelopeGraphComponent final : public juce::Component
     {
     public:
-        void setEnvelope(const dx21::Dx21PitchEnvelopeParams& params);
+        void setEnvelope(const opaline::OpalinePitchEnvelopeParams& params);
         void paint(juce::Graphics& g) override;
 
     private:
-        dx21::Dx21PitchEnvelopeParams envelope;
+        opaline::OpalinePitchEnvelopeParams envelope;
     };
 
     class StepWheelSlider final : public juce::Slider
@@ -180,11 +180,11 @@ private:
                                     private juce::Button::Listener
     {
     public:
-        using ChangeCallback = std::function<void(int, const dx21::Dx21Operator&)>;
+        using ChangeCallback = std::function<void(int, const opaline::OpalineOperator&)>;
 
         OperatorComponent(int operatorIndex, ChangeCallback callback);
         ~OperatorComponent() override;
-        void setOperator(const dx21::Dx21Operator& newOperator);
+        void setOperator(const opaline::OpalineOperator& newOperator);
         void setRole(juce::String newRole);
         void paint(juce::Graphics& g) override;
         void resized() override;
@@ -200,9 +200,9 @@ private:
 
         int opIndex = 0;
         ChangeCallback onChange;
-        dx21::Dx21Operator op;
+        opaline::OpalineOperator op;
         juce::String role = "Carrier";
-        Dx21LookAndFeel dx21LookAndFeel;
+        OpalineLookAndFeel opalineLookAndFeel;
         juce::TextButton enableButton;
         juce::TextButton ampModButton { "AM" };
         juce::Label roleLabel;
@@ -230,8 +230,8 @@ private:
         int heldNote = -1;
     };
 
-    using PerformanceMode = dx21app::PerformanceMode;
-    using PerformanceState = dx21app::PerformanceState;
+    using PerformanceMode = opalineapp::PerformanceMode;
+    using PerformanceState = opalineapp::PerformanceState;
 
     class SplitPointSlider final : public juce::Slider
     {
@@ -295,7 +295,7 @@ private:
     void refreshPerformanceControls();
     void refreshLcd();
     void emitProgramNameChanged();
-    dx21::Dx21Patch patchForVoiceIndex(int index) const;
+    opaline::OpalinePatch patchForVoiceIndex(int index) const;
     juce::String performanceVoiceText(int index) const;
     void setupSlider(juce::Slider& slider, double min, double max, double step, double value, juce::Slider::SliderStyle style);
     void setupLabel(juce::Label& label, const juce::String& text);
@@ -331,7 +331,7 @@ private:
 
     juce::Label titleLabel;
     juce::Label statusLabel;
-    Dx21LookAndFeel dx21LookAndFeel;
+    OpalineLookAndFeel opalineLookAndFeel;
     juce::ComboBox voiceSelect;
     juce::ComboBox voiceBankSelect;
     juce::ComboBox performanceModeSelect;
@@ -408,15 +408,15 @@ private:
     ScopeComponent scope;
     PitchEnvelopeGraphComponent pegGraph;
     KeyboardComponent keyboard;
-    std::array<std::unique_ptr<OperatorComponent>, dx21::kOperatorCount> operatorPanels;
+    std::array<std::unique_ptr<OperatorComponent>, opaline::kOperatorCount> operatorPanels;
 
-    dx21::Dx21Engine engine;
-    dx21::Dx21Engine performanceEngineB;
-    dx21::Dx21Patch currentPatch;
+    opaline::OpalineEngine engine;
+    opaline::OpalineEngine performanceEngineB;
+    opaline::OpalinePatch currentPatch;
     PerformanceState performanceState;
-    dx21::Dx21VoiceLibrary voiceLibrary;
+    opaline::OpalineVoiceLibrary voiceLibrary;
     int currentVoiceBankIndex = 0;
-    std::vector<dx21::Dx21PatchWithMetadata> factoryVoices;
+    std::vector<opaline::OpalinePatchWithMetadata> factoryVoices;
     struct AudioOutputChoice
     {
         juce::String typeName;

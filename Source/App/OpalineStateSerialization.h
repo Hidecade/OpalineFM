@@ -1,14 +1,14 @@
-#pragma once
+﻿#pragma once
 
-#include "App/Dx21AppState.h"
+#include "App/OpalineAppState.h"
 
 #include <juce_data_structures/juce_data_structures.h>
 
-namespace dx21app
+namespace opalineapp
 {
 namespace state_ids
 {
-static const juce::Identifier synthState { "DX21SynthState" };
+static const juce::Identifier synthState { "compatibleSynthState" };
 static const juce::Identifier patch { "Patch" };
 static const juce::Identifier performance { "Performance" };
 static const juce::Identifier lfo { "Lfo" };
@@ -33,7 +33,7 @@ inline bool readBool(const juce::ValueTree& tree, const juce::Identifier& proper
     return static_cast<bool>(tree.getProperty(property, fallback));
 }
 
-inline juce::ValueTree envelopeToValueTree(const dx21::Dx21EnvelopeParams& envelope)
+inline juce::ValueTree envelopeToValueTree(const opaline::OpalineEnvelopeParams& envelope)
 {
     juce::ValueTree tree { state_ids::envelope };
     tree.setProperty("attackRate", envelope.attackRate, nullptr);
@@ -44,10 +44,10 @@ inline juce::ValueTree envelopeToValueTree(const dx21::Dx21EnvelopeParams& envel
     return tree;
 }
 
-inline dx21::Dx21EnvelopeParams envelopeFromValueTree(const juce::ValueTree& tree,
-                                                      const dx21::Dx21EnvelopeParams& fallback)
+inline opaline::OpalineEnvelopeParams envelopeFromValueTree(const juce::ValueTree& tree,
+                                                      const opaline::OpalineEnvelopeParams& fallback)
 {
-    dx21::Dx21EnvelopeParams envelope = fallback;
+    opaline::OpalineEnvelopeParams envelope = fallback;
     if (!tree.isValid())
         return envelope;
 
@@ -59,7 +59,7 @@ inline dx21::Dx21EnvelopeParams envelopeFromValueTree(const juce::ValueTree& tre
     return envelope;
 }
 
-inline juce::ValueTree operatorToValueTree(const dx21::Dx21Operator& op, const int index)
+inline juce::ValueTree operatorToValueTree(const opaline::OpalineOperator& op, const int index)
 {
     juce::ValueTree tree { state_ids::op };
     tree.setProperty("index", index, nullptr);
@@ -75,10 +75,10 @@ inline juce::ValueTree operatorToValueTree(const dx21::Dx21Operator& op, const i
     return tree;
 }
 
-inline dx21::Dx21Operator operatorFromValueTree(const juce::ValueTree& tree,
-                                                const dx21::Dx21Operator& fallback)
+inline opaline::OpalineOperator operatorFromValueTree(const juce::ValueTree& tree,
+                                                const opaline::OpalineOperator& fallback)
 {
-    dx21::Dx21Operator op = fallback;
+    opaline::OpalineOperator op = fallback;
     if (!tree.isValid())
         return op;
 
@@ -94,7 +94,7 @@ inline dx21::Dx21Operator operatorFromValueTree(const juce::ValueTree& tree,
     return op;
 }
 
-inline juce::ValueTree patchToValueTree(const dx21::Dx21Patch& patch)
+inline juce::ValueTree patchToValueTree(const opaline::OpalinePatch& patch)
 {
     juce::ValueTree tree { state_ids::patch };
     tree.setProperty("algorithm", patch.algorithm, nullptr);
@@ -129,17 +129,17 @@ inline juce::ValueTree patchToValueTree(const dx21::Dx21Patch& patch)
     effects.setProperty("delay", patch.effects.delay, nullptr);
     tree.addChild(effects, -1, nullptr);
 
-    for (int i = 0; i < dx21::kOperatorCount; ++i)
+    for (int i = 0; i < opaline::kOperatorCount; ++i)
         tree.addChild(operatorToValueTree(patch.operators[static_cast<std::size_t>(i)], i), -1, nullptr);
 
     return tree;
 }
 
-inline dx21::Dx21Patch patchFromValueTree(const juce::ValueTree& tree, const dx21::Dx21Patch& fallback)
+inline opaline::OpalinePatch patchFromValueTree(const juce::ValueTree& tree, const opaline::OpalinePatch& fallback)
 {
-    dx21::Dx21Patch patch = fallback;
+    opaline::OpalinePatch patch = fallback;
     if (!tree.isValid())
-        return dx21::normalizePatch(patch);
+        return opaline::normalizePatch(patch);
 
     patch.algorithm = readInt(tree, "algorithm", patch.algorithm);
     patch.feedback = readInt(tree, "feedback", patch.feedback);
@@ -186,14 +186,14 @@ inline dx21::Dx21Patch patchFromValueTree(const juce::ValueTree& tree, const dx2
             continue;
 
         const int opIndex = readInt(child, "index", -1);
-        if (opIndex >= 0 && opIndex < dx21::kOperatorCount)
+        if (opIndex >= 0 && opIndex < opaline::kOperatorCount)
         {
             const auto size = static_cast<std::size_t>(opIndex);
             patch.operators[size] = operatorFromValueTree(child, patch.operators[size]);
         }
     }
 
-    return dx21::normalizePatch(patch);
+    return opaline::normalizePatch(patch);
 }
 
 inline juce::ValueTree synthStateToValueTree(const SynthState& state)
@@ -221,7 +221,7 @@ inline SynthState synthStateFromValueTree(const juce::ValueTree& tree, const Syn
         return state;
 
     state.masterVolume = juce::jlimit(0.0f, 1.0f, readFloat(tree, "masterVolume", state.masterVolume));
-    state.renderModel = static_cast<dx21::Dx21RenderModel>(juce::jlimit(0, 1, readInt(tree, "renderModel", static_cast<int>(state.renderModel))));
+    state.renderModel = static_cast<opaline::OpalineRenderModel>(juce::jlimit(0, 1, readInt(tree, "renderModel", static_cast<int>(state.renderModel))));
     state.patch = patchFromValueTree(tree.getChildWithName(state_ids::patch), state.patch);
 
     const auto performance = tree.getChildWithName(state_ids::performance);
@@ -236,4 +236,4 @@ inline SynthState synthStateFromValueTree(const juce::ValueTree& tree, const Syn
 
     return state;
 }
-} // namespace dx21app
+} // namespace opalineapp

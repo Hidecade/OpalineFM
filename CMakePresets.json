@@ -1,4 +1,4 @@
-{
+﻿{
   "version": 6,
   "configurePresets": [
     {
@@ -26,8 +26,8 @@
       "architecture": "x64",
       "binaryDir": "${sourceDir}/build/engine-vs-debug",
       "cacheVariables": {
-        "DX21_BUILD_STANDALONE": "OFF",
-        "DX21_BUILD_PLUGIN": "OFF"
+        "OPALINE_BUILD_STANDALONE": "OFF",
+        "OPALINE_BUILD_PLUGIN": "OFF"
       }
     },
     {
@@ -37,8 +37,8 @@
       "architecture": "x64",
       "binaryDir": "${sourceDir}/build/standalone-vs-debug",
       "cacheVariables": {
-        "DX21_BUILD_STANDALONE": "ON",
-        "DX21_BUILD_PLUGIN": "ON"
+        "OPALINE_BUILD_STANDALONE": "ON",
+        "OPALINE_BUILD_PLUGIN": "ON"
       }
     },
     {
@@ -52,9 +52,9 @@
         "rhs": "Darwin"
       },
       "cacheVariables": {
-        "DX21_BUILD_STANDALONE": "ON",
-        "DX21_BUILD_PLUGIN": "ON",
-        "DX21_BUILD_AU": "ON"
+        "OPALINE_BUILD_STANDALONE": "ON",
+        "OPALINE_BUILD_PLUGIN": "ON",
+        "OPALINE_BUILD_AU": "ON"
       }
     }
   ],
@@ -72,7 +72,7 @@
       "configurePreset": "engine-vs-debug",
       "configuration": "Debug",
       "targets": [
-        "dx21_engine_tests"
+        "opaline_engine_tests"
       ]
     },
     {

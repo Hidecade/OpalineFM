@@ -1,11 +1,11 @@
 ﻿#pragma once
 
-#include "Engine/Dx21Types.h"
+#include "Engine/OpalineTypes.h"
 
-namespace dx21
+namespace opaline
 {
 // 従来モデル用EG。内部はdB減衰量として進め、最後に振幅へ変換する。
-class Dx21Envelope
+class OpalineEnvelope
 {
 public:
     enum class Stage
@@ -18,7 +18,7 @@ public:
     };
 
     void reset(double sampleRate);
-    void noteOn(const Dx21EnvelopeParams& params, int rateScale, int note);
+    void noteOn(const OpalineEnvelopeParams& params, int rateScale, int note);
     void noteOff();
     double next();
     bool isActive() const;
@@ -31,7 +31,7 @@ private:
     int egIncrement(int rate, Stage stage) const;
     double decay1LevelDb() const;
 
-    Dx21EnvelopeParams currentParams;
+    OpalineEnvelopeParams currentParams;
     Stage currentStage = Stage::Off;
     double currentSampleRate = 44100.0;
     double attenuationDb = 96.0;
@@ -40,4 +40,4 @@ private:
     int egCounter = 0;
     double egRemainder = 0.0;
 };
-} // namespace dx21
+} // namespace opaline

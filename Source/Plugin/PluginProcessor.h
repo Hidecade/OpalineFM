@@ -1,15 +1,15 @@
-#pragma once
+﻿#pragma once
 
-#include "App/Dx21AppState.h"
-#include "Engine/Dx21Engine.h"
+#include "App/OpalineAppState.h"
+#include "Engine/OpalineEngine.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
-class Dx21NativeAudioProcessor final : public juce::AudioProcessor
+class OpalineAudioProcessor final : public juce::AudioProcessor
 {
 public:
-    Dx21NativeAudioProcessor();
-    ~Dx21NativeAudioProcessor() override = default;
+    OpalineAudioProcessor();
+    ~OpalineAudioProcessor() override = default;
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
@@ -34,9 +34,9 @@ public:
     void getStateInformation(juce::MemoryBlock& destData) override;
     void setStateInformation(const void* data, int sizeInBytes) override;
 
-    dx21app::SynthState getSynthState() const;
-    void setSynthStateFromEditor(const dx21app::SynthState& newState);
-    void setRenderModelFromEditor(dx21::Dx21RenderModel newRenderModel);
+    opalineapp::SynthState getSynthState() const;
+    void setSynthStateFromEditor(const opalineapp::SynthState& newState);
+    void setRenderModelFromEditor(opaline::OpalineRenderModel newRenderModel);
     void noteOnFromEditor(int note, int velocity);
     void noteOffFromEditor(int note);
     void allNotesOffFromEditor();
@@ -55,9 +55,9 @@ private:
     void applyParametersToState();
     void syncParametersFromState();
 
-    dx21::Dx21Engine engine;
-    dx21app::SynthState state;
-    dx21::Dx21RenderModel renderModel = dx21::Dx21RenderModel::ChipHybrid;
+    opaline::OpalineEngine engine;
+    opalineapp::SynthState state;
+    opaline::OpalineRenderModel renderModel = opaline::OpalineRenderModel::ChipHybrid;
     juce::AudioProcessorValueTreeState parameters;
     double currentSampleRate = 44100.0;
     double currentPitchBend = 0.0;
@@ -66,5 +66,5 @@ private:
     std::array<std::atomic<int>, 128> midiUiVelocities {};
     mutable juce::CriticalSection engineLock;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Dx21NativeAudioProcessor)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(OpalineAudioProcessor)
 };

@@ -1,17 +1,17 @@
-Ôªø#include "Engine/Dx21Voice.h"
+#include "Engine/OpalineVoice.h"
 
-#include "Engine/Dx21Tables.h"
+#include "Engine/OpalineTables.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <utility>
 
-namespace dx21
+namespace opaline
 {
 namespace
 {
-// LEVEL„ÄÅTL„ÄÅÂ§âË™øÊåáÊï∞„ÅÆË™øÊï¥‰øÇÊï∞„ÄÇChipHybrid„Åß„ÅØÂæìÊù•ÂÄ§„Å®OPMÈ¢®„ÅÆÂÄ§„ÇíÊ∑∑„Åú„Çã„ÄÇ
+// LEVELÅATLÅAïœí≤éwêîÇÃí≤êÆåWêîÅBChipHybridÇ≈ÇÕè]óàílÇ∆OPMïóÇÃílÇç¨Ç∫ÇÈÅB
 constexpr double kCarrierLevelDbRange = 48.0;
 constexpr double kModulatorIndexScale = 1.08;
 constexpr double kModulatorIndexBlend = 0.08;
@@ -35,8 +35,8 @@ constexpr double kOppTlRampSeconds = 0.012;
 constexpr double kOppTlSubsteps = 8.0;
 constexpr double kOppTlMax = 127.0;
 constexpr double kCarrierMixGain = 0.86;
-constexpr std::array<double, 8> kDx21PitchSensitivitySemitones {
-    2.0,    // PMS=0 uses the DX21 vibrato oscillator path; measured like PMS=5.
+constexpr std::array<double, 8> kOpalinePitchSensitivitySemitones {
+    2.0,    // PMS=0 uses the compatible vibrato oscillator path; measured like PMS=5.
     0.125,
     0.25,
     0.5,
@@ -46,7 +46,7 @@ constexpr std::array<double, 8> kDx21PitchSensitivitySemitones {
     7.0
 };
 constexpr std::array<double, 8> kOpmPitchSensitivitySemitones {
-    1.0,    // PMS=0 uses the DX21 VIBRATO OSC path with PMS=5 depth.
+    1.0,    // PMS=0 uses the compatible VIBRATO OSC path with PMS=5 depth.
     0.05,
     0.10,
     0.20,
@@ -56,7 +56,7 @@ constexpr std::array<double, 8> kOpmPitchSensitivitySemitones {
     7.00
 };
 
-int nextNukedOpmNoiseInjectedBit(std::uint32_t& noiseLfsr, int& noiseBit)
+int nextChipNoiseInjectedBit(std::uint32_t& noiseLfsr, int& noiseBit)
 {
     const int injected = noiseLfsr & 1u;
     const bool reset = (noiseLfsr & 0xffffu) == 0u && noiseBit == 0;
@@ -68,11 +68,11 @@ int nextNukedOpmNoiseInjectedBit(std::uint32_t& noiseLfsr, int& noiseBit)
     return injected;
 }
 
-int nextNukedOpmSampleAndHoldValue(std::uint32_t& noiseLfsr, int& noiseBit)
+int nextChipSampleAndHoldValue(std::uint32_t& noiseLfsr, int& noiseBit)
 {
     int value = 0;
     for (int bit = 0; bit < 8; ++bit)
-        value = (value << 1) | nextNukedOpmNoiseInjectedBit(noiseLfsr, noiseBit);
+        value = (value << 1) | nextChipNoiseInjectedBit(noiseLfsr, noiseBit);
 
     return value;
 }
@@ -100,9 +100,9 @@ double dbToAmplitude(const double db)
     return std::pow(10.0, -db / 20.0);
 }
 
-double dx21LevelToOpmTl(const double level)
+double opalineLevelToOpmTl(const double level)
 {
-    // DX21„ÅÆLEVEL 0..99„Çí„ÄÅOPM„ÅÆTL 0..127„Å∏ÂÜôÂÉè„Åô„Çã„ÄÇTL„ÅØÂ∞è„Åï„ÅÑ„Åª„Å©Èü≥Èáè„ÅåÂ§ß„Åç„ÅÑ„ÄÇ
+    // compatibleÇÃLEVEL 0..99ÇÅAOPMÇÃTL 0..127Ç÷é ëúÇ∑ÇÈÅBTLÇÕè¨Ç≥Ç¢ÇŸÇ«âπó Ç™ëÂÇ´Ç¢ÅB
     return std::round((1.0 - clampDouble(level, 0.0, 99.0) / 99.0) * kOppTlMax);
 }
 
@@ -118,7 +118,7 @@ double opmTlToAmplitude(const double tl)
 
 double outputLevelToCarrierAmplitudeChipLike(const double level)
 {
-    return opmTlToAmplitude(dx21LevelToOpmTl(level));
+    return opmTlToAmplitude(opalineLevelToOpmTl(level));
 }
 
 double outputLevelToModulatorIndex(const double level)
@@ -168,17 +168,17 @@ double modulatorAttackSoftening(const double age)
     return kModulatorAttackInitialScale + (1.0 - kModulatorAttackInitialScale) * progress;
 }
 
-double modulatorAttackSofteningForModel(const double age, const Dx21RenderModel renderModel)
+double modulatorAttackSofteningForModel(const double age, const OpalineRenderModel renderModel)
 {
-    if (renderModel == Dx21RenderModel::ChipHybrid)
+    if (renderModel == OpalineRenderModel::ChipHybrid)
         return 1.0;
 
     return modulatorAttackSoftening(age);
 }
 
-double envelopeAmpForModel(const double envelopeAmp, const Dx21RenderModel renderModel)
+double envelopeAmpForModel(const double envelopeAmp, const OpalineRenderModel renderModel)
 {
-    if (renderModel != Dx21RenderModel::ChipHybrid)
+    if (renderModel != OpalineRenderModel::ChipHybrid)
         return envelopeAmp;
 
     const double db = amplitudeFactorToDbOffset(envelopeAmp);
@@ -223,9 +223,9 @@ double opmPhaseBusToRadians(const double bus)
     return bus * kPi / kOpmSineIndexSteps * kOpmBusPhaseGain;
 }
 
-double opmPhaseBusToRadians(const double bus, const Dx21RenderModel renderModel)
+double opmPhaseBusToRadians(const double bus, const OpalineRenderModel renderModel)
 {
-    const double gain = renderModel == Dx21RenderModel::ChipHybrid ? kChipPhaseModGain : 1.0;
+    const double gain = renderModel == OpalineRenderModel::ChipHybrid ? kChipPhaseModGain : 1.0;
     return opmPhaseBusToRadians(bus) * gain;
 }
 
@@ -247,9 +247,9 @@ int chipPhaseOffsetIndexFromRadians(const double radians)
 
 int chipOperatorPhaseIndex(const double phase, const double modulationBus, const double feedbackRadians)
 {
-    // NEW„Åß„ÅØ1024step„ÅÆ„ÉÜ„Éº„Éñ„É´index‰∏ä„Åß„ÄÅPM„Å®FB„ÇíÊï¥Êï∞Âä†ÁÆó„Åô„Çã„ÄÇ
+    // NEWÇ≈ÇÕ1024stepÇÃÉeÅ[ÉuÉãindexè„Ç≈ÅAPMÇ∆FBÇêÆêîâ¡éZÇ∑ÇÈÅB
     const int baseIndex = chipOperatorPhaseIndex(phase);
-    const int modulationIndex = chipPhaseOffsetIndexFromRadians(opmPhaseBusToRadians(modulationBus, Dx21RenderModel::ChipHybrid));
+    const int modulationIndex = chipPhaseOffsetIndexFromRadians(opmPhaseBusToRadians(modulationBus, OpalineRenderModel::ChipHybrid));
     const int feedbackIndex = chipPhaseOffsetIndexFromRadians(feedbackRadians);
     return (baseIndex + modulationIndex + feedbackIndex) & (static_cast<int>(kOpmSineIndexSteps) - 1);
 }
@@ -303,9 +303,9 @@ int chipOperatorLogSineAttenuation(const int phaseIndex)
     return kLogSinRom[static_cast<std::size_t>(quarterIndex)];
 }
 
-double quantizeOperatorAudioForModel(const double audio, const Dx21RenderModel renderModel)
+double quantizeOperatorAudioForModel(const double audio, const OpalineRenderModel renderModel)
 {
-    if (renderModel != Dx21RenderModel::ChipHybrid)
+    if (renderModel != OpalineRenderModel::ChipHybrid)
         return audio;
 
     return clampDouble(std::round(audio * 8191.0) / 8192.0, -1.0, 1.0);
@@ -363,50 +363,50 @@ double chipOperatorOutputFromPhaseIndex(const int phaseIndex, const double ampli
         static_cast<int>(std::round(amplitudeFactorToDbOffset(amplitude) / kOpmLogAttenuationDbPerStep)), 0, 4095);
     const int attenuation = clampInt(waveAttenuation + ampAttenuation, 0, 4095);
     const double output = static_cast<double>(chipOperatorSign(phaseIndex)) * chipExpOutputFromAttenuation(attenuation);
-    return quantizeOperatorAudioForModel(output, Dx21RenderModel::ChipHybrid);
+    return quantizeOperatorAudioForModel(output, OpalineRenderModel::ChipHybrid);
 }
 
-double quantizeOperatorBusForModel(const double bus, const Dx21RenderModel renderModel)
+double quantizeOperatorBusForModel(const double bus, const OpalineRenderModel renderModel)
 {
-    if (renderModel != Dx21RenderModel::ChipHybrid)
+    if (renderModel != OpalineRenderModel::ChipHybrid)
         return bus;
 
     return clampDouble(std::round(bus), -kOpmOperatorBusPeak, kOpmOperatorBusPeak - 1.0);
 }
 
-double mixPhaseModulationForModel(const double sum, const int inputCount, const Dx21RenderModel renderModel)
+double mixPhaseModulationForModel(const double sum, const int inputCount, const OpalineRenderModel renderModel)
 {
-    if (renderModel != Dx21RenderModel::ChipHybrid || inputCount <= 1)
+    if (renderModel != OpalineRenderModel::ChipHybrid || inputCount <= 1)
         return sum;
 
     const double mixed = sum / static_cast<double>(std::min(inputCount, 2));
     return quantizeOperatorBusForModel(mixed, renderModel);
 }
 
-double quantizeVoiceOutputForModel(const double sample, const Dx21RenderModel renderModel)
+double quantizeVoiceOutputForModel(const double sample, const OpalineRenderModel renderModel)
 {
-    if (renderModel != Dx21RenderModel::ChipHybrid)
+    if (renderModel != OpalineRenderModel::ChipHybrid)
         return sample;
 
     return clampDouble(std::round(sample * 8191.0) / 8192.0, -1.0, 1.0);
 }
 
-double feedbackHistoryBusForModel(const std::array<double, 2>& history, const Dx21RenderModel renderModel)
+double feedbackHistoryBusForModel(const std::array<double, 2>& history, const OpalineRenderModel renderModel)
 {
     const double sum = history[0] + history[1];
-    if (renderModel != Dx21RenderModel::ChipHybrid)
+    if (renderModel != OpalineRenderModel::ChipHybrid)
         return sum;
 
     return quantizeOperatorBusForModel(sum * 0.5, renderModel);
 }
 
-double opmFeedbackBusToRadians(const double bus, const int level, const Dx21RenderModel renderModel)
+double opmFeedbackBusToRadians(const double bus, const int level, const OpalineRenderModel renderModel)
 {
     const int feedback = clampInt(level, 0, 7);
     if (feedback <= 0)
         return 0.0;
 
-    if (renderModel == Dx21RenderModel::ChipHybrid)
+    if (renderModel == OpalineRenderModel::ChipHybrid)
     {
         static constexpr std::array<double, 8> kFeedbackGainTable {
             0.0,
@@ -457,7 +457,7 @@ double opmStylePitchModDepth(const int depth, const int sensitivity)
 {
     const double normalized = static_cast<double>(clampInt(depth, 0, 99)) / 99.0;
     const auto sensitivityIndex = static_cast<std::size_t>(clampInt(sensitivity, 0, 7));
-    return normalized * kDx21PitchSensitivitySemitones[sensitivityIndex];
+    return normalized * kOpalinePitchSensitivitySemitones[sensitivityIndex];
 }
 
 double chipStylePitchModDepth(const int depth, const int sensitivity)
@@ -467,18 +467,18 @@ double chipStylePitchModDepth(const int depth, const int sensitivity)
     return normalized * kOpmPitchSensitivitySemitones[sensitivityIndex];
 }
 
-double pitchModDepthForModel(const int depth, const int sensitivity, const int wave, const Dx21RenderModel renderModel)
+double pitchModDepthForModel(const int depth, const int sensitivity, const int wave, const OpalineRenderModel renderModel)
 {
     if (clampInt(wave, 0, 3) == 1 && clampInt(sensitivity, 0, 7) == 7)
         return static_cast<double>(clampInt(depth, 0, 99)) / 99.0 * 8.0;
 
-    if (renderModel == Dx21RenderModel::ChipHybrid || renderModel == Dx21RenderModel::Current)
+    if (renderModel == OpalineRenderModel::ChipHybrid || renderModel == OpalineRenderModel::Current)
         return chipStylePitchModDepth(depth, sensitivity);
 
     return opmStylePitchModDepth(depth, sensitivity);
 }
 
-double modWheelPitchDepthForModel(const int sensitivity, const int wave, const Dx21RenderModel renderModel)
+double modWheelPitchDepthForModel(const int sensitivity, const int wave, const OpalineRenderModel renderModel)
 {
     return pitchModDepthForModel(99, sensitivity, wave, renderModel);
 }
@@ -505,7 +505,7 @@ double lfoDelayFactor(const int delay, const double age)
     return std::min(1.0, (age - waitSeconds) / std::max(0.001, fadeSeconds));
 }
 
-std::pair<double, double> dx21LfoShape(const double phase, const int wave)
+std::pair<double, double> opalineLfoShape(const double phase, const int wave)
 {
     const double cycle = phase - std::floor(phase);
     const int index = static_cast<int>(std::floor(cycle * 256.0)) & 255;
@@ -545,16 +545,16 @@ std::pair<double, double> dx21LfoShape(const double phase, const int wave)
     return { clampDouble(am, 0.0, 1.0), clampDouble(pm, -1.0, 1.0) };
 }
 
-std::pair<double, double> dx21PitchLfoShape(const double phase, const int wave, const int sensitivity)
+std::pair<double, double> opalinePitchLfoShape(const double phase, const int wave, const int sensitivity)
 {
     if (clampInt(sensitivity, 0, 7) != 0)
-        return dx21LfoShape(phase, wave);
+        return opalineLfoShape(phase, wave);
 
-    return dx21LfoShape(phase, 2);
+    return opalineLfoShape(phase, 2);
 }
 }
 
-void Dx21Voice::start(const Dx21Patch& patch, const int newMidiNote, const int velocity, const double sampleRate)
+void OpalineVoice::start(const OpalinePatch& patch, const int newMidiNote, const int velocity, const double sampleRate)
 {
     midiNote = newMidiNote;
     noteVelocity = clampInt(velocity, 0, 127);
@@ -569,7 +569,7 @@ void Dx21Voice::start(const Dx21Patch& patch, const int newMidiNote, const int v
     sampleAndHoldValue = 128;
     feedbackHistory.fill(0.0);
     failed = false;
-    activeRenderModel = Dx21RenderModel::Current;
+    activeRenderModel = OpalineRenderModel::Current;
     pitchEnvelope.reset(currentSampleRate);
     pitchEnvelope.noteOn(patch.pitchEnvelope);
 
@@ -588,7 +588,7 @@ void Dx21Voice::start(const Dx21Patch& patch, const int newMidiNote, const int v
     }
 }
 
-void Dx21Voice::release()
+void OpalineVoice::release()
 {
     for (auto& envelope : envelopes)
         envelope.noteOff();
@@ -597,12 +597,12 @@ void Dx21Voice::release()
     pitchEnvelope.noteOff();
 }
 
-bool Dx21Voice::isActive() const
+bool OpalineVoice::isActive() const
 {
     if (failed)
         return false;
 
-    if (activeRenderModel == Dx21RenderModel::ChipHybrid)
+    if (activeRenderModel == OpalineRenderModel::ChipHybrid)
     {
         for (const auto& envelope : chipEnvelopes)
         {
@@ -621,12 +621,12 @@ bool Dx21Voice::isActive() const
     return false;
 }
 
-double Dx21Voice::nextOperatorLevel(const int index, const int targetLevel)
+double OpalineVoice::nextOperatorLevel(const int index, const int targetLevel)
 {
     return oppTlUnitsToLevel(nextOperatorTl(index, targetLevel) * kOppTlSubsteps);
 }
 
-double Dx21Voice::nextOperatorTl(const int index, const int targetLevel)
+double OpalineVoice::nextOperatorTl(const int index, const int targetLevel)
 {
     const auto opSize = static_cast<std::size_t>(index);
     double current = operatorOppTlUnits[opSize];
@@ -664,19 +664,19 @@ double Dx21Voice::nextOperatorTl(const int index, const int targetLevel)
     return operatorOppTlUnits[opSize] / kOppTlSubsteps;
 }
 
-double Dx21Voice::nextPitchModulation(const double pitchLfo)
+double OpalineVoice::nextPitchModulation(const double pitchLfo)
 {
     const double delayed = delayedPitchLfo;
     delayedPitchLfo = pitchLfo;
     return delayed;
 }
 
-std::pair<double, double> Dx21Voice::nextSampleAndHoldLfoShape(const double phase)
+std::pair<double, double> OpalineVoice::nextSampleAndHoldLfoShape(const double phase)
 {
     const int cycle = static_cast<int>(std::floor(phase));
     if (cycle != sampleAndHoldCycle)
     {
-        sampleAndHoldValue = nextNukedOpmSampleAndHoldValue(sampleAndHoldLfsr, sampleAndHoldBit);
+        sampleAndHoldValue = nextChipSampleAndHoldValue(sampleAndHoldLfsr, sampleAndHoldBit);
         sampleAndHoldCycle = cycle;
     }
 
@@ -685,13 +685,13 @@ std::pair<double, double> Dx21Voice::nextSampleAndHoldLfoShape(const double phas
     return { clampDouble(am, 0.0, 1.0), clampDouble(pm, -1.0, 1.0) };
 }
 
-OperatorRender Dx21Voice::renderOperator(const int opIndex,
-                                         const Dx21Patch& patch,
+OperatorRender OpalineVoice::renderOperator(const int opIndex,
+                                         const OpalinePatch& patch,
                                          const Algorithm& algorithm,
                                          const double baseFrequency,
                                          const double ampDepth,
                                          const double lfoAm,
-                                         const Dx21RenderModel renderModel,
+                                         const OpalineRenderModel renderModel,
                                          std::array<bool, kOperatorCount>& computed,
                                          std::array<OperatorRender, kOperatorCount>& outputs)
 {
@@ -728,13 +728,13 @@ OperatorRender Dx21Voice::renderOperator(const int opIndex,
         ? opmFeedbackBusToRadians(feedbackHistoryBusForModel(feedbackHistory, renderModel), patch.feedback, renderModel)
         : 0.0;
 
-    const double ratio = dx21Ratios()[static_cast<std::size_t>(op.ratioIndex)];
+    const double ratio = opalineRatios()[static_cast<std::size_t>(op.ratioIndex)];
     const double frequency = baseFrequency * ratio + opmStyleDt1FrequencyOffset(baseFrequency, ratio, op.detune, midiNote);
     phases[opSize] += opmStylePhaseAdvance(frequency, currentSampleRate);
     if (phases[opSize] > 2.0 * kPi)
         phases[opSize] -= 2.0 * kPi;
 
-    const double rawEnvelopeAmp = renderModel == Dx21RenderModel::ChipHybrid
+    const double rawEnvelopeAmp = renderModel == OpalineRenderModel::ChipHybrid
         ? chipEnvelopes[opSize].next()
         : envelopes[opSize].next();
     const double envelopeAmp = envelopeAmpForModel(rawEnvelopeAmp, renderModel);
@@ -745,9 +745,9 @@ OperatorRender Dx21Voice::renderOperator(const int opIndex,
     double carrierAmp = 0.0;
     double modulatorIndex = 0.0;
 
-    if (renderModel == Dx21RenderModel::ChipHybrid)
+    if (renderModel == OpalineRenderModel::ChipHybrid)
     {
-        // NEW„ÅØTL/dB/EG/Velocity/AM„Çí„É≠„Ç∞È†òÂüü„Åß„Åæ„Å®„ÇÅ„ÄÅÂæìÊù•„É¢„Éá„É´„Å®„Éñ„É¨„É≥„Éâ„Åô„Çã„ÄÇ
+        // NEWÇÕTL/dB/EG/Velocity/AMÇÉçÉOóÃàÊÇ≈Ç‹Ç∆ÇﬂÅAè]óàÉÇÉfÉãÇ∆ÉuÉåÉìÉhÇ∑ÇÈÅB
         const double tl = nextOperatorTl(opIndex, op.level);
         const double smoothedLevel = oppTlUnitsToLevel(tl * kOppTlSubsteps);
         const double oldScaledLevel = keyboardScaledLevel(smoothedLevel, op.levelScale, midiNote);
@@ -788,7 +788,7 @@ OperatorRender Dx21Voice::renderOperator(const int opIndex,
 
     double carrierOutput = 0.0;
     double modulatorOutput = 0.0;
-    if (renderModel == Dx21RenderModel::ChipHybrid)
+    if (renderModel == OpalineRenderModel::ChipHybrid)
     {
         const int phaseIndex = chipOperatorPhaseIndex(phases[opSize], phaseModulation, feedback);
         carrierOutput = chipOperatorOutputFromPhaseIndex(phaseIndex, carrierAmp);
@@ -816,22 +816,22 @@ OperatorRender Dx21Voice::renderOperator(const int opIndex,
     return value;
 }
 
-double Dx21Voice::render(const Dx21Patch& patch,
+double OpalineVoice::render(const OpalinePatch& patch,
                          const double pitchBend,
                          const double modWheel,
                          const double globalLfoAge,
-                         const Dx21RenderModel renderModel)
+                         const OpalineRenderModel renderModel)
 {
     activeRenderModel = renderModel;
     ageSeconds += 1.0 / currentSampleRate;
 
-    const auto& algorithm = dx21Algorithms()[static_cast<std::size_t>(patch.algorithm - 1)];
+    const auto& algorithm = opalineAlgorithms()[static_cast<std::size_t>(patch.algorithm - 1)];
     const double lfoAge = patch.lfo.sync ? ageSeconds : globalLfoAge;
-    const double lfoPhase = dx21LfoSpeedToHz(patch.lfo.speed) * lfoAge;
+    const double lfoPhase = opalineLfoSpeedToHz(patch.lfo.speed) * lfoAge;
     const auto lfo = patch.lfo.wave == 3 ? nextSampleAndHoldLfoShape(lfoPhase)
-                                         : dx21LfoShape(lfoPhase, patch.lfo.wave);
+                                         : opalineLfoShape(lfoPhase, patch.lfo.wave);
     const auto pitchLfoShape = clampInt(patch.lfo.pitchSensitivity, 0, 7) == 0
-        ? dx21LfoShape(lfoPhase, 2)
+        ? opalineLfoShape(lfoPhase, 2)
         : lfo;
     const double delay = lfoDelayFactor(patch.lfo.delay, ageSeconds);
     const double directPitchLfo = pitchModDepthForModel(patch.lfo.pitchDepth, patch.lfo.pitchSensitivity, patch.lfo.wave, renderModel)
@@ -878,4 +878,4 @@ double Dx21Voice::render(const Dx21Patch& patch,
     const double mixed = (sum / std::sqrt(static_cast<double>(algorithm.carrierCount))) * kCarrierMixGain;
     return quantizeVoiceOutputForModel(mixed, renderModel);
 }
-} // namespace dx21
+} // namespace opaline

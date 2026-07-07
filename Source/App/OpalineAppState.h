@@ -1,8 +1,8 @@
-#pragma once
+﻿#pragma once
 
-#include "Engine/Dx21Types.h"
+#include "Engine/OpalineTypes.h"
 
-namespace dx21app
+namespace opalineapp
 {
 enum class PerformanceMode
 {
@@ -22,9 +22,9 @@ struct PerformanceState
 
 struct SynthState
 {
-    dx21::Dx21Patch patch;
+    opaline::OpalinePatch patch;
     PerformanceState performance;
     float masterVolume = 0.8f;
-    dx21::Dx21RenderModel renderModel = dx21::Dx21RenderModel::Current;
+    opaline::OpalineRenderModel renderModel = opaline::OpalineRenderModel::Current;
 };
-} // namespace dx21app
+} // namespace opalineapp
