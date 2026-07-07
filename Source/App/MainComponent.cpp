@@ -3182,6 +3182,25 @@ void MainComponent::repaintKeyboardAsync()
 void MainComponent::syncPcKeyboardNotes()
 {
     std::array<bool, 128> shouldHold {};
+    if (hostMode == HostMode::PluginEditor)
+    {
+        bool changed = false;
+        for (int note = 0; note < static_cast<int>(pcKeyboardHeldNotes.size()); ++note)
+        {
+            const auto index = static_cast<std::size_t>(note);
+            if (!pcKeyboardHeldNotes[index])
+                continue;
+
+            pcKeyboardHeldNotes[index] = false;
+            pcKeyboardHeldVelocities[index] = 0;
+            changed = true;
+            noteOff(note);
+        }
+
+        if (changed)
+            keyboard.repaint();
+        return;
+    }
     if (!hasKeyboardFocus(true))
     {
         bool changed = false;
