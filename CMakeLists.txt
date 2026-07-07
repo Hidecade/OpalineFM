@@ -1,12 +1,29 @@
-﻿cmake_minimum_required(VERSION 3.22)
+cmake_minimum_required(VERSION 3.22)
 
-project(OpalineFM VERSION 0.1.0 LANGUAGES C CXX)
+include(cmake/OpalineVersion.cmake)
+
+project(OpalineFM VERSION ${OPALINE_VERSION} LANGUAGES C CXX)
 
 include(CTest)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+set(OPALINE_GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
+file(MAKE_DIRECTORY "${OPALINE_GENERATED_DIR}")
+configure_file(Source/App/OpalineVersion.h.in "${OPALINE_GENERATED_DIR}/OpalineVersion.h" @ONLY)
+
+function(opaline_add_version_bump target_name)
+    add_custom_command(TARGET ${target_name} POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+            -DVERSION_FILE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/OpalineVersion.cmake
+            -DEXPECTED_VERSION=${PROJECT_VERSION}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/increment_opaline_version.cmake
+        COMMENT "Incrementing Opaline FM patch version for next build"
+        VERBATIM
+    )
+endfunction()
 
 if (MSVC OR CMAKE_GENERATOR MATCHES "Visual Studio")
     add_compile_options(/W4 /permissive- /utf-8)
@@ -29,6 +46,7 @@ add_library(opaline_engine STATIC
 target_include_directories(opaline_engine
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/Source
+        ${OPALINE_GENERATED_DIR}
 )
 
 add_executable(opaline_console_render
@@ -69,6 +87,7 @@ if (OPALINE_RESOLVED_JUCE_DIR)
     if (OPALINE_BUILD_STANDALONE)
     juce_add_gui_app(OpalineFM_Standalone
         PRODUCT_NAME "Opaline FM"
+        VERSION ${PROJECT_VERSION}
         COMPANY_NAME "Hidecade"
         BUNDLE_ID "jp.hidecade.opalinefm"
     )
@@ -101,6 +120,7 @@ if (OPALINE_RESOLVED_JUCE_DIR)
             juce::juce_recommended_lto_flags
             juce::juce_recommended_warning_flags
     )
+        opaline_add_version_bump(OpalineFM_Standalone)
     endif()
 
     if (OPALINE_BUILD_PLUGIN)
@@ -111,6 +131,7 @@ if (OPALINE_RESOLVED_JUCE_DIR)
 
     juce_add_plugin(OpalineFM_Plugin
         COMPANY_NAME "Hidecade"
+        VERSION ${PROJECT_VERSION}
         IS_SYNTH TRUE
         NEEDS_MIDI_INPUT TRUE
         NEEDS_MIDI_OUTPUT FALSE
@@ -163,6 +184,7 @@ if (OPALINE_RESOLVED_JUCE_DIR)
             juce::juce_recommended_lto_flags
             juce::juce_recommended_warning_flags
     )
+    opaline_add_version_bump(OpalineFM_Plugin)
     endif()
 else()
     message(STATUS "JUCE not found. JUCE targets disabled. Set OPALINE_JUCE_DIR or place JUCE at external/JUCE.")

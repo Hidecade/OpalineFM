@@ -1,4 +1,5 @@
 #include "MainComponent.h"
+#include "OpalineVersion.h"
 
 #include <juce_gui_extra/juce_gui_extra.h>
 
@@ -6,7 +7,7 @@ class OpalineFmApplication final : public juce::JUCEApplication
 {
 public:
     const juce::String getApplicationName() override { return "Opaline FM"; }
-    const juce::String getApplicationVersion() override { return "0.1.0"; }
+    const juce::String getApplicationVersion() override { return OPALINE_VERSION_STRING; }
     bool moreThanOneInstanceAllowed() override { return true; }
 
     void initialise(const juce::String&) override
