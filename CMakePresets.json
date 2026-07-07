@@ -40,6 +40,22 @@
         "DX21_BUILD_STANDALONE": "ON",
         "DX21_BUILD_PLUGIN": "ON"
       }
+    },
+    {
+      "name": "macos-debug",
+      "displayName": "macOS Debug",
+      "generator": "Xcode",
+      "binaryDir": "${sourceDir}/build/macos-debug",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      },
+      "cacheVariables": {
+        "DX21_BUILD_STANDALONE": "ON",
+        "DX21_BUILD_PLUGIN": "ON",
+        "DX21_BUILD_AU": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -64,7 +80,7 @@
       "configurePreset": "standalone-vs-debug",
       "configuration": "Debug",
       "targets": [
-        "DX21Native_Standalone"
+        "OpalineFM_Standalone"
       ]
     },
     {
@@ -72,7 +88,7 @@
       "configurePreset": "standalone-vs-debug",
       "configuration": "Debug",
       "targets": [
-        "DX21Native_Plugin_VST3"
+        "OpalineFM_Plugin_VST3"
       ]
     },
     {
@@ -80,7 +96,15 @@
       "configurePreset": "standalone-vs-debug",
       "configuration": "Debug",
       "targets": [
-        "DX21Native_Plugin_Standalone"
+        "OpalineFM_Plugin_Standalone"
+      ]
+    },
+    {
+      "name": "plugin-au-macos-debug",
+      "configurePreset": "macos-debug",
+      "configuration": "Debug",
+      "targets": [
+        "OpalineFM_Plugin_AU"
       ]
     }
   ],

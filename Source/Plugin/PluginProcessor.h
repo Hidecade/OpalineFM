@@ -28,7 +28,7 @@ public:
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
     void setCurrentProgram(int) override {}
-    const juce::String getProgramName(int) override { return {}; }
+    const juce::String getProgramName(int) override;
     void changeProgramName(int, const juce::String&) override {}
 
     void getStateInformation(juce::MemoryBlock& destData) override;
@@ -40,17 +40,30 @@ public:
     void noteOnFromEditor(int note, int velocity);
     void noteOffFromEditor(int note);
     void allNotesOffFromEditor();
+    void setPitchBendFromEditor(double value);
+    void setModWheelFromEditor(double value);
+    void setProgramNameFromEditor(const juce::String& name);
+    double getCurrentPitchBend() const;
+    double getCurrentModWheel() const;
+    std::array<int, 128> getMidiUiVelocities() const;
 
 private:
+    static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+
     void handleMidiMessage(const juce::MidiMessage& message);
     void applyStateToEngine();
+    void applyParametersToState();
+    void syncParametersFromState();
 
     dx21::Dx21Engine engine;
     dx21app::SynthState state;
     dx21::Dx21RenderModel renderModel = dx21::Dx21RenderModel::ChipHybrid;
+    juce::AudioProcessorValueTreeState parameters;
     double currentSampleRate = 44100.0;
     double currentPitchBend = 0.0;
     double currentModWheel = 0.0;
+    juce::String currentProgramName { "Opaline FM" };
+    std::array<std::atomic<int>, 128> midiUiVelocities {};
     mutable juce::CriticalSection engineLock;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Dx21NativeAudioProcessor)

@@ -201,6 +201,7 @@ inline juce::ValueTree synthStateToValueTree(const SynthState& state)
     juce::ValueTree tree { state_ids::synthState };
     tree.setProperty("version", 1, nullptr);
     tree.setProperty("masterVolume", state.masterVolume, nullptr);
+    tree.setProperty("renderModel", static_cast<int>(state.renderModel), nullptr);
     tree.addChild(patchToValueTree(state.patch), -1, nullptr);
 
     juce::ValueTree performance { state_ids::performance };
@@ -220,6 +221,7 @@ inline SynthState synthStateFromValueTree(const juce::ValueTree& tree, const Syn
         return state;
 
     state.masterVolume = juce::jlimit(0.0f, 1.0f, readFloat(tree, "masterVolume", state.masterVolume));
+    state.renderModel = static_cast<dx21::Dx21RenderModel>(juce::jlimit(0, 1, readInt(tree, "renderModel", static_cast<int>(state.renderModel))));
     state.patch = patchFromValueTree(tree.getChildWithName(state_ids::patch), state.patch);
 
     const auto performance = tree.getChildWithName(state_ids::performance);

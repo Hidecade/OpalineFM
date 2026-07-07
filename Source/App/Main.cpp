@@ -2,10 +2,10 @@
 
 #include <juce_gui_extra/juce_gui_extra.h>
 
-class Dx21NativeApplication final : public juce::JUCEApplication
+class OpalineFmApplication final : public juce::JUCEApplication
 {
 public:
-    const juce::String getApplicationName() override { return "DX21 Native"; }
+    const juce::String getApplicationName() override { return "Opaline FM"; }
     const juce::String getApplicationVersion() override { return "0.1.0"; }
     bool moreThanOneInstanceAllowed() override { return true; }
 
@@ -52,4 +52,4 @@ private:
     std::unique_ptr<MainWindow> mainWindow;
 };
 
-START_JUCE_APPLICATION(Dx21NativeApplication)
+START_JUCE_APPLICATION(OpalineFmApplication)

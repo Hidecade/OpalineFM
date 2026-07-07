@@ -26,13 +26,40 @@ Dx21NativeAudioProcessorEditor::Dx21NativeAudioProcessorEditor(Dx21NativeAudioPr
     {
         audioProcessor.allNotesOffFromEditor();
     });
+    mainComponent.setPitchBendCallback([this](const double value)
+    {
+        audioProcessor.setPitchBendFromEditor(value);
+    });
+    mainComponent.setModWheelCallback([this](const double value)
+    {
+        audioProcessor.setModWheelFromEditor(value);
+    });
+    mainComponent.setProgramNameChangedCallback([this](const juce::String& name)
+    {
+        audioProcessor.setProgramNameFromEditor(name);
+    });
 
     mainComponent.applySynthState(audioProcessor.getSynthState());
+    audioProcessor.setProgramNameFromEditor(mainComponent.currentProgramName());
     addAndMakeVisible(mainComponent);
     setSize(1024, 760);
+    startTimerHz(12);
+}
+
+Dx21NativeAudioProcessorEditor::~Dx21NativeAudioProcessorEditor()
+{
+    stopTimer();
 }
 
 void Dx21NativeAudioProcessorEditor::resized()
 {
     mainComponent.setBounds(getLocalBounds());
+}
+
+void Dx21NativeAudioProcessorEditor::timerCallback()
+{
+    mainComponent.applySynthState(audioProcessor.getSynthState());
+    mainComponent.setExternalMidiNoteState(audioProcessor.getMidiUiVelocities());
+    mainComponent.setExternalControllerState(audioProcessor.getCurrentPitchBend(),
+                                             audioProcessor.getCurrentModWheel());
 }

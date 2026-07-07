@@ -36,6 +36,8 @@ public:
     using NoteOnCallback = std::function<void(int, int)>;
     using NoteOffCallback = std::function<void(int)>;
     using AllNotesOffCallback = std::function<void()>;
+    using ControllerCallback = std::function<void(double)>;
+    using ProgramNameChangedCallback = std::function<void(const juce::String&)>;
 
     explicit MainComponent(HostMode mode = HostMode::StandaloneApp);
     ~MainComponent() override;
@@ -48,6 +50,12 @@ public:
     void setNoteOnCallback(NoteOnCallback callback);
     void setNoteOffCallback(NoteOffCallback callback);
     void setAllNotesOffCallback(AllNotesOffCallback callback);
+    void setPitchBendCallback(ControllerCallback callback);
+    void setModWheelCallback(ControllerCallback callback);
+    void setProgramNameChangedCallback(ProgramNameChangedCallback callback);
+    juce::String currentProgramName() const;
+    void setExternalMidiNoteState(const std::array<int, 128>& velocities);
+    void setExternalControllerState(double pitchBend, double modWheel);
 
     void prepareToPlay(int samplesPerBlockExpected, double sampleRate) override;
     void getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferToFill) override;
@@ -286,6 +294,7 @@ private:
     void updatePerformanceFromControls();
     void refreshPerformanceControls();
     void refreshLcd();
+    void emitProgramNameChanged();
     dx21::Dx21Patch patchForVoiceIndex(int index) const;
     juce::String performanceVoiceText(int index) const;
     void setupSlider(juce::Slider& slider, double min, double max, double step, double value, juce::Slider::SliderStyle style);
@@ -439,6 +448,9 @@ private:
     NoteOnCallback onNoteOn;
     NoteOffCallback onNoteOff;
     AllNotesOffCallback onAllNotesOff;
+    ControllerCallback onPitchBend;
+    ControllerCallback onModWheel;
+    ProgramNameChangedCallback onProgramNameChanged;
     juce::String midiStatus = "MIDI: not connected";
     juce::String audioStatus = "Audio: off";
 };

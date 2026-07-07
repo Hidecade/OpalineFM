@@ -478,6 +478,11 @@ double pitchModDepthForModel(const int depth, const int sensitivity, const int w
     return opmStylePitchModDepth(depth, sensitivity);
 }
 
+double modWheelPitchDepthForModel(const int sensitivity, const int wave, const Dx21RenderModel renderModel)
+{
+    return pitchModDepthForModel(99, sensitivity, wave, renderModel);
+}
+
 double opmStyleAmpModDepth(const int depth, const int sensitivity)
 {
     static constexpr std::array<double, 9> kDepthTable { 0.0, 0.025, 0.055, 0.11, 0.22, 0.38, 0.58, 0.78, 0.96 };
@@ -817,7 +822,6 @@ double Dx21Voice::render(const Dx21Patch& patch,
                          const double globalLfoAge,
                          const Dx21RenderModel renderModel)
 {
-    static_cast<void>(modWheel);
     activeRenderModel = renderModel;
     ageSeconds += 1.0 / currentSampleRate;
 
@@ -830,9 +834,11 @@ double Dx21Voice::render(const Dx21Patch& patch,
         ? dx21LfoShape(lfoPhase, 2)
         : lfo;
     const double delay = lfoDelayFactor(patch.lfo.delay, ageSeconds);
-    const double pitchControllerScale = 1.0;
-    const double pitchLfo = pitchModDepthForModel(patch.lfo.pitchDepth, patch.lfo.pitchSensitivity, patch.lfo.wave, renderModel) * delay
-        * pitchControllerScale * pitchLfoShape.second;
+    const double directPitchLfo = pitchModDepthForModel(patch.lfo.pitchDepth, patch.lfo.pitchSensitivity, patch.lfo.wave, renderModel)
+        * delay * pitchLfoShape.second;
+    const double modWheelPitchLfo = modWheelPitchDepthForModel(patch.lfo.pitchSensitivity, patch.lfo.wave, renderModel)
+        * clampDouble(modWheel, 0.0, 1.0) * pitchLfoShape.second;
+    const double pitchLfo = directPitchLfo + modWheelPitchLfo;
     const double ampDepth = opmStyleAmpModDepth(patch.lfo.ampDepth, patch.lfo.ampSensitivity) * delay;
     const double appliedPitchLfo = nextPitchModulation(pitchLfo);
     const double pitchEnvelopeSemitones = pitchEnvelope.nextSemitones();

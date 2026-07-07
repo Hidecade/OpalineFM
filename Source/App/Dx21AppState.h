@@ -25,5 +25,6 @@ struct SynthState
     dx21::Dx21Patch patch;
     PerformanceState performance;
     float masterVolume = 0.8f;
+    dx21::Dx21RenderModel renderModel = dx21::Dx21RenderModel::Current;
 };
 } // namespace dx21app

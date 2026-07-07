@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(DX21Native VERSION 0.1.0 LANGUAGES C CXX)
+project(OpalineFM VERSION 0.1.0 LANGUAGES C CXX)
 
 include(CTest)
 
@@ -52,6 +52,7 @@ add_test(NAME dx21_engine_tests COMMAND dx21_engine_tests)
 set(DX21_JUCE_DIR "" CACHE PATH "Path to a JUCE checkout. If empty, external/JUCE is used when present.")
 option(DX21_BUILD_STANDALONE "Build the JUCE standalone app when JUCE is available." ON)
 option(DX21_BUILD_PLUGIN "Build the JUCE VST3 plugin when JUCE is available." ON)
+option(DX21_BUILD_AU "Build the Audio Unit plugin format on macOS." ON)
 
 set(DX21_RESOLVED_JUCE_DIR "")
 if (NOT DX21_BUILD_STANDALONE AND NOT DX21_BUILD_PLUGIN)
@@ -66,13 +67,13 @@ if (DX21_RESOLVED_JUCE_DIR)
     add_subdirectory("${DX21_RESOLVED_JUCE_DIR}" "${CMAKE_BINARY_DIR}/JUCE")
 
     if (DX21_BUILD_STANDALONE)
-    juce_add_gui_app(DX21Native_Standalone
-        PRODUCT_NAME "DX21 Native"
+    juce_add_gui_app(OpalineFM_Standalone
+        PRODUCT_NAME "Opaline FM"
         COMPANY_NAME "Hidecade"
-        BUNDLE_ID "jp.hidecade.dx21native"
+        BUNDLE_ID "jp.hidecade.opalinefm"
     )
 
-    target_sources(DX21Native_Standalone
+    target_sources(OpalineFM_Standalone
         PRIVATE
             Source/App/Main.cpp
             Source/App/Dx21AppState.h
@@ -81,7 +82,7 @@ if (DX21_RESOLVED_JUCE_DIR)
             Source/App/MainComponent.h
     )
 
-    target_compile_definitions(DX21Native_Standalone
+    target_compile_definitions(OpalineFM_Standalone
         PRIVATE
             JUCE_WEB_BROWSER=0
             JUCE_USE_CURL=0
@@ -90,7 +91,7 @@ if (DX21_RESOLVED_JUCE_DIR)
             DX21_ASSET_DIR="${CMAKE_CURRENT_SOURCE_DIR}/assets"
     )
 
-    target_link_libraries(DX21Native_Standalone
+    target_link_libraries(OpalineFM_Standalone
         PRIVATE
             dx21_engine
             juce::juce_audio_utils
@@ -103,7 +104,12 @@ if (DX21_RESOLVED_JUCE_DIR)
     endif()
 
     if (DX21_BUILD_PLUGIN)
-    juce_add_plugin(DX21Native_Plugin
+    set(DX21_PLUGIN_FORMATS VST3 Standalone)
+    if (APPLE AND DX21_BUILD_AU)
+        list(APPEND DX21_PLUGIN_FORMATS AU)
+    endif()
+
+    juce_add_plugin(OpalineFM_Plugin
         COMPANY_NAME "Hidecade"
         IS_SYNTH TRUE
         NEEDS_MIDI_INPUT TRUE
@@ -111,14 +117,14 @@ if (DX21_RESOLVED_JUCE_DIR)
         IS_MIDI_EFFECT FALSE
         COPY_PLUGIN_AFTER_BUILD FALSE
         PLUGIN_MANUFACTURER_CODE Hica
-        PLUGIN_CODE Dx21
-        FORMATS VST3 Standalone
-        PRODUCT_NAME "DX21 Native"
+        PLUGIN_CODE OpFM
+        FORMATS ${DX21_PLUGIN_FORMATS}
+        PRODUCT_NAME "Opaline FM"
         NEEDS_WEB_BROWSER FALSE
         NEEDS_CURL FALSE
     )
 
-    target_sources(DX21Native_Plugin
+    target_sources(OpalineFM_Plugin
         PRIVATE
             Source/App/Dx21AppState.h
             Source/App/Dx21StateSerialization.h
@@ -130,15 +136,22 @@ if (DX21_RESOLVED_JUCE_DIR)
             Source/Plugin/PluginProcessor.h
     )
 
-    target_compile_definitions(DX21Native_Plugin
+    target_compile_definitions(OpalineFM_Plugin
         PUBLIC
             JUCE_WEB_BROWSER=0
             JUCE_USE_CURL=0
+            JUCE_ASIO=1
+            JUCE_ASIO_USE_EXTERNAL_SDK=0
             JUCE_VST3_CAN_REPLACE_VST2=0
+            JUCE_STANDALONE_STATE_FILE_SUFFIX=".opalinefmstate"
             DX21_ASSET_DIR="${CMAKE_CURRENT_SOURCE_DIR}/assets"
     )
 
-    target_link_libraries(DX21Native_Plugin
+    if (MSVC)
+        target_compile_options(OpalineFM_Plugin PRIVATE /FS)
+    endif()
+
+    target_link_libraries(OpalineFM_Plugin
         PRIVATE
             dx21_engine
             juce::juce_audio_devices

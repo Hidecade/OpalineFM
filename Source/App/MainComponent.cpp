@@ -332,9 +332,9 @@ constexpr const char* kSplitPointSetting = "splitPoint";
 juce::PropertiesFile::Options settingsOptions()
 {
     juce::PropertiesFile::Options options;
-    options.applicationName = "DX21 Native";
+    options.applicationName = "Opaline FM";
     options.filenameSuffix = ".settings";
-    options.folderName = "DX21 Native";
+    options.folderName = "Opaline FM";
     options.osxLibrarySubFolder = "Application Support";
     options.storageFormat = juce::PropertiesFile::storeAsXML;
     options.millisecondsBeforeSaving = 0;
@@ -1504,7 +1504,7 @@ MainComponent::MainComponent(const HostMode mode)
     : keyboard(*this),
       hostMode(mode)
 {
-    setupLabel(titleLabel, "DX21 Synth");
+    setupLabel(titleLabel, "Opaline FM");
     titleLabel.setFont(juce::FontOptions(22.0f, juce::Font::bold));
     addAndMakeVisible(titleLabel);
     statusLabel.setJustificationType(juce::Justification::centredLeft);
@@ -1767,6 +1767,9 @@ MainComponent::MainComponent(const HostMode mode)
         powerButton.setButtonText("HOST");
         powerButton.setToggleState(true, juce::dontSendNotification);
         powerButton.setEnabled(false);
+        powerButton.setVisible(false);
+        audioOutputSelect.setVisible(false);
+        midiInputSelect.setVisible(false);
         audioStatus = "Audio: host";
         midiStatus = "MIDI: host";
     }
@@ -1781,7 +1784,8 @@ MainComponent::MainComponent(const HostMode mode)
 
 MainComponent::~MainComponent()
 {
-    saveVoiceLibraryState();
+    if (hostMode == HostMode::StandaloneApp)
+        saveVoiceLibraryState();
     stopTimer();
     for (auto& input : midiInputs)
     {
@@ -1844,6 +1848,47 @@ void MainComponent::setNoteOffCallback(NoteOffCallback callback)
 void MainComponent::setAllNotesOffCallback(AllNotesOffCallback callback)
 {
     onAllNotesOff = std::move(callback);
+}
+
+void MainComponent::setPitchBendCallback(ControllerCallback callback)
+{
+    onPitchBend = std::move(callback);
+}
+
+void MainComponent::setModWheelCallback(ControllerCallback callback)
+{
+    onModWheel = std::move(callback);
+}
+
+void MainComponent::setProgramNameChangedCallback(ProgramNameChangedCallback callback)
+{
+    onProgramNameChanged = std::move(callback);
+}
+
+juce::String MainComponent::currentProgramName() const
+{
+    return performanceVoiceText(performanceState.voiceAIndex);
+}
+
+void MainComponent::setExternalMidiNoteState(const std::array<int, 128>& velocities)
+{
+    bool changed = false;
+    for (std::size_t i = 0; i < velocities.size(); ++i)
+    {
+        const int velocity = juce::jlimit(0, 127, velocities[i]);
+        const bool held = velocity > 0;
+        if (gMidiUiHeldNotes[i].load(std::memory_order_relaxed) != held
+            || gMidiUiHeldVelocities[i].load(std::memory_order_relaxed) != velocity)
+        {
+            changed = true;
+        }
+
+        gMidiUiHeldNotes[i].store(held, std::memory_order_relaxed);
+        gMidiUiHeldVelocities[i].store(velocity, std::memory_order_relaxed);
+    }
+
+    if (changed)
+        repaintKeyboardAsync();
 }
 
 void MainComponent::prepareToPlay(int, const double sampleRate)
@@ -1923,14 +1968,20 @@ void MainComponent::resized()
     auto area = getLocalBounds().reduced(20);
     auto header = area.removeFromTop(34);
     titleLabel.setBounds(header.removeFromLeft(210));
-    powerButton.setBounds(header.removeFromRight(82));
-    header.removeFromRight(10);
+    if (hostMode == HostMode::StandaloneApp)
+    {
+        powerButton.setBounds(header.removeFromRight(82));
+        header.removeFromRight(10);
+    }
     engineModelButton.setBounds(header.removeFromRight(64));
     header.removeFromRight(8);
-    midiInputSelect.setBounds(header.removeFromRight(180));
-    header.removeFromRight(8);
-    audioOutputSelect.setBounds(header.removeFromRight(235));
-    header.removeFromRight(12);
+    if (hostMode == HostMode::StandaloneApp)
+    {
+        midiInputSelect.setBounds(header.removeFromRight(180));
+        header.removeFromRight(8);
+        audioOutputSelect.setBounds(header.removeFromRight(235));
+        header.removeFromRight(12);
+    }
     statusLabel.setBounds(header);
 
     area.removeFromTop(4);
@@ -2455,9 +2506,16 @@ void MainComponent::refreshLcd()
     }
 }
 
+void MainComponent::emitProgramNameChanged()
+{
+    if (onProgramNameChanged)
+        onProgramNameChanged(currentProgramName());
+}
+
 void MainComponent::refreshPerformanceControls()
 {
     performanceModeSelect.setSelectedId(static_cast<int>(performanceState.mode) + 1, juce::dontSendNotification);
+    voiceSelect.setSelectedId(performanceState.voiceAIndex + 1, juce::dontSendNotification);
     voiceBSelect.setSelectedId(performanceState.voiceBIndex + 1, juce::dontSendNotification);
     dualDetuneSlider.setValue(performanceState.dualDetune, juce::dontSendNotification);
     splitPointSlider.setValue(performanceState.splitPoint, juce::dontSendNotification);
@@ -2487,6 +2545,7 @@ dx21app::SynthState MainComponent::captureSynthState() const
     state.patch = currentPatch;
     state.performance = performanceState;
     state.masterVolume = masterVolume;
+    state.renderModel = currentRenderModel();
     return state;
 }
 
@@ -2502,11 +2561,13 @@ void MainComponent::applySynthState(const dx21app::SynthState& state)
     currentPatch = dx21::normalizePatch(state.patch);
     performanceState = state.performance;
     masterVolume = juce::jlimit(0.0f, 1.0f, state.masterVolume);
+    chipRenderModel = state.renderModel == dx21::Dx21RenderModel::ChipHybrid;
 
     syncingUi = true;
     volumeSlider.setValue(masterVolume, juce::dontSendNotification);
     syncUiFromPatch();
     refreshPerformanceControls();
+    refreshEngineModelButton();
     syncingUi = false;
 
     applyPatchToEngine();
@@ -2536,6 +2597,7 @@ void MainComponent::applyPatchToEngine()
         performanceEngineB.setModWheel(currentModWheel);
     }
     refreshLcd();
+    emitProgramNameChanged();
     emitSynthStateChanged();
     if (onRenderModelChanged)
         onRenderModelChanged(currentRenderModel());
@@ -3158,6 +3220,17 @@ void MainComponent::syncPcKeyboardNotes()
         keyboard.repaint();
 }
 
+void MainComponent::setExternalControllerState(const double pitchBend, const double modWheel)
+{
+    const double safePitchBend = juce::jlimit(-1.0, 1.0, pitchBend);
+    const double safeModWheel = juce::jlimit(0.0, 1.0, modWheel);
+
+    currentPitchBend = safePitchBend;
+    currentModWheel = safeModWheel;
+    pitchWheelSlider.setValue(safePitchBend, juce::dontSendNotification);
+    modWheelSlider.setValue(safeModWheel, juce::dontSendNotification);
+}
+
 void MainComponent::timerCallback()
 {
     syncPcKeyboardNotes();
@@ -3322,7 +3395,7 @@ void MainComponent::buttonClicked(juce::Button* button)
     {
         const auto bankName = juce::String(voiceLibrary.banks[static_cast<std::size_t>(currentVoiceBankIndex)].name)
                                   .retainCharacters("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_ ");
-        const auto defaultName = (bankName.isEmpty() ? juce::String("DX21_Bank_") + juce::String(currentVoiceBankIndex + 1)
+        const auto defaultName = (bankName.isEmpty() ? juce::String("OpalineFM_Bank_") + juce::String(currentVoiceBankIndex + 1)
                                                      : bankName)
             + ".syx";
         fileChooser = std::make_unique<juce::FileChooser>("Save current DX21 voice bank",
@@ -3343,7 +3416,7 @@ void MainComponent::buttonClicked(juce::Button* button)
     {
         fileChooser = std::make_unique<juce::FileChooser>("Export all DX21 voice data",
                                                           juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
-                                                              .getChildFile("DX21_Voice_Library.dx21library.xml"),
+                                                              .getChildFile("OpalineFM_Voice_Library.dx21library.xml"),
                                                           "*.xml");
         fileChooser->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
                                  [this](const juce::FileChooser& chooser)
@@ -3386,6 +3459,13 @@ void MainComponent::sliderValueChanged(juce::Slider* slider)
     else if (slider == &pitchWheelSlider)
     {
         currentPitchBend = pitchWheelSlider.getValue();
+        if (hostMode == HostMode::PluginEditor)
+        {
+            if (onPitchBend)
+                onPitchBend(currentPitchBend);
+            return;
+        }
+
         std::lock_guard<std::mutex> lock(engineMutex);
         engine.setPitchBend(currentPitchBend);
         performanceEngineB.setPitchBend(juce::jlimit(-1.0, 1.0, currentPitchBend + static_cast<double>(performanceState.dualDetune) / 64.0));
@@ -3393,6 +3473,13 @@ void MainComponent::sliderValueChanged(juce::Slider* slider)
     else if (slider == &modWheelSlider)
     {
         currentModWheel = modWheelSlider.getValue();
+        if (hostMode == HostMode::PluginEditor)
+        {
+            if (onModWheel)
+                onModWheel(currentModWheel);
+            return;
+        }
+
         std::lock_guard<std::mutex> lock(engineMutex);
         engine.setModWheel(modWheelSlider.getValue());
         performanceEngineB.setModWheel(modWheelSlider.getValue());
