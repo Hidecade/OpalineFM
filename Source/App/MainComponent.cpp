@@ -468,7 +468,7 @@ void MainComponent::OpalineLookAndFeel::drawRotarySlider(juce::Graphics& g,
         if (majorTick)
         {
             const auto tickStart = tickOuter - 1.7f;
-            const auto tickLength = 4.0f;
+            const auto tickLength = 2.6f;
             const auto start = centre.getPointOnCircumference(tickStart, tickAngle);
             const auto end = centre.getPointOnCircumference(tickStart + tickLength, tickAngle);
             g.drawLine({ start, end }, 1.2f);
@@ -1475,13 +1475,16 @@ void MainComponent::KeyboardComponent::paint(juce::Graphics& g)
         const int velocity = note == heldNote ? 104 : owner.heldVelocityForNote(note);
         if (held && velocity > 0)
         {
-            const auto valueBox = keyArea.withSizeKeepingCentre(juce::jmin(32.0f, keyArea.getWidth() - 6.0f), 17.0f)
-                                    .withY(keyArea.getBottom() - 24.0f);
+            const auto valueText = juce::String(velocity);
+            const auto valueBox = juce::Rectangle<float>(keyArea.getCentreX() - 11.0f,
+                                                         keyArea.getBottom() - 24.0f,
+                                                         22.0f,
+                                                         17.0f);
             g.setColour(juce::Colour(0xff050606).withAlpha(0.84f));
             g.fillRoundedRectangle(valueBox, 2.0f);
             g.setColour(kValueText);
-            g.setFont(juce::FontOptions(9.5f, juce::Font::bold));
-            g.drawText(juce::String(velocity), valueBox, juce::Justification::centred);
+            g.setFont(juce::FontOptions(valueText.length() >= 3 ? 7.5f : 8.5f, juce::Font::bold));
+            g.drawFittedText(valueText, valueBox.toNearestInt().reduced(1, 0), juce::Justification::centred, 1, 0.9f);
         }
     }
 

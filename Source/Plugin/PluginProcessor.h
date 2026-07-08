@@ -2,8 +2,11 @@
 
 #include "App/OpalineAppState.h"
 #include "Engine/OpalineEngine.h"
+#include "Engine/OpalineVoiceLibrary.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
+
+#include <vector>
 
 class OpalineAudioProcessor final : public juce::AudioProcessor
 {
@@ -25,9 +28,9 @@ public:
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 0.0; }
 
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram(int) override {}
+    int getNumPrograms() override;
+    int getCurrentProgram() override;
+    void setCurrentProgram(int index) override;
     const juce::String getProgramName(int) override;
     void changeProgramName(int, const juce::String&) override {}
 
@@ -53,6 +56,8 @@ private:
     void handleMidiMessage(const juce::MidiMessage& message);
     void applyStateToEngine();
     void applyParametersToState();
+    void loadFactoryPrograms();
+    juce::String factoryProgramName(int index) const;
     void syncParametersFromState();
 
     opaline::OpalineEngine engine;
@@ -63,6 +68,7 @@ private:
     double currentPitchBend = 0.0;
     double currentModWheel = 0.0;
     juce::String currentProgramName { "Opaline FM" };
+    std::vector<opaline::OpalinePatchWithMetadata> factoryPrograms;
     std::array<std::atomic<int>, 128> midiUiVelocities {};
     mutable juce::CriticalSection engineLock;
 

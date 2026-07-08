@@ -82,6 +82,14 @@ OpalineAudioProcessor::OpalineAudioProcessor()
     : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       parameters(*this, nullptr, "OpalineFMParameters", createParameterLayout())
 {
+    loadFactoryPrograms();
+    if (!factoryPrograms.empty())
+    {
+        state.performance.voiceAIndex = 0;
+        state.patch = factoryPrograms.front().patch;
+        currentProgramName = factoryProgramName(0);
+    }
+
     state.patch = opaline::normalizePatch(state.patch);
     state.renderModel = renderModel;
     syncParametersFromState();
@@ -195,10 +203,38 @@ juce::AudioProcessorEditor* OpalineAudioProcessor::createEditor()
     return new OpalineAudioProcessorEditor(*this);
 }
 
-const juce::String OpalineAudioProcessor::getProgramName(int)
+int OpalineAudioProcessor::getNumPrograms()
+{
+    return juce::jmax(1, static_cast<int>(factoryPrograms.size()));
+}
+
+int OpalineAudioProcessor::getCurrentProgram()
 {
     const juce::ScopedLock lock(engineLock);
-    return currentProgramName;
+    return juce::jlimit(0, getNumPrograms() - 1, state.performance.voiceAIndex);
+}
+
+void OpalineAudioProcessor::setCurrentProgram(const int index)
+{
+    const juce::ScopedLock lock(engineLock);
+    if (factoryPrograms.empty())
+        return;
+
+    const int safeIndex = juce::jlimit(0, static_cast<int>(factoryPrograms.size()) - 1, index);
+    state.performance.voiceAIndex = safeIndex;
+    state.patch = opaline::normalizePatch(factoryPrograms[static_cast<std::size_t>(safeIndex)].patch);
+    currentProgramName = factoryProgramName(safeIndex);
+    applyStateToEngine();
+    syncParametersFromState();
+}
+
+const juce::String OpalineAudioProcessor::getProgramName(const int index)
+{
+    const juce::ScopedLock lock(engineLock);
+    if (index < 0)
+        return currentProgramName;
+
+    return factoryProgramName(index);
 }
 
 void OpalineAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
@@ -216,6 +252,7 @@ void OpalineAudioProcessor::setStateInformation(const void* data, const int size
         const auto tree = juce::ValueTree::fromXml(*xml);
         const juce::ScopedLock lock(engineLock);
         state = opalineapp::synthStateFromValueTree(tree, state);
+        currentProgramName = factoryProgramName(state.performance.voiceAIndex);
         applyStateToEngine();
         syncParametersFromState();
     }
@@ -454,6 +491,50 @@ void OpalineAudioProcessor::syncParametersFromState()
         setApvtsParameter(parameters, opParamId(opIndex, "D2R"), static_cast<float>(op.envelope.decay2Rate));
         setApvtsParameter(parameters, opParamId(opIndex, "RR"), static_cast<float>(op.envelope.releaseRate));
     }
+}
+
+void OpalineAudioProcessor::loadFactoryPrograms()
+{
+    factoryPrograms.clear();
+    auto bank = opaline::makeInitVoiceBank("Factory");
+
+#ifdef OPALINE_ASSET_DIR
+    const auto syxFile = juce::File(juce::String(OPALINE_ASSET_DIR)).getChildFile("factory.syx");
+    juce::MemoryBlock data;
+    if (syxFile.existsAsFile() && syxFile.loadFileAsData(data))
+    {
+        const auto* begin = static_cast<const std::uint8_t*>(data.getData());
+        const std::vector<std::uint8_t> bytes(begin, begin + data.getSize());
+        try
+        {
+            bank = opaline::voiceBankFromSysex(bytes, "Factory");
+        }
+        catch (const std::exception&)
+        {
+            bank = opaline::makeInitVoiceBank("Factory");
+        }
+    }
+#endif
+
+    factoryPrograms.reserve(opaline::kOpalineVoiceBankSize);
+    for (const auto& voice : bank.voices)
+        factoryPrograms.push_back(voice);
+}
+
+juce::String OpalineAudioProcessor::factoryProgramName(const int index) const
+{
+    if (factoryPrograms.empty())
+        return "Opaline FM";
+
+    const int safeIndex = juce::jlimit(0, static_cast<int>(factoryPrograms.size()) - 1, index);
+    const auto& voice = factoryPrograms[static_cast<std::size_t>(safeIndex)];
+    const auto bankPrefix = safeIndex < 16 ? "A" : "B";
+    const auto number = juce::String(safeIndex % 16 + 1).paddedLeft('0', 2);
+    auto name = juce::String(voice.name).trim();
+    if (name.isEmpty())
+        name = "INIT " + juce::String(safeIndex + 1);
+
+    return juce::String(bankPrefix) + number + " " + name.substring(0, 12);
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
