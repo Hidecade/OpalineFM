@@ -210,6 +210,7 @@ inline juce::ValueTree synthStateToValueTree(const SynthState& state)
     performance.setProperty("voiceBIndex", state.performance.voiceBIndex, nullptr);
     performance.setProperty("dualDetune", state.performance.dualDetune, nullptr);
     performance.setProperty("splitPoint", state.performance.splitPoint, nullptr);
+    performance.setProperty("abBalance", state.performance.abBalance, nullptr);
     tree.addChild(performance, -1, nullptr);
     return tree;
 }
@@ -232,6 +233,7 @@ inline SynthState synthStateFromValueTree(const juce::ValueTree& tree, const Syn
         state.performance.voiceBIndex = readInt(performance, "voiceBIndex", state.performance.voiceBIndex);
         state.performance.dualDetune = readInt(performance, "dualDetune", state.performance.dualDetune);
         state.performance.splitPoint = juce::jlimit(0, 127, readInt(performance, "splitPoint", state.performance.splitPoint));
+        state.performance.abBalance = juce::jlimit(-100, 100, readInt(performance, "abBalance", state.performance.abBalance));
     }
 
     return state;

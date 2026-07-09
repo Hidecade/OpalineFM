@@ -6,6 +6,7 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include <array>
 #include <vector>
 
 class OpalineAudioProcessor final : public juce::AudioProcessor
@@ -49,6 +50,7 @@ public:
     double getCurrentPitchBend() const;
     double getCurrentModWheel() const;
     std::array<int, 128> getMidiUiVelocities() const;
+    std::array<float, 256> getScopeSamples() const;
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
@@ -57,19 +59,29 @@ private:
     void applyStateToEngine();
     void applyParametersToState();
     void loadFactoryPrograms();
+    opaline::OpalinePatch patchForVoiceIndex(int index) const;
+    void performNoteOn(int note, int velocity);
+    void performNoteOff(int note);
+    void panicEngines();
+    void setPitchBendOnEngines();
+    void setModWheelOnEngines();
     juce::String factoryProgramName(int index) const;
     void syncParametersFromState();
 
     opaline::OpalineEngine engine;
+    opaline::OpalineEngine performanceEngineB;
     opalineapp::SynthState state;
     opaline::OpalineRenderModel renderModel = opaline::OpalineRenderModel::Current;
     juce::AudioProcessorValueTreeState parameters;
     double currentSampleRate = 44100.0;
     double currentPitchBend = 0.0;
     double currentModWheel = 0.0;
+    opalineapp::PerformanceMode preparedPerformanceMode = opalineapp::PerformanceMode::Single;
     juce::String currentProgramName { "Opaline FM" };
     std::vector<opaline::OpalinePatchWithMetadata> factoryPrograms;
     std::array<std::atomic<int>, 128> midiUiVelocities {};
+    std::array<std::atomic<float>, 512> scopeSamples {};
+    std::atomic<int> scopeWriteIndex { 0 };
     mutable juce::CriticalSection engineLock;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(OpalineAudioProcessor)

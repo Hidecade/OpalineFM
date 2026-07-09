@@ -315,6 +315,42 @@ const juce::Colour kValueText { 0xffffd52b };
 const juce::Colour kTeal { 0xff25d9c4 };
 const juce::Colour kGreen { 0xff35e87e };
 const juce::Colour kEnvelope { 0xffead39c };
+
+
+void drawMetalPanel(juce::Graphics& g, juce::Rectangle<float> area, const float corner = 3.0f, const bool active = false)
+{
+    area = area.reduced(0.5f);
+    g.setColour(juce::Colours::black.withAlpha(0.46f));
+    g.fillRoundedRectangle(area.translated(0.0f, 2.0f), corner);
+
+    g.setGradientFill(juce::ColourGradient(juce::Colour(0xff2b2923),
+                                           area.getX(),
+                                           area.getY(),
+                                           juce::Colour(0xff12120f),
+                                           area.getX(),
+                                           area.getBottom(),
+                                           false));
+    g.fillRoundedRectangle(area, corner);
+
+    g.setColour(juce::Colours::white.withAlpha(0.08f));
+    g.drawLine(area.getX() + corner, area.getY() + 1.0f, area.getRight() - corner, area.getY() + 1.0f, 1.0f);
+    g.setColour(juce::Colours::black.withAlpha(0.42f));
+    g.drawLine(area.getX() + corner, area.getBottom() - 1.0f, area.getRight() - corner, area.getBottom() - 1.0f, 1.0f);
+
+    g.setColour(juce::Colour(0xff070706));
+    g.drawRoundedRectangle(area, corner, 1.4f);
+    g.setColour((active ? kPanelBorderOn : juce::Colour(0xff554f40)).withAlpha(active ? 0.62f : 0.40f));
+    g.drawRoundedRectangle(area.reduced(2.0f), juce::jmax(1.0f, corner - 1.0f), 1.0f);
+}
+void drawHeaderTitle(juce::Graphics& g, juce::Rectangle<float> area)
+{
+    area = area.reduced(0.0f, 1.0f);
+    g.setFont(juce::FontOptions(25.0f, juce::Font::bold));
+    g.setColour(kTextPrimary);
+    g.drawText("Opaline", area.removeFromLeft(102.0f), juce::Justification::centredLeft);
+    g.setColour(kTeal);
+    g.drawText("FM", area, juce::Justification::centredLeft);
+}
 std::array<std::atomic<bool>, 128> gMidiUiHeldNotes {};
 std::array<std::atomic<int>, 128> gMidiUiHeldVelocities {};
 
@@ -328,6 +364,8 @@ constexpr const char* kVoiceBIndexSetting = "voiceBIndex";
 constexpr const char* kPerformanceModeSetting = "performanceMode";
 constexpr const char* kDualDetuneSetting = "dualDetune";
 constexpr const char* kSplitPointSetting = "splitPoint";
+constexpr const char* kAbBalanceSetting = "abBalance";
+constexpr const char* kVoiceLibraryFileName = "VoiceLibrary.xml";
 
 juce::PropertiesFile::Options settingsOptions()
 {
@@ -339,6 +377,12 @@ juce::PropertiesFile::Options settingsOptions()
     options.storageFormat = juce::PropertiesFile::storeAsXML;
     options.millisecondsBeforeSaving = 0;
     return options;
+}
+
+juce::File voiceLibraryStateFile()
+{
+    juce::PropertiesFile settings(settingsOptions());
+    return settings.getFile().getSiblingFile(kVoiceLibraryFileName);
 }
 
 std::array<std::uint8_t, 5> lcdGlyph(juce::juce_wchar character)
@@ -452,7 +496,7 @@ void MainComponent::OpalineLookAndFeel::drawRotarySlider(juce::Graphics& g,
     g.setColour(juce::Colours::black.withAlpha(0.34f));
     g.fillEllipse(knob.reduced(knob.getWidth() * 0.18f).translated(0.0f, 2.0f));
 
-    constexpr int tickCount = 31;
+    constexpr int tickCount = 23;
     const auto inactiveTick = juce::Colour(0xff47625d).withAlpha(0.72f);
     const auto activeTick = kTeal;
     const auto tickOuter = radius - 1.0f;
@@ -467,11 +511,11 @@ void MainComponent::OpalineLookAndFeel::drawRotarySlider(juce::Graphics& g,
         g.setColour(i <= activeIndex ? activeTick : inactiveTick);
         if (majorTick)
         {
-            const auto tickStart = tickOuter - 1.7f;
-            const auto tickLength = 2.6f;
+            const auto tickStart = tickOuter - 3.0f;
+            const auto tickLength = 3.9f;
             const auto start = centre.getPointOnCircumference(tickStart, tickAngle);
             const auto end = centre.getPointOnCircumference(tickStart + tickLength, tickAngle);
-            g.drawLine({ start, end }, 1.2f);
+            g.drawLine({ start, end }, 1.8f);
         }
         else
         {
@@ -517,6 +561,16 @@ void MainComponent::OpalineLookAndFeel::drawRotarySlider(juce::Graphics& g,
     g.fillPath(pointer);
 }
 
+juce::Slider::SliderLayout MainComponent::OpalineLookAndFeel::getSliderLayout(juce::Slider& slider)
+{
+    auto layout = juce::LookAndFeel_V4::getSliderLayout(slider);
+    if (slider.getName() == "mainFader" || slider.getName() == "balanceFader")
+    {
+        layout.sliderBounds = slider.getLocalBounds();
+        layout.textBoxBounds = {};
+    }
+    return layout;
+}
 void MainComponent::OpalineLookAndFeel::drawLinearSlider(juce::Graphics& g,
                                                       const int x,
                                                       const int y,
@@ -544,45 +598,60 @@ void MainComponent::OpalineLookAndFeel::drawLinearSlider(juce::Graphics& g,
                                         static_cast<float>(width),
                                         static_cast<float>(height)).reduced(4.0f, 0.0f);
 
-    if (slider.getName() == "mainFader")
+    if (slider.getName() == "mainFader" || slider.getName() == "balanceFader")
     {
         bounds = juce::Rectangle<float>(static_cast<float>(x),
                                         static_cast<float>(y),
                                         static_cast<float>(width),
-                                        static_cast<float>(height)).reduced(8.0f, 1.0f);
+                                        static_cast<float>(height)).reduced(5.0f, 1.0f);
         const auto panel = bounds.reduced(1.0f);
-        g.setGradientFill(juce::ColourGradient(juce::Colour(0xff08060a),
+        g.setColour(juce::Colours::black.withAlpha(0.42f));
+        g.fillRoundedRectangle(panel.translated(0.0f, 1.5f), 3.0f);
+        g.setGradientFill(juce::ColourGradient(juce::Colour(0xff2f3033),
                                                panel.getX(),
                                                panel.getY(),
-                                               juce::Colour(0xff010101),
+                                               juce::Colour(0xff0c0d0f),
                                                panel.getX(),
                                                panel.getBottom(),
                                                false));
         g.fillRoundedRectangle(panel, 3.0f);
-        g.setColour(juce::Colour(0xff14110f));
+        g.setColour(juce::Colours::white.withAlpha(0.13f));
+        g.drawLine(panel.getX() + 2.0f, panel.getY() + 1.0f, panel.getRight() - 2.0f, panel.getY() + 1.0f, 1.0f);
+        g.setColour(juce::Colour(0xff050506));
         g.drawRoundedRectangle(panel, 3.0f, 1.0f);
+        g.setColour(juce::Colours::white.withAlpha(0.05f));
+        g.drawRoundedRectangle(panel.reduced(1.0f), 2.0f, 1.0f);
 
         const float slotX = panel.getX() + panel.getWidth() * 0.32f;
-        const auto slot = juce::Rectangle<float>(slotX, panel.getY() + 24.0f, 7.0f, panel.getHeight() - 48.0f);
-        g.setColour(juce::Colour(0xff010101));
+        const auto slot = juce::Rectangle<float>(slotX, panel.getY() + 14.0f, 7.0f, panel.getHeight() - 28.0f);
+        g.setGradientFill(juce::ColourGradient(juce::Colour(0xff020304),
+                                               slot.getCentreX(),
+                                               slot.getY(),
+                                               juce::Colour(0xff141519),
+                                               slot.getCentreX(),
+                                               slot.getBottom(),
+                                               false));
         g.fillRoundedRectangle(slot, 2.0f);
+        g.setColour(juce::Colours::black.withAlpha(0.7f));
+        g.drawRoundedRectangle(slot, 2.0f, 1.0f);
 
         const float tickX = panel.getX() + panel.getWidth() * 0.62f;
         g.setColour(juce::Colour(0xffaaa8b8).withAlpha(0.55f));
         for (int i = 0; i < 9; ++i)
         {
             const float yPos = slot.getY() + static_cast<float>(i) * slot.getHeight() / 8.0f;
-            const float tickWidth = (i % 4 == 0) ? 20.0f : 15.0f;
+            const float tickWidth = (i % 4 == 0) ? 13.0f : 10.0f;
             g.drawLine(tickX, yPos, tickX + tickWidth, yPos, 1.5f);
         }
 
         g.setColour(kTextPrimary);
-        g.setFont(juce::FontOptions(11.0f, juce::Font::bold));
-        const auto topText = slider.getMaximum() > 1.0 ? "+24" : "MAX";
-        const auto bottomText = slider.getMaximum() > 1.0 ? "-24" : "MIN";
-        g.drawText(topText, panel.withTrimmedLeft(panel.getWidth() * 0.55f).withHeight(20.0f), juce::Justification::centred);
+        g.setFont(juce::FontOptions(8.5f, juce::Font::bold));
+        const bool isBalanceFader = slider.getName() == "balanceFader";
+        const auto topText = isBalanceFader ? "A" : (slider.getMaximum() > 1.0 ? "+24" : "MAX");
+        const auto bottomText = isBalanceFader ? "B" : (slider.getMaximum() > 1.0 ? "-24" : "MIN");
+        g.drawText(topText, panel.withTrimmedLeft(panel.getWidth() * 0.55f).withHeight(13.0f), juce::Justification::centred);
         g.drawText(bottomText,
-                   panel.withTrimmedLeft(panel.getWidth() * 0.55f).withTrimmedTop(panel.getHeight() - 22.0f),
+                   panel.withTrimmedLeft(panel.getWidth() * 0.55f).withTrimmedTop(panel.getHeight() - 15.0f),
                    juce::Justification::centred);
 
         const double sliderRange = slider.getMaximum() - slider.getMinimum();
@@ -593,18 +662,22 @@ void MainComponent::OpalineLookAndFeel::drawLinearSlider(juce::Graphics& g,
                                         slot.getBottom() - 10.0f,
                                         slot.getY() + 10.0f);
         const auto grip = juce::Rectangle<float>(panel.getX() + 2.0f, valueY - 9.0f, panel.getWidth() * 0.44f, 18.0f);
-        g.setGradientFill(juce::ColourGradient(juce::Colour(0xffeef6ff),
-                                               grip.getX(),
+        g.setColour(juce::Colours::black.withAlpha(0.32f));
+        g.fillRoundedRectangle(grip.translated(0.0f, 1.0f), 2.5f);
+        g.setGradientFill(juce::ColourGradient(juce::Colour(0xffc7cbd0),
+                                               grip.getCentreX(),
                                                grip.getY(),
-                                               juce::Colour(0xff838890),
-                                               grip.getX(),
+                                               juce::Colour(0xff6f747b),
+                                               grip.getCentreX(),
                                                grip.getBottom(),
                                                false));
-        g.fillRoundedRectangle(grip, 2.0f);
-        g.setColour(juce::Colour(0xff252832).withAlpha(0.6f));
-        g.drawRoundedRectangle(grip, 2.0f, 1.0f);
-        g.setColour(juce::Colour(0xffffffff).withAlpha(0.45f));
-        g.drawLine(grip.getX() + 3.0f, grip.getCentreY(), grip.getRight() - 3.0f, grip.getCentreY(), 1.0f);
+        g.fillRoundedRectangle(grip, 2.5f);
+        g.setColour(juce::Colours::white.withAlpha(0.32f));
+        g.drawLine(grip.getX() + 2.0f, grip.getY() + 2.0f, grip.getRight() - 2.0f, grip.getY() + 2.0f, 1.0f);
+        g.setColour(juce::Colour(0xff25282d).withAlpha(0.78f));
+        g.drawRoundedRectangle(grip, 2.5f, 1.0f);
+        g.setColour(juce::Colour(0xffffffff).withAlpha(0.34f));
+        g.drawLine(grip.getX() + 4.0f, grip.getCentreY(), grip.getRight() - 4.0f, grip.getCentreY(), 1.0f);
 
         juce::String valueText;
         if (slider.getMaximum() <= 1.0)
@@ -626,6 +699,98 @@ void MainComponent::OpalineLookAndFeel::drawLinearSlider(juce::Graphics& g,
         return;
     }
 
+    if (slider.getName() == "wheelFader")
+    {
+        const auto slot = bounds.withSizeKeepingCentre(juce::jmin(bounds.getWidth(), 38.0f),
+                                                       bounds.getHeight()).reduced(1.0f, 0.0f);
+        g.setColour(juce::Colours::black.withAlpha(0.48f));
+        g.fillRoundedRectangle(slot.translated(0.0f, 2.0f), 3.0f);
+
+        g.setGradientFill(juce::ColourGradient(juce::Colour(0xff1c2628),
+                                               slot.getX(),
+                                               slot.getY(),
+                                               juce::Colour(0xff050708),
+                                               slot.getX(),
+                                               slot.getBottom(),
+                                               false));
+        g.fillRoundedRectangle(slot, 3.0f);
+        g.setColour(juce::Colour(0xff020405));
+        g.drawRoundedRectangle(slot, 3.0f, 1.8f);
+        g.setColour(juce::Colours::white.withAlpha(0.08f));
+        g.drawRoundedRectangle(slot.reduced(2.0f), 2.0f, 1.0f);
+
+        const auto wheel = slot.reduced(7.0f, 6.0f);
+        g.setGradientFill(juce::ColourGradient(juce::Colour(0xff1e2a2d),
+                                               wheel.getCentreX(),
+                                               wheel.getY(),
+                                               juce::Colour(0xff050607),
+                                               wheel.getCentreX(),
+                                               wheel.getBottom(),
+                                               false));
+        g.fillRoundedRectangle(wheel, 2.0f);
+
+        g.setColour(juce::Colour(0xff07090a));
+        g.fillRect(wheel.withWidth(3.0f));
+        g.fillRect(wheel.withX(wheel.getRight() - 3.0f).withWidth(3.0f));
+
+        const double sliderRange = slider.getMaximum() - slider.getMinimum();
+        const float normalizedValue = sliderRange > 0.0
+            ? static_cast<float>((slider.getValue() - slider.getMinimum()) / sliderRange)
+            : 0.0f;
+        const float ribSpacing = 3.25f;
+        const float ribPhase = std::fmod(normalizedValue * 42.0f, ribSpacing);
+        const int ribCount = static_cast<int>(wheel.getHeight() / ribSpacing) + 4;
+        for (int i = -2; i < ribCount; ++i)
+        {
+            const float yPos = wheel.getY() + 2.0f + ribPhase + static_cast<float>(i) * ribSpacing;
+            if (yPos < wheel.getY() + 2.0f || yPos > wheel.getBottom() - 2.0f)
+                continue;
+
+            const float curve = 1.0f - std::abs((yPos - wheel.getCentreY()) / (wheel.getHeight() * 0.5f));
+            const float lineInset = 3.0f + (1.0f - curve) * 2.2f;
+            const auto alpha = 0.22f + curve * 0.28f;
+            g.setColour(juce::Colour(0xff9aa7aa).withAlpha(alpha));
+            g.drawLine(wheel.getX() + lineInset, yPos, wheel.getRight() - lineInset, yPos, 1.0f);
+            g.setColour(juce::Colour(0xff010202).withAlpha(0.62f));
+            g.drawLine(wheel.getX() + lineInset, yPos + 1.0f, wheel.getRight() - lineInset, yPos + 1.0f, 1.0f);
+        }
+
+        g.setGradientFill(juce::ColourGradient(juce::Colours::white.withAlpha(0.12f),
+                                               wheel.getCentreX(),
+                                               wheel.getY() + 2.0f,
+                                               juce::Colours::transparentBlack,
+                                               wheel.getCentreX(),
+                                               wheel.getY() + wheel.getHeight() * 0.28f,
+                                               false));
+        g.fillRoundedRectangle(wheel.withTrimmedBottom(wheel.getHeight() * 0.68f), 2.0f);
+        g.setGradientFill(juce::ColourGradient(juce::Colours::transparentBlack,
+                                               wheel.getCentreX(),
+                                               wheel.getCentreY(),
+                                               juce::Colours::black.withAlpha(0.46f),
+                                               wheel.getCentreX(),
+                                               wheel.getBottom(),
+                                               false));
+        g.fillRoundedRectangle(wheel.withTrimmedTop(wheel.getHeight() * 0.48f), 2.0f);
+
+        g.setColour(juce::Colours::black.withAlpha(0.22f));
+        g.fillRoundedRectangle(wheel.withTrimmedTop(wheel.getHeight() * 0.55f), 2.0f);
+        g.setColour(juce::Colour(0xff000000));
+        g.drawRoundedRectangle(wheel, 2.0f, 1.4f);
+
+        const float valueY = juce::jlimit(wheel.getY() + 4.0f, wheel.getBottom() - 4.0f, sliderPos);
+        const auto indicator = juce::Rectangle<float>(wheel.getX() + 3.0f,
+                                                      valueY - 1.5f,
+                                                      wheel.getWidth() - 6.0f,
+                                                      3.0f);
+        g.setColour(kTeal.withAlpha(0.28f));
+        g.fillRoundedRectangle(indicator.expanded(1.0f, 1.5f), 1.0f);
+        g.setColour(kTeal);
+        g.fillRoundedRectangle(indicator, 1.0f);
+
+        g.setColour(juce::Colours::white.withAlpha(0.06f));
+        g.drawLine(wheel.getX() + 5.0f, wheel.getY() + 2.0f, wheel.getRight() - 5.0f, wheel.getY() + 2.0f, 1.0f);
+        return;
+    }
     const auto slot = bounds.withSizeKeepingCentre(juce::jmin(bounds.getWidth(), 46.0f),
                                                    bounds.getHeight());
     g.setColour(juce::Colour(0xff030303));
@@ -727,14 +892,15 @@ void MainComponent::OpalineLookAndFeel::drawButtonText(juce::Graphics& g,
                                                     const bool,
                                                     const bool shouldDrawButtonAsDown)
 {
-    if (button.getName() == "voiceBankButton")
+    const bool engineButton = button.getName() == "engineModelButton";
+    if (button.getName() == "voiceBankButton" || engineButton)
     {
-        auto bounds = button.getLocalBounds().reduced(3, 1);
+        auto bounds = button.getLocalBounds().reduced(engineButton ? 2 : 3, engineButton ? 0 : 1);
         if (shouldDrawButtonAsDown)
             bounds.translate(0, 1);
 
         g.setColour(button.findColour(juce::TextButton::textColourOffId));
-        g.setFont(juce::FontOptions(12.0f, juce::Font::plain));
+        g.setFont(juce::FontOptions(engineButton ? 9.5f : 12.0f, juce::Font::plain));
         g.drawFittedText(button.getButtonText(), bounds, juce::Justification::centred, 1);
         return;
     }
@@ -1037,7 +1203,7 @@ MainComponent::ScopeComponent::ScopeComponent()
 {
     for (auto& sample : samples)
         sample.store(0.0f, std::memory_order_relaxed);
-    startTimerHz(30);
+    startTimerHz(60);
 }
 
 void MainComponent::ScopeComponent::pushSample(const float sample)
@@ -1046,6 +1212,13 @@ void MainComponent::ScopeComponent::pushSample(const float sample)
     samples[static_cast<std::size_t>(index)].store(juce::jlimit(-1.0f, 1.0f, sample), std::memory_order_relaxed);
 }
 
+void MainComponent::ScopeComponent::setSamples(const std::array<float, 256>& newSamples)
+{
+    for (std::size_t i = 0; i < samples.size(); ++i)
+        samples[i].store(juce::jlimit(-1.0f, 1.0f, newSamples[i]), std::memory_order_relaxed);
+
+    writeIndex.store(0, std::memory_order_relaxed);
+}
 void MainComponent::ScopeComponent::paint(juce::Graphics& g)
 {
     const auto area = getLocalBounds().toFloat().reduced(3.0f);
@@ -1054,12 +1227,22 @@ void MainComponent::ScopeComponent::paint(juce::Graphics& g)
     g.setColour(kControlBorder);
     g.drawRoundedRectangle(area, 4.0f, 1.0f);
 
-    juce::Path path;
+    std::array<float, 256> visibleSamples {};
     const int newest = writeIndex.load(std::memory_order_relaxed);
+    float average = 0.0f;
     for (int i = 0; i < 256; ++i)
     {
         const int readIndex = (newest + i) & 255;
         const float value = samples[static_cast<std::size_t>(readIndex)].load(std::memory_order_relaxed);
+        visibleSamples[static_cast<std::size_t>(i)] = value;
+        average += value;
+    }
+    average /= static_cast<float>(visibleSamples.size());
+
+    juce::Path path;
+    for (int i = 0; i < 256; ++i)
+    {
+        const float value = juce::jlimit(-1.0f, 1.0f, visibleSamples[static_cast<std::size_t>(i)] - average);
         const float x = area.getX() + area.getWidth() * static_cast<float>(i) / 255.0f;
         const float y = area.getCentreY() - value * area.getHeight() * 0.42f;
         if (i == 0)
@@ -1226,17 +1409,8 @@ void MainComponent::OperatorComponent::setRole(juce::String newRole)
 
 void MainComponent::OperatorComponent::paint(juce::Graphics& g)
 {
-    const auto area = getLocalBounds().toFloat().reduced(4.0f);
-    g.setGradientFill(juce::ColourGradient(kPanelTop,
-                                           area.getX(),
-                                           area.getY(),
-                                           kPanelBottom,
-                                           area.getX(),
-                                           area.getBottom(),
-                                           false));
-    g.fillRoundedRectangle(area, 6.0f);
-    g.setColour(op.enabled ? kPanelBorderOn.withAlpha(0.58f) : kPanelBorder);
-    g.drawRoundedRectangle(area, 6.0f, op.enabled ? 1.4f : 1.0f);
+    const auto area = getLocalBounds().toFloat().reduced(3.0f);
+    drawMetalPanel(g, area, 3.0f, op.enabled);
 
     auto graph = getLocalBounds().reduced(10).withTrimmedTop(36).removeFromTop(46).toFloat();
     g.setColour(kControlWell);
@@ -1544,6 +1718,7 @@ void MainComponent::KeyboardComponent::updateHeldNote(const int note)
 
 void MainComponent::KeyboardComponent::mouseDown(const juce::MouseEvent& event)
 {
+    owner.grabKeyboardFocus();
     updateHeldNote(noteForPosition(event.getPosition()));
 }
 
@@ -1633,7 +1808,6 @@ MainComponent::MainComponent(const HostMode mode)
     setupComboBox(midiInputSelect);
     midiInputSelect.addListener(this);
     addAndMakeVisible(midiInputSelect);
-
     powerButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff172b27));
     powerButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff0aa878));
     powerButton.setColour(juce::TextButton::textColourOffId, kTextPrimary);
@@ -1642,13 +1816,15 @@ MainComponent::MainComponent(const HostMode mode)
     addAndMakeVisible(powerButton);
 
     engineModelButton.setClickingTogglesState(true);
-    engineModelButton.setName("voiceBankButton");
+    engineModelButton.setName("engineModelButton");
+    engineModelButton.setLookAndFeel(&opalineLookAndFeel);
     engineModelButton.addListener(this);
     refreshEngineModelButton();
     addAndMakeVisible(engineModelButton);
 
-    setupLabel(volumeLabel, "Volume");
+    setupLabel(volumeLabel, "VOLUME");
     volumeLabel.setJustificationType(juce::Justification::centred);
+    volumeLabel.setFont(juce::FontOptions(9.0f, juce::Font::plain));
     addAndMakeVisible(volumeLabel);
     setupSlider(volumeSlider, 0.0, 1.0, 0.01, masterVolume, juce::Slider::LinearVertical);
     volumeSlider.setName("mainFader");
@@ -1657,8 +1833,9 @@ MainComponent::MainComponent(const HostMode mode)
     volumeSlider.addListener(this);
     addAndMakeVisible(volumeSlider);
 
-    setupLabel(transposeLabel, "Transpose");
+    setupLabel(transposeLabel, "TRANSPOSE");
     transposeLabel.setJustificationType(juce::Justification::centred);
+    transposeLabel.setFont(juce::FontOptions(9.0f, juce::Font::plain));
     addAndMakeVisible(transposeLabel);
     setupSlider(transposeSlider, -24.0, 24.0, 1.0, 0.0, juce::Slider::LinearVertical);
     transposeSlider.setName("mainFader");
@@ -1667,13 +1844,24 @@ MainComponent::MainComponent(const HostMode mode)
     transposeSlider.addListener(this);
     addAndMakeVisible(transposeSlider);
 
+    setupLabel(balanceLabel, "BALANCE");
+    balanceLabel.setJustificationType(juce::Justification::centred);
+    balanceLabel.setFont(juce::FontOptions(9.0f, juce::Font::plain));
+    addAndMakeVisible(balanceLabel);
+    setupSlider(balanceSlider, -100.0, 100.0, 1.0, 0.0, juce::Slider::LinearVertical);
+    balanceSlider.setName("balanceFader");
+    balanceSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+    balanceSlider.setLookAndFeel(&opalineLookAndFeel);
+    balanceSlider.addListener(this);
+    addAndMakeVisible(balanceSlider);
+
     setupLabel(algorithmGraphLabel, "ALG");
     algorithmGraphLabel.setJustificationType(juce::Justification::centred);
-    algorithmGraphLabel.setFont(juce::FontOptions(13.0f, juce::Font::bold));
+    algorithmGraphLabel.setFont(juce::FontOptions(13.0f, juce::Font::plain));
     addAndMakeVisible(algorithmGraphLabel);
     setupLabel(pegGraphLabel, "PITCH EG");
     pegGraphLabel.setJustificationType(juce::Justification::centred);
-    pegGraphLabel.setFont(juce::FontOptions(13.0f, juce::Font::bold));
+    pegGraphLabel.setFont(juce::FontOptions(13.0f, juce::Font::plain));
     addAndMakeVisible(pegGraphLabel);
 
     setupLabel(algorithmLabel, "ALG");
@@ -1736,7 +1924,7 @@ MainComponent::MainComponent(const HostMode mode)
                          &lfoPitchSensitivityLabel, &lfoAmpSensitivityLabel })
         addAndMakeVisible(*label);
 
-    setupLabel(pegTitleLabel, "Pitch EG");
+    setupLabel(pegTitleLabel, "PITCH EG");
     pegTitleLabel.setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(pegTitleLabel);
     addAndMakeVisible(pegGraph);
@@ -1782,7 +1970,7 @@ MainComponent::MainComponent(const HostMode mode)
 
     setupLabel(pitchWheelLabel, "PITCH");
     pitchWheelLabel.setJustificationType(juce::Justification::centred);
-    pitchWheelLabel.setFont(juce::FontOptions(9.5f, juce::Font::bold));
+    pitchWheelLabel.setFont(juce::FontOptions(13.0f, juce::Font::plain));
     setupSlider(pitchWheelSlider, -1.0, 1.0, 0.01, 0.0, juce::Slider::LinearVertical);
     pitchWheelSlider.setName("wheelFader");
     pitchWheelSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
@@ -1794,7 +1982,7 @@ MainComponent::MainComponent(const HostMode mode)
     addAndMakeVisible(pitchWheelSlider);
     setupLabel(modWheelLabel, "MODULATION");
     modWheelLabel.setJustificationType(juce::Justification::centred);
-    modWheelLabel.setFont(juce::FontOptions(8.0f, juce::Font::bold));
+    modWheelLabel.setFont(juce::FontOptions(9.5f, juce::Font::plain));
     setupSlider(modWheelSlider, 0.0, 1.0, 0.01, 0.0, juce::Slider::LinearVertical);
     modWheelSlider.setName("wheelFader");
     modWheelSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
@@ -1814,7 +2002,7 @@ MainComponent::MainComponent(const HostMode mode)
             [this](const int index, const opaline::OpalineOperator& op)
             {
                 currentPatch.operators[static_cast<std::size_t>(index)] = op;
-                applyPatchToEngine();
+                applyPatchToEngine(false, hostMode == HostMode::PluginEditor);
             });
         addAndMakeVisible(*operatorPanels[static_cast<std::size_t>(i)]);
     }
@@ -1850,9 +2038,14 @@ MainComponent::MainComponent(const HostMode mode)
 
     setWantsKeyboardFocus(true);
     setMouseClickGrabsKeyboardFocus(true);
+    juce::MessageManager::callAsync([safeThis = juce::Component::SafePointer<MainComponent>(this)]
+    {
+        if (safeThis != nullptr)
+            safeThis->grabKeyboardFocus();
+    });
     startTimerHz(60);
 
-    setSize(1024, 760);
+    setSize(1024, 668);
 }
 
 MainComponent::~MainComponent()
@@ -1867,7 +2060,7 @@ MainComponent::~MainComponent()
     }
     midiInputs.clear();
 
-    const std::array<juce::Slider*, 25> sliders { &volumeSlider, &transposeSlider, &algorithmSlider, &feedbackSlider,
+    const std::array<juce::Slider*, 26> sliders { &volumeSlider, &transposeSlider, &balanceSlider, &algorithmSlider, &feedbackSlider,
                                                   &lfoSpeedSlider, &lfoDelaySlider, &lfoPitchDepthSlider, &lfoAmpDepthSlider,
                                                   &lfoPitchSensitivitySlider, &lfoAmpSensitivitySlider,
                                                   &pegRate1Slider, &pegRate2Slider, &pegRate3Slider,
@@ -1885,6 +2078,7 @@ MainComponent::~MainComponent()
         comboBox->setLookAndFeel(nullptr);
     for (auto* button : { &loadVoiceBankButton, &saveVoiceBankButton, &exportVoiceLibraryButton, &storeVoiceButton })
         button->setLookAndFeel(nullptr);
+    engineModelButton.setLookAndFeel(nullptr);
     lfoSyncButton.setLookAndFeel(nullptr);
 
     if (audioStarted)
@@ -2006,9 +2200,12 @@ void MainComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo& buffer
         if (performanceState.mode != PerformanceMode::Single)
         {
             const auto sampleB = performanceEngineB.renderSample();
+            const float balance = static_cast<float>(juce::jlimit(-100, 100, performanceState.abBalance)) / 100.0f;
+            const float gainA = balance >= 0.0f ? 1.0f : 1.0f + balance;
+            const float gainB = balance <= 0.0f ? 1.0f : 1.0f - balance;
             const float mixGain = performanceState.mode == PerformanceMode::Dual ? 0.50f : 0.82f;
-            sample.left = (sampleA.left + sampleB.left) * mixGain;
-            sample.right = (sampleA.right + sampleB.right) * mixGain;
+            sample.left = (sampleA.left * gainA + sampleB.left * gainB) * mixGain;
+            sample.right = (sampleA.right * gainA + sampleB.right * gainB) * mixGain;
         }
 
         left[i] = sample.left * outputGain;
@@ -2023,65 +2220,98 @@ void MainComponent::releaseResources() {}
 void MainComponent::paint(juce::Graphics& g)
 {
     g.fillAll(kAppBackground);
-    auto area = getLocalBounds().reduced(12).toFloat();
-    g.setGradientFill(juce::ColourGradient(kPanelTop,
-                                           area.getX(),
-                                           area.getY(),
-                                           kPanelBottom,
-                                           area.getX(),
-                                           area.getBottom(),
-                                           false));
-    g.fillRoundedRectangle(area, 6.0f);
-    g.setColour(kPanelBorder);
-    g.drawRoundedRectangle(area, 6.0f, 1.0f);
+
+    const auto shell = getLocalBounds().reduced(7).toFloat();
+    drawMetalPanel(g, shell, 6.0f);
+
+    constexpr int panelGap = 4;
+    constexpr int panelPad = 2;
+
+    auto area = getLocalBounds().reduced(20);
+    auto header = area.removeFromTop(34);
+    drawHeaderTitle(g, header.removeFromLeft(210).toFloat());
+
+    area.removeFromTop(panelGap);
+    auto top = area.removeFromTop(198);
+    const auto faders = top.removeFromLeft(178).reduced(panelPad, 0).toFloat();
+    top.removeFromLeft(panelGap);
+    const auto patch = top.removeFromLeft(300).reduced(panelPad, 0).toFloat();
+    top.removeFromLeft(panelGap);
+    const auto controls = top.reduced(panelPad, 0).toFloat();
+    drawMetalPanel(g, faders, 2.0f);
+    drawMetalPanel(g, patch, 2.0f);
+    drawMetalPanel(g, controls, 2.0f);
+
+    area.removeFromTop(panelGap);
+    const auto middle = area.removeFromTop(140).toFloat();
+    drawMetalPanel(g, middle.reduced(static_cast<float>(panelPad), 0.0f), 2.0f);
+
+    area.removeFromTop(panelGap);
+    const auto ops = area.toFloat();
+    drawMetalPanel(g, ops.reduced(static_cast<float>(panelPad), 0.0f), 2.0f);
 }
 
 void MainComponent::resized()
 {
+    constexpr int panelGap = 4;
+    constexpr int panelPad = 2;
+
     auto area = getLocalBounds().reduced(20);
     auto header = area.removeFromTop(34);
     titleLabel.setBounds(header.removeFromLeft(210));
+    titleLabel.setVisible(false);
     if (hostMode == HostMode::StandaloneApp)
     {
         powerButton.setBounds(header.removeFromRight(82));
-        header.removeFromRight(10);
+        header.removeFromRight(panelGap);
     }
-    engineModelButton.setBounds(header.removeFromRight(64));
-    header.removeFromRight(8);
+    engineModelButton.setBounds(header.removeFromRight(55).withSizeKeepingCentre(55, 23));
+    header.removeFromRight(panelGap);
     if (hostMode == HostMode::StandaloneApp)
     {
         midiInputSelect.setBounds(header.removeFromRight(180));
-        header.removeFromRight(8);
+        header.removeFromRight(panelGap);
         audioOutputSelect.setBounds(header.removeFromRight(235));
-        header.removeFromRight(12);
+        header.removeFromRight(panelGap);
     }
     statusLabel.setBounds(header);
 
-    area.removeFromTop(4);
-    auto top = area.removeFromTop(220);
-    auto faders = top.removeFromLeft(150).reduced(4, 0);
-    auto volumeArea = faders.removeFromLeft(70);
-    volumeSlider.setBounds(volumeArea.removeFromTop(180));
-    volumeLabel.setBounds(volumeArea.removeFromTop(18).translated(0, -6));
-    faders.removeFromLeft(6);
-    auto transposeArea = faders.removeFromLeft(70);
-    transposeSlider.setBounds(transposeArea.removeFromTop(180));
-    transposeLabel.setBounds(transposeArea.removeFromTop(18).translated(0, -6));
+    area.removeFromTop(panelGap);
+    auto top = area.removeFromTop(198);
+    auto faders = top.removeFromLeft(178).reduced(panelPad, 0);
+    faders.removeFromTop(5);
+    auto sliderRow = faders.removeFromTop(144);
+    constexpr int mainFaderColumnWidth = 56;
+    constexpr int mainFaderGap = 2;
+    auto volumeArea = sliderRow.removeFromLeft(mainFaderColumnWidth);
+    volumeSlider.setBounds(volumeArea.removeFromTop(126));
+    volumeLabel.setBounds(volumeArea.removeFromTop(18).translated(0, -1));
+    sliderRow.removeFromLeft(mainFaderGap);
+    auto transposeArea = sliderRow.removeFromLeft(mainFaderColumnWidth);
+    transposeSlider.setBounds(transposeArea.removeFromTop(126));
+    transposeLabel.setBounds(transposeArea.removeFromTop(18).translated(0, -1));
+    sliderRow.removeFromLeft(mainFaderGap);
+    auto balanceArea = sliderRow.removeFromLeft(mainFaderColumnWidth);
+    balanceSlider.setBounds(balanceArea.removeFromTop(126));
+    balanceLabel.setBounds(balanceArea.removeFromTop(18).translated(0, -1));
+    faders.removeFromTop(3);
+    scope.setBounds(faders.removeFromTop(46).reduced(4, 2));
 
-    auto patch = top.removeFromLeft(300).reduced(4);
+    top.removeFromLeft(panelGap);
+    auto patch = top.removeFromLeft(300).reduced(panelPad + 8, panelPad);
+    patch.translate(0, 4);
     auto bankRow = patch.removeFromTop(28);
-    voiceBankSelect.setBounds(bankRow.removeFromLeft(112));
+    constexpr int topControlHeight = 24;
+    voiceBankSelect.setBounds(bankRow.removeFromLeft(112).withSizeKeepingCentre(112, topControlHeight));
     bankRow.removeFromLeft(3);
-    loadVoiceBankButton.setBounds(bankRow.removeFromLeft(48).withSizeKeepingCentre(48, 22));
+    loadVoiceBankButton.setBounds(bankRow.removeFromLeft(48).withSizeKeepingCentre(48, topControlHeight));
     bankRow.removeFromLeft(3);
-    saveVoiceBankButton.setBounds(bankRow.removeFromLeft(48).withSizeKeepingCentre(48, 22));
+    saveVoiceBankButton.setBounds(bankRow.removeFromLeft(48).withSizeKeepingCentre(48, topControlHeight));
     bankRow.removeFromLeft(3);
-    exportVoiceLibraryButton.setBounds(bankRow.removeFromLeft(58).withSizeKeepingCentre(58, 22));
+    exportVoiceLibraryButton.setBounds(bankRow.removeFromLeft(58).withSizeKeepingCentre(58, topControlHeight));
     patch.removeFromTop(4);
-    lcd.setBounds(patch.removeFromTop(58));
-    patch.removeFromTop(1);
-    scope.setBounds(patch.removeFromTop(34));
-    patch.removeFromTop(1);
+    lcd.setBounds(patch.removeFromTop(56));
+    patch.removeFromTop(5);
     auto aRow = patch.removeFromTop(28);
     voiceALabel.setBounds(aRow.removeFromLeft(22).withSizeKeepingCentre(20, 20));
     aRow.removeFromLeft(2);
@@ -2106,9 +2336,10 @@ void MainComponent::resized()
     constexpr int knobLabelHeight = 15;
     constexpr int knobCellWidth = 32;
     constexpr int knobCellHeight = 80;
-    auto controlsPanel = top.reduced(4, 0);
+    top.removeFromLeft(panelGap);
+    auto controlsPanel = top.reduced(panelPad, 0);
     const auto controlsPanelBounds = controlsPanel;
-    constexpr int voicePanelWidth = 150;
+    constexpr int voicePanelWidth = 138;
     constexpr int minimumKnobGroupWidth = 118;
     const int sharedKnobGroupWidth = juce::jmax(minimumKnobGroupWidth,
                                                 (controlsPanel.getWidth() - voicePanelWidth) / 3);
@@ -2117,14 +2348,15 @@ void MainComponent::resized()
     auto lfo = controlsPanel.removeFromLeft(juce::jmin(sharedKnobGroupWidth, controlsPanel.getWidth()));
     auto effects = controlsPanel;
 
+    constexpr int controlHeaderHeight = 24;
     auto lfoTop = juce::Rectangle<int>(lfo.getX() + 8,
-                                       controlsPanelBounds.getY(),
+                                       controlsPanelBounds.getY() + 3,
                                        juce::jmin(254, controlsPanelBounds.getRight() - lfo.getX() - 8),
-                                       28);
+                                       controlHeaderHeight);
     lfoWaveLabel.setBounds(lfoTop.removeFromLeft(58));
-    lfoWaveSelect.setBounds(lfoTop.removeFromLeft(112));
+    lfoWaveSelect.setBounds(lfoTop.removeFromLeft(112).withSizeKeepingCentre(112, topControlHeight));
     lfoTop.removeFromLeft(8);
-    lfoSyncButton.setBounds(lfoTop.removeFromLeft(76));
+    lfoSyncButton.setBounds(lfoTop.removeFromLeft(76).withSizeKeepingCentre(76, topControlHeight));
 
     const int knobRow1Y = controlsPanelBounds.getY() + 36;
     const int knobRow2Y = knobRow1Y + knobCellHeight;
@@ -2141,23 +2373,25 @@ void MainComponent::resized()
     lfoRightSeparator.setBounds(lfo.getRight() - 1, knobRow1Y - 8, 1, lfo.getBottom() - (knobRow1Y - 8));
 
     auto voiceContent = voice.reduced(0, 0);
-    algorithmGraphLabel.setBounds(voiceContent.getX(), voiceContent.getY(), 84, 20);
-    algorithmView.setBounds(voiceContent.getX(), voiceContent.getY() + 24, 84, 84);
-    pegGraphLabel.setBounds(voiceContent.getX(), voiceContent.getY() + 112, 84, 18);
-    pegGraph.setBounds(voiceContent.getX(), voiceContent.getY() + 134, 84, 58);
+    const int voiceGraphX = voiceContent.getX() + 8;
+    algorithmGraphLabel.setBounds(voiceGraphX, controlsPanelBounds.getY() + 3, 84, controlHeaderHeight);
+    algorithmView.setBounds(voiceGraphX, controlsPanelBounds.getY() + 28, 84, 84);
+    pegGraphLabel.setBounds(voiceGraphX, knobRow2Y + 1, 84, knobLabelHeight);
+    pegGraph.setBounds(voiceGraphX, knobRow2Y + 22, 84, 54);
     auto pegContent = peg.reduced(0, 0);
     const int pegTopY = knobRow1Y;
-    const int pegCellWidth = juce::jmax(32, pegContent.getWidth() / 3);
+    const int knobColumnWidth = juce::jmax(knobCellWidth, sharedKnobGroupWidth / 3);
+    const int pegCellWidth = knobColumnWidth;
     const int pegCellHeight = knobCellHeight;
-    const int voiceKnobX = pegContent.getX() - pegCellWidth;
-    layoutKnob(juce::Rectangle<int>(voiceKnobX, knobRow1Y, pegCellWidth, knobCellHeight).reduced(1),
+    const int voiceKnobX = pegContent.getX() - knobColumnWidth;
+    layoutKnob(juce::Rectangle<int>(voiceKnobX, knobRow1Y, knobColumnWidth, knobCellHeight).reduced(1),
                algorithmLabel,
                algorithmSlider);
-    layoutKnob(juce::Rectangle<int>(voiceKnobX, knobRow2Y, pegCellWidth, knobCellHeight).reduced(1),
+    layoutKnob(juce::Rectangle<int>(voiceKnobX, knobRow2Y, knobColumnWidth, knobCellHeight).reduced(1),
                feedbackLabel,
                feedbackSlider);
 
-    pegTitleLabel.setBounds(pegContent.getX() + 3, controlsPanelBounds.getY(), pegContent.getWidth() - 6, 24);
+    pegTitleLabel.setBounds(pegContent.getX() + 3, controlsPanelBounds.getY() + 3, pegContent.getWidth() - 6, controlHeaderHeight);
     std::array<juce::Label*, 6> pegLabels { &pegRate1Label, &pegRate2Label, &pegRate3Label,
                                             &pegLevel1Label, &pegLevel2Label, &pegLevel3Label };
     std::array<juce::Slider*, 6> pegSliders { &pegRate1Slider, &pegRate2Slider, &pegRate3Slider,
@@ -2176,7 +2410,7 @@ void MainComponent::resized()
     }
 
     auto lfoContent = lfo.reduced(0, 0);
-    const int lfoCellWidth = juce::jmax(knobCellWidth, lfoContent.getWidth() / 3);
+    const int lfoCellWidth = knobColumnWidth;
     std::array<juce::Label*, 6> lfoLabels { &lfoSpeedLabel, &lfoDelayLabel, &lfoPitchDepthLabel, &lfoAmpDepthLabel, &lfoPitchSensitivityLabel, &lfoAmpSensitivityLabel };
     std::array<juce::Slider*, 6> lfoSliders { &lfoSpeedSlider, &lfoDelaySlider, &lfoPitchDepthSlider, &lfoAmpDepthSlider, &lfoPitchSensitivitySlider, &lfoAmpSensitivitySlider };
     for (int row = 0; row < 2; ++row)
@@ -2193,7 +2427,7 @@ void MainComponent::resized()
     }
 
     auto effectsContent = effects.reduced(0, 0);
-    const int effectsCellWidth = juce::jmax(knobCellWidth, effectsContent.getWidth() / 3);
+    const int effectsCellWidth = knobColumnWidth;
     std::array<juce::Label*, 5> effectLabels { &effectReverbLabel, &effectMixLabel, &effectToneLabel, &effectChorusLabel, &effectDelayLabel };
     std::array<juce::Slider*, 5> effectSliders { &effectReverbSlider, &effectMixSlider, &effectToneSlider, &effectChorusSlider, &effectDelaySlider };
     for (int row = 0; row < 2; ++row)
@@ -2212,28 +2446,33 @@ void MainComponent::resized()
         }
     }
 
-    area.removeFromTop(0);
-    auto middle = area.removeFromTop(151);
-    auto pitchArea = middle.removeFromLeft(58).reduced(2, 4);
-    pitchWheelLabel.setBounds(pitchArea.removeFromBottom(14));
+    area.removeFromTop(panelGap);
+    auto middle = area.removeFromTop(140);
+    auto pitchArea = middle.removeFromLeft(58).reduced(panelPad, panelPad);
+    pitchWheelLabel.setBounds(pitchArea.removeFromBottom(14).translated(0, -2));
     pitchWheelSlider.setBounds(pitchArea.reduced(6, 2));
-    auto modArea = middle.removeFromLeft(58).reduced(2, 4);
-    modWheelLabel.setBounds(modArea.removeFromBottom(14));
+    auto modArea = middle.removeFromLeft(58).reduced(panelPad, panelPad);
+    modWheelLabel.setBounds(modArea.removeFromBottom(14).translated(0, -2));
     modWheelSlider.setBounds(modArea.reduced(6, 2));
-    middle.removeFromLeft(4);
+    middle.removeFromLeft(panelGap);
     keyboard.setBounds(middle.reduced(2));
 
-    area.removeFromTop(10);
+    area.removeFromTop(panelGap);
     auto ops = area;
     const int panelWidth = ops.getWidth() / opaline::kOperatorCount;
-    const int panelHeight = juce::jmin(ops.getHeight(), 272);
+    const int panelHeight = ops.getHeight();
     for (int i = 0; i < opaline::kOperatorCount; ++i)
     {
         operatorPanels[static_cast<std::size_t>(i)]->setBounds(ops.getX() + i * panelWidth,
                                                                ops.getY(),
-                                                               panelWidth - 8,
+                                                               panelWidth - panelGap,
                                                                panelHeight);
     }
+}
+
+void MainComponent::mouseDown(const juce::MouseEvent&)
+{
+    grabKeyboardFocus();
 }
 
 void MainComponent::loadFactoryVoices()
@@ -2429,13 +2668,25 @@ void MainComponent::exportVoiceLibraryToFile(const juce::File& file)
 bool MainComponent::restoreSavedVoiceLibraryState()
 {
     juce::PropertiesFile settings(settingsOptions());
-    const auto xmlText = settings.getValue(kVoiceLibraryXmlSetting);
-    if (xmlText.isEmpty())
-        return false;
+    bool restoredLibrary = false;
 
-    const auto xml = juce::parseXML(xmlText);
-    if (xml == nullptr || !voiceLibraryFromXml(*xml, voiceLibrary))
-        return false;
+    const auto stateFile = voiceLibraryStateFile();
+    if (stateFile.existsAsFile())
+    {
+        const auto xml = juce::parseXML(stateFile.loadFileAsString());
+        restoredLibrary = xml != nullptr && voiceLibraryFromXml(*xml, voiceLibrary);
+    }
+
+    if (!restoredLibrary)
+    {
+        const auto xmlText = settings.getValue(kVoiceLibraryXmlSetting);
+        if (xmlText.isEmpty())
+            return false;
+
+        const auto xml = juce::parseXML(xmlText);
+        if (xml == nullptr || !voiceLibraryFromXml(*xml, voiceLibrary))
+            return false;
+    }
 
     currentVoiceBankIndex = juce::jlimit(0,
                                          opaline::kOpalineVoiceBankCount - 1,
@@ -2448,15 +2699,20 @@ bool MainComponent::restoreSavedVoiceLibraryState()
                                                                                             static_cast<int>(performanceState.mode))));
     performanceState.dualDetune = juce::jlimit(-16, 16, settings.getIntValue(kDualDetuneSetting, performanceState.dualDetune));
     performanceState.splitPoint = juce::jlimit(0, 127, settings.getIntValue(kSplitPointSetting, performanceState.splitPoint));
+    performanceState.abBalance = juce::jlimit(-100, 100, settings.getIntValue(kAbBalanceSetting, performanceState.abBalance));
     return true;
 }
-
 void MainComponent::saveVoiceLibraryState()
 {
     juce::PropertiesFile settings(settingsOptions());
     const auto xml = voiceLibraryToXml(voiceLibrary);
     if (xml != nullptr)
+    {
+        const auto stateFile = voiceLibraryStateFile();
+        stateFile.getParentDirectory().createDirectory();
+        xml->writeTo(stateFile);
         settings.setValue(kVoiceLibraryXmlSetting, xml->toString());
+    }
 
     settings.setValue(kVoiceBankIndexSetting, currentVoiceBankIndex);
     settings.setValue(kVoiceAIndexSetting, performanceState.voiceAIndex);
@@ -2464,6 +2720,7 @@ void MainComponent::saveVoiceLibraryState()
     settings.setValue(kPerformanceModeSetting, static_cast<int>(performanceState.mode));
     settings.setValue(kDualDetuneSetting, performanceState.dualDetune);
     settings.setValue(kSplitPointSetting, performanceState.splitPoint);
+    settings.setValue(kAbBalanceSetting, performanceState.abBalance);
     settings.saveIfNeeded();
 }
 
@@ -2543,7 +2800,9 @@ opaline::OpalinePatch MainComponent::patchForVoiceIndex(const int index) const
         return opaline::OpalinePatch {};
 
     const int safeIndex = juce::jlimit(0, static_cast<int>(factoryVoices.size()) - 1, index);
-    return factoryVoices[static_cast<std::size_t>(safeIndex)].patch;
+    auto patch = factoryVoices[static_cast<std::size_t>(safeIndex)].patch;
+    patch.transpose = currentPatch.transpose;
+    return patch;
 }
 
 juce::String MainComponent::performanceVoiceText(const int index) const
@@ -2593,6 +2852,7 @@ void MainComponent::refreshPerformanceControls()
     voiceBSelect.setSelectedId(performanceState.voiceBIndex + 1, juce::dontSendNotification);
     dualDetuneSlider.setValue(performanceState.dualDetune, juce::dontSendNotification);
     splitPointSlider.setValue(performanceState.splitPoint, juce::dontSendNotification);
+    balanceSlider.setValue(performanceState.abBalance, juce::dontSendNotification);
 
     const bool dual = performanceState.mode == PerformanceMode::Dual;
     const bool split = performanceState.mode == PerformanceMode::Split;
@@ -2611,6 +2871,7 @@ void MainComponent::updatePerformanceFromControls()
     performanceState.voiceBIndex = juce::jmax(0, voiceBSelect.getSelectedId() - 1);
     performanceState.dualDetune = static_cast<int>(dualDetuneSlider.getValue());
     performanceState.splitPoint = static_cast<int>(splitPointSlider.getValue());
+    performanceState.abBalance = static_cast<int>(balanceSlider.getValue());
 }
 
 opalineapp::SynthState MainComponent::captureSynthState() const
@@ -2670,7 +2931,7 @@ void MainComponent::applyPerformanceModeToEngines()
     applyRenderModelToEnginesNoLock();
 }
 
-void MainComponent::applyPatchToEngine()
+void MainComponent::applyPatchToEngine(const bool updateUi, const bool notifyState)
 {
     {
         std::lock_guard<std::mutex> lock(engineMutex);
@@ -2682,11 +2943,17 @@ void MainComponent::applyPatchToEngine()
         performanceEngineB.setPitchBend(juce::jlimit(-1.0, 1.0, currentPitchBend + static_cast<double>(performanceState.dualDetune) / 64.0));
         performanceEngineB.setModWheel(currentModWheel);
     }
-    refreshLcd();
-    emitProgramNameChanged();
-    emitSynthStateChanged();
-    if (onRenderModelChanged)
-        onRenderModelChanged(currentRenderModel());
+    if (updateUi)
+    {
+        refreshLcd();
+        emitProgramNameChanged();
+    }
+    if (notifyState)
+    {
+        emitSynthStateChanged();
+        if (onRenderModelChanged)
+            onRenderModelChanged(currentRenderModel());
+    }
 }
 
 opaline::OpalineRenderModel MainComponent::currentRenderModel() const
@@ -2703,7 +2970,7 @@ void MainComponent::applyRenderModelToEnginesNoLock()
 
 void MainComponent::refreshEngineModelButton()
 {
-    engineModelButton.setButtonText(chipRenderModel ? "NEW" : "OLD");
+    engineModelButton.setButtonText(chipRenderModel ? "TYPE B" : "TYPE A");
     engineModelButton.setToggleState(chipRenderModel, juce::dontSendNotification);
     engineModelButton.setColour(juce::TextButton::buttonColourId,
                                 chipRenderModel ? juce::Colour(0xff243d38) : juce::Colour(0xff1c1a15));
@@ -2813,7 +3080,7 @@ void MainComponent::refreshStatus()
                         : performanceState.mode == PerformanceMode::Dual ? "DUAL"
                         : "SPLIT";
     statusLabel.setText(audioStatus + "   " + midiStatus + "   Perf: " + modeName
-                            + "   Engine: " + (chipRenderModel ? "NEW" : "OLD")
+                            + "   Engine: " + (chipRenderModel ? "TYPE B" : "TYPE A")
                             + "   Bank: " + juce::String(currentVoiceBankIndex + 1)
                             + "   Voices: " + juce::String(factoryVoices.size())
                             + "   LFO: " + lfoWaveName(currentPatch.lfo.wave),
@@ -3253,29 +3520,21 @@ void MainComponent::repaintKeyboardAsync()
     });
 }
 
+bool MainComponent::pcKeyboardInputAllowed() const
+{
+    if (auto* peer = getPeer())
+    {
+        if (!peer->isFocused())
+            return false;
+    }
+
+    return hostMode == HostMode::PluginEditor || hasKeyboardFocus(true);
+}
+
 void MainComponent::syncPcKeyboardNotes()
 {
     std::array<bool, 128> shouldHold {};
-    if (hostMode == HostMode::PluginEditor)
-    {
-        bool changed = false;
-        for (int note = 0; note < static_cast<int>(pcKeyboardHeldNotes.size()); ++note)
-        {
-            const auto index = static_cast<std::size_t>(note);
-            if (!pcKeyboardHeldNotes[index])
-                continue;
-
-            pcKeyboardHeldNotes[index] = false;
-            pcKeyboardHeldVelocities[index] = 0;
-            changed = true;
-            noteOff(note);
-        }
-
-        if (changed)
-            keyboard.repaint();
-        return;
-    }
-    if (!hasKeyboardFocus(true))
+    if (!pcKeyboardInputAllowed())
     {
         bool changed = false;
         for (int note = 0; note < static_cast<int>(pcKeyboardHeldNotes.size()); ++note)
@@ -3334,6 +3593,11 @@ void MainComponent::setExternalControllerState(const double pitchBend, const dou
     currentModWheel = safeModWheel;
     pitchWheelSlider.setValue(safePitchBend, juce::dontSendNotification);
     modWheelSlider.setValue(safeModWheel, juce::dontSendNotification);
+}
+
+void MainComponent::setExternalScopeSamples(const std::array<float, 256>& samples)
+{
+    scope.setSamples(samples);
 }
 
 void MainComponent::timerCallback()
@@ -3431,6 +3695,7 @@ void MainComponent::comboBoxChanged(juce::ComboBox* comboBoxThatHasChanged)
             applyPerformanceModeToEngines();
         }
         applyPatchToEngine();
+        saveVoiceLibraryState();
         refreshStatus();
         resized();
     }
@@ -3548,6 +3813,9 @@ void MainComponent::buttonClicked(juce::Button* button)
 
 void MainComponent::sliderValueChanged(juce::Slider* slider)
 {
+    const bool dragging = slider != nullptr && slider->isMouseButtonDown();
+    const bool notifyState = hostMode == HostMode::PluginEditor || !dragging;
+
     if (slider == &volumeSlider)
     {
         masterVolume = static_cast<float>(volumeSlider.getValue());
@@ -3558,7 +3826,9 @@ void MainComponent::sliderValueChanged(juce::Slider* slider)
         if (!syncingUi)
         {
             updatePatchFromGlobalControls();
-            applyPatchToEngine();
+            applyPatchToEngine(!dragging, notifyState);
+            if (!dragging)
+                refreshStatus();
         }
     }
     else if (slider == &pitchWheelSlider)
@@ -3589,20 +3859,25 @@ void MainComponent::sliderValueChanged(juce::Slider* slider)
         engine.setModWheel(modWheelSlider.getValue());
         performanceEngineB.setModWheel(modWheelSlider.getValue());
     }
-    else if (slider == &dualDetuneSlider || slider == &splitPointSlider)
+    else if (slider == &dualDetuneSlider || slider == &splitPointSlider || slider == &balanceSlider)
     {
         if (!syncingUi)
         {
             updatePerformanceFromControls();
-            applyPatchToEngine();
-            refreshStatus();
+            applyPatchToEngine(!dragging, notifyState);
+            if (!dragging)
+            {
+                saveVoiceLibraryState();
+                refreshStatus();
+            }
         }
     }
     else if (!syncingUi)
     {
         updatePatchFromGlobalControls();
-        applyPatchToEngine();
-        refreshStatus();
+        applyPatchToEngine(!dragging, notifyState);
+        if (!dragging)
+            refreshStatus();
     }
 }
 
@@ -3611,5 +3886,31 @@ void MainComponent::sliderDragEnded(juce::Slider* slider)
     if (slider == &pitchWheelSlider)
     {
         pitchWheelSlider.setValue(0.0, juce::sendNotificationSync);
+        return;
     }
+
+    if (slider == &volumeSlider)
+    {
+        emitSynthStateChanged();
+        return;
+    }
+
+    if (slider == &modWheelSlider)
+        return;
+
+    if (syncingUi)
+        return;
+
+    if (slider == &dualDetuneSlider || slider == &splitPointSlider || slider == &balanceSlider)
+    {
+        updatePerformanceFromControls();
+        applyPatchToEngine(true, true);
+        saveVoiceLibraryState();
+        refreshStatus();
+        return;
+    }
+
+    updatePatchFromGlobalControls();
+    applyPatchToEngine(true, true);
+    refreshStatus();
 }

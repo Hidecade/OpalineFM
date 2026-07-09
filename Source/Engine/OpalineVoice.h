@@ -65,7 +65,9 @@ private:
     std::uint32_t sampleAndHoldLfsr = 0;
     int sampleAndHoldBit = 0;
     int sampleAndHoldCycle = -1;
+    int sampleAndHoldSubcycle = -1;
     int sampleAndHoldValue = 128;
+    std::uint16_t sampleAndHoldShiftRegister = 0;
     std::array<double, 2> feedbackHistory {};
     bool failed = false;
 };

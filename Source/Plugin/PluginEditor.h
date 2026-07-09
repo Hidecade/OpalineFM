@@ -14,6 +14,7 @@ public:
     ~OpalineAudioProcessorEditor() override;
 
     void resized() override;
+    void mouseDown(const juce::MouseEvent& event) override;
 
 private:
     void timerCallback() override;

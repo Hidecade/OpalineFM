@@ -18,6 +18,7 @@ struct PerformanceState
     int voiceBIndex = 16;
     int dualDetune = 0;
     int splitPoint = 60;
+    int abBalance = 0;
 };
 
 struct SynthState

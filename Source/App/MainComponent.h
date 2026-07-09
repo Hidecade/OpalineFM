@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "App/OpalineAppState.h"
 #include "Engine/OpalineEngine.h"
@@ -56,6 +56,7 @@ public:
     juce::String currentProgramName() const;
     void setExternalMidiNoteState(const std::array<int, 128>& velocities);
     void setExternalControllerState(double pitchBend, double modWheel);
+    void setExternalScopeSamples(const std::array<float, 256>& samples);
 
     void prepareToPlay(int samplesPerBlockExpected, double sampleRate) override;
     void getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferToFill) override;
@@ -63,6 +64,7 @@ public:
 
     void paint(juce::Graphics& g) override;
     void resized() override;
+    void mouseDown(const juce::MouseEvent& event) override;
 
 private:
     class OpalineLookAndFeel final : public juce::LookAndFeel_V4
@@ -88,6 +90,7 @@ private:
                               float maxSliderPos,
                               const juce::Slider::SliderStyle style,
                               juce::Slider& slider) override;
+        juce::Slider::SliderLayout getSliderLayout(juce::Slider& slider) override;
         void drawButtonBackground(juce::Graphics& g,
                                   juce::Button& button,
                                   const juce::Colour& backgroundColour,
@@ -140,6 +143,7 @@ private:
     public:
         ScopeComponent();
         void pushSample(float sample);
+        void setSamples(const std::array<float, 256>& newSamples);
         void paint(juce::Graphics& g) override;
 
     private:
@@ -272,6 +276,22 @@ private:
         }
     };
 
+    class UnitWheelSlider final : public juce::Slider
+    {
+    public:
+        void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails& wheel) override
+        {
+            const float delta = std::abs(wheel.deltaY) >= std::abs(wheel.deltaX) ? wheel.deltaY : wheel.deltaX;
+            if (delta == 0.0f)
+                return;
+
+            const double step = getMaximum() <= 1.0 ? 0.01 : 1.0;
+            const double direction = delta > 0.0f ? 1.0 : -1.0;
+            const double nextValue = juce::jlimit(getMinimum(), getMaximum(), getValue() + direction * step);
+            setValue(nextValue, juce::sendNotificationSync);
+        }
+    };
+
     void loadFactoryVoices();
     void populateVoiceBankSelect();
     void refreshVoiceLists();
@@ -286,7 +306,7 @@ private:
     void applySelectedVoice();
     void syncUiFromPatch();
     void updatePatchFromGlobalControls();
-    void applyPatchToEngine();
+    void applyPatchToEngine(bool updateUi = true, bool notifyState = true);
     void applyPerformanceModeToEngines();
     void applyRenderModelToEnginesNoLock();
     void refreshEngineModelButton();
@@ -320,6 +340,7 @@ private:
     bool isMidiUiNoteHeld(int note) const;
     int heldVelocityForNote(int note) const;
     void repaintKeyboardAsync();
+    bool pcKeyboardInputAllowed() const;
     void syncPcKeyboardNotes();
     void timerCallback() override;
 
@@ -344,10 +365,11 @@ private:
     juce::TextButton saveVoiceBankButton { "Save" };
     juce::TextButton exportVoiceLibraryButton { "Export" };
     juce::TextButton storeVoiceButton { "Store" };
-    juce::TextButton engineModelButton { "OLD" };
+    juce::TextButton engineModelButton { "TYPE A" };
     juce::ToggleButton lfoSyncButton { "Sync" };
-    juce::Slider volumeSlider;
-    juce::Slider transposeSlider;
+    UnitWheelSlider volumeSlider;
+    UnitWheelSlider transposeSlider;
+    UnitWheelSlider balanceSlider;
     StepWheelSlider algorithmSlider;
     StepWheelSlider feedbackSlider;
     StepWheelSlider lfoSpeedSlider;
@@ -369,10 +391,11 @@ private:
     StepWheelSlider effectDelaySlider;
     juce::Slider pitchWheelSlider;
     juce::Slider modWheelSlider;
-    juce::Slider dualDetuneSlider;
+    UnitWheelSlider dualDetuneSlider;
     SplitPointSlider splitPointSlider;
     juce::Label volumeLabel;
     juce::Label transposeLabel;
+    juce::Label balanceLabel;
     juce::Label algorithmGraphLabel;
     juce::Label pegGraphLabel;
     juce::Label algorithmLabel;

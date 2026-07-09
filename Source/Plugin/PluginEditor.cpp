@@ -1,4 +1,4 @@
-﻿#include "PluginEditor.h"
+#include "PluginEditor.h"
 
 #include "PluginProcessor.h"
 
@@ -42,8 +42,20 @@ OpalineAudioProcessorEditor::OpalineAudioProcessorEditor(OpalineAudioProcessor& 
     mainComponent.applySynthState(audioProcessor.getSynthState());
     audioProcessor.setProgramNameFromEditor(mainComponent.currentProgramName());
     addAndMakeVisible(mainComponent);
-    setSize(1024, 760);
-    startTimerHz(12);
+    setWantsKeyboardFocus(true);
+    setMouseClickGrabsKeyboardFocus(true);
+    mainComponent.setWantsKeyboardFocus(true);
+    mainComponent.setMouseClickGrabsKeyboardFocus(true);
+    juce::MessageManager::callAsync([safeThis = juce::Component::SafePointer<OpalineAudioProcessorEditor>(this)]
+    {
+        if (safeThis != nullptr)
+        {
+            safeThis->grabKeyboardFocus();
+            safeThis->mainComponent.grabKeyboardFocus();
+        }
+    });
+    setSize(1024, 668);
+    startTimerHz(60);
 }
 
 OpalineAudioProcessorEditor::~OpalineAudioProcessorEditor()
@@ -56,10 +68,17 @@ void OpalineAudioProcessorEditor::resized()
     mainComponent.setBounds(getLocalBounds());
 }
 
+void OpalineAudioProcessorEditor::mouseDown(const juce::MouseEvent&)
+{
+    grabKeyboardFocus();
+    mainComponent.grabKeyboardFocus();
+}
+
 void OpalineAudioProcessorEditor::timerCallback()
 {
     mainComponent.applySynthState(audioProcessor.getSynthState());
     mainComponent.setExternalMidiNoteState(audioProcessor.getMidiUiVelocities());
     mainComponent.setExternalControllerState(audioProcessor.getCurrentPitchBend(),
                                              audioProcessor.getCurrentModWheel());
+    mainComponent.setExternalScopeSamples(audioProcessor.getScopeSamples());
 }

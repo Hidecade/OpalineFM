@@ -563,10 +563,13 @@ void OpalineVoice::start(const OpalinePatch& patch, const int newMidiNote, const
     phases.fill(0.0);
     operatorTlAccumulators.fill(0.0);
     delayedPitchLfo = 0.0;
-    sampleAndHoldLfsr = 0;
-    sampleAndHoldBit = 0;
+    sampleAndHoldLfsr = 0xace1u ^ (static_cast<std::uint32_t>(midiNote & 0x7f) << 8)
+        ^ static_cast<std::uint32_t>(noteVelocity & 0x7f);
+    sampleAndHoldBit = static_cast<int>((sampleAndHoldLfsr >> 1) & 1u);
     sampleAndHoldCycle = -1;
-    sampleAndHoldValue = 128;
+    sampleAndHoldSubcycle = -1;
+    sampleAndHoldValue = nextChipSampleAndHoldValue(sampleAndHoldLfsr, sampleAndHoldBit);
+    sampleAndHoldShiftRegister = static_cast<std::uint16_t>(sampleAndHoldValue << 8);
     feedbackHistory.fill(0.0);
     failed = false;
     activeRenderModel = OpalineRenderModel::Current;
@@ -673,13 +676,22 @@ double OpalineVoice::nextPitchModulation(const double pitchLfo)
 
 std::pair<double, double> OpalineVoice::nextSampleAndHoldLfoShape(const double phase)
 {
-    const int cycle = static_cast<int>(std::floor(phase));
-    if (cycle != sampleAndHoldCycle)
+    const int subcycle = static_cast<int>(std::floor(phase * 16.0));
+    if (sampleAndHoldSubcycle < 0 || subcycle < sampleAndHoldSubcycle)
+        sampleAndHoldSubcycle = subcycle - 1;
+
+    int steps = clampInt(subcycle - sampleAndHoldSubcycle, 0, 64);
+    while (steps-- > 0)
     {
-        sampleAndHoldValue = nextChipSampleAndHoldValue(sampleAndHoldLfsr, sampleAndHoldBit);
-        sampleAndHoldCycle = cycle;
+        ++sampleAndHoldSubcycle;
+        const bool lfoClock = (sampleAndHoldSubcycle & 15) == 0;
+        const int feedback = static_cast<int>(((sampleAndHoldShiftRegister >> 15) ^ (sampleAndHoldShiftRegister >> 13)) & 1u);
+        const int bit = lfoClock ? nextChipNoiseInjectedBit(sampleAndHoldLfsr, sampleAndHoldBit) : feedback;
+        sampleAndHoldShiftRegister = static_cast<std::uint16_t>((sampleAndHoldShiftRegister << 1) | static_cast<std::uint16_t>(bit));
     }
 
+    sampleAndHoldCycle = static_cast<int>(std::floor(phase));
+    sampleAndHoldValue = static_cast<int>((sampleAndHoldShiftRegister >> 8) & 0xffu);
     const double am = static_cast<double>(sampleAndHoldValue) / 255.0;
     const double pm = static_cast<double>(sampleAndHoldValue) / 127.5 - 1.0;
     return { clampDouble(am, 0.0, 1.0), clampDouble(pm, -1.0, 1.0) };
@@ -839,7 +851,7 @@ double OpalineVoice::render(const OpalinePatch& patch,
     const double modWheelPitchLfo = modWheelPitchDepthForModel(patch.lfo.pitchSensitivity, patch.lfo.wave, renderModel)
         * clampDouble(modWheel, 0.0, 1.0) * pitchLfoShape.second;
     const double pitchLfo = directPitchLfo + modWheelPitchLfo;
-    const double ampDepth = opmStyleAmpModDepth(patch.lfo.ampDepth, patch.lfo.ampSensitivity) * delay;
+    const double ampDepth = opmStyleAmpModDepth(patch.lfo.ampDepth, patch.lfo.ampSensitivity);
     const double appliedPitchLfo = nextPitchModulation(pitchLfo);
     const double pitchEnvelopeSemitones = pitchEnvelope.nextSemitones();
     const double bendSemitones = clampDouble(pitchBend, -1.0, 1.0) * 2.0;
