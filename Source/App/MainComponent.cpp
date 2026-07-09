@@ -1428,8 +1428,9 @@ void MainComponent::OperatorComponent::paint(juce::Graphics& g)
     const float x1 = left + usableWidth * attackWeight / totalWeight;
     const float x2 = x1 + usableWidth * decay1Weight / totalWeight;
     const float x3 = x2 + usableWidth * decay2Weight / totalWeight;
-    const float sustain = static_cast<float>(juce::jlimit(0, 15, op.envelope.decay1Level)) / 15.0f;
-    const float y2 = bottom - sustain * (bottom - top);
+    const int d1l = juce::jlimit(0, 15, op.envelope.decay1Level);
+    const float sustainDb = d1l >= 15 ? 96.0f : static_cast<float>(15 - d1l) * 3.0f;
+    const float y2 = top + juce::jlimit(0.0f, 1.0f, sustainDb / 96.0f) * (bottom - top);
     const float y3 = op.envelope.decay2Rate > 0 ? bottom : y2;
     juce::Path path;
     path.startNewSubPath(left, bottom);
@@ -2899,13 +2900,7 @@ void MainComponent::applySynthState(const opalineapp::SynthState& state)
     {
         const int maxVoiceIndex = juce::jmax(0, static_cast<int>(factoryVoices.size()) - 1);
         performanceState.voiceAIndex = juce::jlimit(0, maxVoiceIndex, performanceState.voiceAIndex);
-
-        auto& voice = voiceLibrary.banks[static_cast<std::size_t>(currentVoiceBankIndex)]
-                          .voices[static_cast<std::size_t>(performanceState.voiceAIndex)];
-        voice.patch = currentPatch;
-        voice.vmem = opaline::encodeCompatibleVmemVoice(voice);
-        voice.hasVmem = true;
-        factoryVoices[static_cast<std::size_t>(performanceState.voiceAIndex)] = voice;
+        performanceState.voiceBIndex = juce::jlimit(0, maxVoiceIndex, performanceState.voiceBIndex);
     }
     masterVolume = juce::jlimit(0.0f, 1.0f, state.masterVolume);
     chipRenderModel = state.renderModel == opaline::OpalineRenderModel::ChipHybrid;

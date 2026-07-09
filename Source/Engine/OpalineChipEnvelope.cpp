@@ -173,7 +173,7 @@ void OpalineChipEnvelope::advanceAttack()
     if (egLevel <= 0.5)
     {
         egLevel = 0.0;
-        currentStage = Stage::Decay1;
+        currentStage = currentParams.decay1Level >= 15 ? Stage::Decay2 : Stage::Decay1;
     }
 }
 
@@ -196,7 +196,14 @@ void OpalineChipEnvelope::advanceEgTick()
     if (currentStage == Stage::Attack)
         advanceAttack();
     else if (currentStage == Stage::Decay1)
+    {
+        if (currentParams.decay1Level >= 15)
+        {
+            currentStage = Stage::Decay2;
+            return;
+        }
         advanceDecay(currentParams.decay1Rate, decay1TargetIndex(), Stage::Decay2, Stage::Decay1);
+    }
     else if (currentStage == Stage::Decay2)
     {
         if (currentParams.decay2Rate > 0)

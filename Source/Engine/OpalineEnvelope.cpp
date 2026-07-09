@@ -191,11 +191,16 @@ void OpalineEnvelope::advanceEgTick(const double targetD1Db)
         if (attenuationDb <= 0.05)
         {
             attenuationDb = 0.0;
-            currentStage = Stage::Decay1;
+            currentStage = currentParams.decay1Level >= 15 ? Stage::Decay2 : Stage::Decay1;
         }
     }
     else if (currentStage == Stage::Decay1)
     {
+        if (currentParams.decay1Level >= 15)
+        {
+            currentStage = Stage::Decay2;
+            return;
+        }
         advanceDecay(currentParams.decay1Rate, targetD1Db, Stage::Decay2, Stage::Decay1);
     }
     else if (currentStage == Stage::Decay2)
@@ -212,7 +217,7 @@ void OpalineEnvelope::advanceEgTick(const double targetD1Db)
 double OpalineEnvelope::decay1LevelDb() const
 {
     if (currentParams.decay1Level >= 15)
-        return 0.0;
+        return kQuietDb;
     return static_cast<double>(15 - currentParams.decay1Level) * 3.0;
 }
 

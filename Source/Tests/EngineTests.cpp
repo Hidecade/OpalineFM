@@ -150,6 +150,34 @@ void testFastAttackTiming()
     expect(envelope.stage() != opaline::OpalineEnvelope::Stage::Attack, "AR31 leaves attack stage quickly");
 }
 
+void testD1L15SkipsToDecay2()
+{
+    auto sampleEnvelope = [](const int decay1Level)
+    {
+        opaline::OpalineEnvelope envelope;
+        envelope.reset(44100.0);
+
+        opaline::OpalineEnvelopeParams params;
+        params.attackRate = 31;
+        params.decay1Rate = 0;
+        params.decay1Level = decay1Level;
+        params.decay2Rate = 7;
+        params.releaseRate = 3;
+
+        envelope.noteOn(params, 0, 60);
+        double value = 0.0;
+        for (int i = 0; i < 44100 * 3; ++i)
+            value = envelope.next();
+
+        return value;
+    };
+
+    const double d1l14 = sampleEnvelope(14);
+    const double d1l15 = sampleEnvelope(15);
+    expect(d1l14 > 0.5, "D1L14 sustains when D1R is zero");
+    expect(d1l15 < d1l14 * 0.5, "D1L15 decays through D2R even when D1R is zero");
+}
+
 void testPitchEnvelope()
 {
     opaline::OpalinePitchEnvelope envelope;
@@ -598,6 +626,7 @@ int main()
     testPatchNormalization();
     testEnvelope();
     testFastAttackTiming();
+    testD1L15SkipsToDecay2();
     testPitchEnvelope();
     testEngineRendering();
     testVoiceLimit();

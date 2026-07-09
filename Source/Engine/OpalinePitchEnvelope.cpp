@@ -10,7 +10,7 @@ namespace
 // PL50を中心に、実機録音から得た上下方向のテーブルを使う。
 constexpr double kPegRateReferenceCents = 4800.0;
 constexpr double kPegRate0Seconds = 63.55;
-constexpr double kPegRate99Seconds = 0.012;
+constexpr double kPegRate99Seconds = 0.008;
 constexpr double kPegLowerLevelAnchorCents[] {
     -4800.0,
     -4052.84,
