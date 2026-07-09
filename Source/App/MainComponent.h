@@ -38,12 +38,15 @@ public:
     using AllNotesOffCallback = std::function<void()>;
     using ControllerCallback = std::function<void(double)>;
     using ProgramNameChangedCallback = std::function<void(const juce::String&)>;
+    using WavRecordingStartCallback = std::function<void()>;
+    using WavRecordingStopCallback = std::function<void()>;
+    using WavRecordingSaveCallback = std::function<bool(const juce::File&)>;
 
     explicit MainComponent(HostMode mode = HostMode::StandaloneApp);
     ~MainComponent() override;
 
     opalineapp::SynthState captureSynthState() const;
-    void applySynthState(const opalineapp::SynthState& state);
+    void applySynthState(const opalineapp::SynthState& state, bool resetPatchToSelectedVoice = false);
     opaline::OpalineRenderModel currentRenderModel() const;
     void setStateChangedCallback(StateChangedCallback callback);
     void setRenderModelChangedCallback(RenderModelChangedCallback callback);
@@ -53,6 +56,9 @@ public:
     void setPitchBendCallback(ControllerCallback callback);
     void setModWheelCallback(ControllerCallback callback);
     void setProgramNameChangedCallback(ProgramNameChangedCallback callback);
+    void setWavRecordingCallbacks(WavRecordingStartCallback startCallback,
+                                  WavRecordingStopCallback stopCallback,
+                                  WavRecordingSaveCallback saveCallback);
     juce::String currentProgramName() const;
     void setExternalMidiNoteState(const std::array<int, 128>& velocities);
     void setExternalControllerState(double pitchBend, double modWheel);
@@ -303,7 +309,7 @@ private:
     void exportVoiceLibraryToFile(const juce::File& file);
     bool restoreSavedVoiceLibraryState();
     void saveVoiceLibraryState();
-    void applySelectedVoice();
+    void applySelectedVoice(int selectedId = 0);
     void syncUiFromPatch();
     void updatePatchFromGlobalControls();
     void applyPatchToEngine(bool updateUi = true, bool notifyState = true);
@@ -332,6 +338,9 @@ private:
     void saveAudioOutputSelection() const;
     void restoreMidiInputSelection();
     void saveMidiInputSelection() const;
+    void startWavRecording();
+    void stopWavRecordingAndChooseFile();
+    void writeWavRecordingToFile(const juce::File& file);
     void noteOn(int note, int velocity);
     void noteOff(int note);
     void performNoteOnNoLock(int note, int velocity);
@@ -361,11 +370,12 @@ private:
     juce::ComboBox midiInputSelect;
     juce::ComboBox lfoWaveSelect;
     juce::TextButton powerButton { "OFF" };
+    juce::TextButton wavRecordButton { "WAV" };
     juce::TextButton loadVoiceBankButton { "Load" };
     juce::TextButton saveVoiceBankButton { "Save" };
     juce::TextButton exportVoiceLibraryButton { "Export" };
     juce::TextButton storeVoiceButton { "Store" };
-    juce::TextButton engineModelButton { "TYPE A" };
+    juce::TextButton engineModelButton { "TYPE B" };
     juce::ToggleButton lfoSyncButton { "Sync" };
     UnitWheelSlider volumeSlider;
     UnitWheelSlider transposeSlider;
@@ -386,6 +396,7 @@ private:
     StepWheelSlider pegLevel3Slider;
     StepWheelSlider effectReverbSlider;
     StepWheelSlider effectMixSlider;
+    StepWheelSlider effectEchoMixSlider;
     StepWheelSlider effectToneSlider;
     StepWheelSlider effectChorusSlider;
     StepWheelSlider effectDelaySlider;
@@ -419,6 +430,7 @@ private:
     juce::Label pegLevel3Label;
     juce::Label effectReverbLabel;
     juce::Label effectMixLabel;
+    juce::Label effectEchoMixLabel;
     juce::Label effectToneLabel;
     juce::Label effectChorusLabel;
     juce::Label effectDelayLabel;
@@ -455,6 +467,10 @@ private:
     std::unique_ptr<juce::FileChooser> fileChooser;
     std::vector<std::unique_ptr<juce::MidiInput>> midiInputs;
     std::mutex engineMutex;
+    std::mutex recordingMutex;
+    std::vector<float> wavRecordingInterleaved;
+    double wavRecordingSampleRate = 44100.0;
+    std::atomic<bool> wavRecording { false };
     std::array<bool, 128> pcKeyboardHeldNotes {};
     std::array<int, 128> pcKeyboardHeldVelocities {};
 
@@ -464,7 +480,7 @@ private:
     double currentModWheel = 0.0;
     bool powerOn = false;
     bool audioStarted = false;
-    bool chipRenderModel = false;
+    bool chipRenderModel = true;
     bool syncingUi = false;
     bool suppressStateCallback = false;
     HostMode hostMode = HostMode::StandaloneApp;
@@ -476,6 +492,9 @@ private:
     ControllerCallback onPitchBend;
     ControllerCallback onModWheel;
     ProgramNameChangedCallback onProgramNameChanged;
+    WavRecordingStartCallback onExternalWavRecordingStart;
+    WavRecordingStopCallback onExternalWavRecordingStop;
+    WavRecordingSaveCallback onExternalWavRecordingSave;
     juce::String midiStatus = "MIDI: not connected";
     juce::String audioStatus = "Audio: off";
 };

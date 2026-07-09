@@ -38,8 +38,21 @@ OpalineAudioProcessorEditor::OpalineAudioProcessorEditor(OpalineAudioProcessor& 
     {
         audioProcessor.setProgramNameFromEditor(name);
     });
+    mainComponent.setWavRecordingCallbacks([this]
+    {
+        audioProcessor.startWavRecording();
+    },
+    [this]
+    {
+        audioProcessor.stopWavRecording();
+    },
+    [this](const juce::File& file)
+    {
+        return audioProcessor.stopWavRecordingAndSaveToFile(file);
+    });
 
-    mainComponent.applySynthState(audioProcessor.getSynthState());
+    mainComponent.applySynthState(audioProcessor.getSynthState(), true);
+    audioProcessor.setSynthStateFromEditor(mainComponent.captureSynthState());
     audioProcessor.setProgramNameFromEditor(mainComponent.currentProgramName());
     addAndMakeVisible(mainComponent);
     setWantsKeyboardFocus(true);
@@ -76,6 +89,21 @@ void OpalineAudioProcessorEditor::mouseDown(const juce::MouseEvent&)
 
 void OpalineAudioProcessorEditor::timerCallback()
 {
+    if (auto* modalManager = juce::ModalComponentManager::getInstanceWithoutCreating())
+    {
+        if (modalManager->getNumModalComponents() > 0)
+        {
+            externalStateSyncHoldoffFrames = 12;
+            return;
+        }
+    }
+
+    if (externalStateSyncHoldoffFrames > 0)
+    {
+        --externalStateSyncHoldoffFrames;
+        return;
+    }
+
     mainComponent.applySynthState(audioProcessor.getSynthState());
     mainComponent.setExternalMidiNoteState(audioProcessor.getMidiUiVelocities());
     mainComponent.setExternalControllerState(audioProcessor.getCurrentPitchBend(),

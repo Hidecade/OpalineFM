@@ -1,4 +1,4 @@
-﻿#include "Engine/OpalineEngine.h"
+#include "Engine/OpalineEngine.h"
 #include "Engine/OpalineEnvelope.h"
 #include "Engine/OpalinePitchEnvelope.h"
 #include "Engine/OpalineSysex.h"
@@ -74,6 +74,7 @@ void testPatchNormalization()
     patch.pitchEnvelope.level3 = 120;
     patch.effects.reverb = 1000;
     patch.effects.mix = -10;
+    patch.effects.echoMix = 300;
     patch.effects.tone = 120;
     patch.effects.chorus = 200;
     patch.effects.delay = 300;
@@ -94,6 +95,7 @@ void testPatchNormalization()
     expect(normalized.pitchEnvelope.level3 == 99, "PEG level3 clamps high");
     expect(normalized.effects.reverb == 99, "effect reverb clamps high");
     expect(normalized.effects.mix == 0, "effect mix clamps low");
+    expect(normalized.effects.echoMix == 99, "effect echo mix clamps high");
     expect(normalized.effects.tone == 99, "effect tone clamps high");
     expect(normalized.effects.chorus == 99, "effect chorus clamps high");
     expect(normalized.effects.delay == 99, "effect delay clamps high");
@@ -220,6 +222,22 @@ void testPitchEnvelope()
     expectNear(value, 0.0, 0.0001, "PEG releases from current value to PL3");
     expect(envelope.stage() == opaline::OpalinePitchEnvelope::Stage::Finished, "PEG finishes release");
 
+    envelope.reset(1000.0);
+    params.rate1 = 99;
+    params.rate2 = 99;
+    params.rate3 = 99;
+    params.level1 = 99;
+    params.level2 = 99;
+    params.level3 = 50;
+    envelope.noteOn(params);
+    for (int i = 0; i < 3; ++i)
+        value = envelope.nextSemitones();
+
+    expectNear(value, 0.0, 0.0001, "PEG PR99 holds PL3 before jump");
+    value = envelope.nextSemitones();
+    expectNear(value, 48.0, 0.0001, "PEG PR99 jumps to PL1 after delay");
+    expect(envelope.stage() == opaline::OpalinePitchEnvelope::Stage::Sustain, "PEG PR99 reaches sustain after jump");
+
     struct PegRateExpectation
     {
         int rate = 0;
@@ -240,7 +258,7 @@ void testPitchEnvelope()
         { 96, 179 },
         { 97, 175 },
         { 98, 155 },
-        { 99, 12 }
+        { 99, 4 }
     };
 
     for (const auto& expected : measuredRates)
@@ -372,6 +390,7 @@ void testEngineEffectsRendering()
     patch.feedback = 0;
     patch.effects.reverb = 70;
     patch.effects.mix = 65;
+    patch.effects.echoMix = 45;
     patch.effects.tone = 55;
     patch.effects.chorus = 80;
     patch.effects.delay = 35;

@@ -58,6 +58,7 @@ struct OpalineEffects
 {
     int reverb = 0;
     int mix = 0;
+    int echoMix = 0;
     int tone = 50;
     int chorus = 0;
     int delay = 0;
@@ -80,11 +81,11 @@ struct StereoSample
     float right = 0.0f;
 };
 
-// Current は従来モデル、ChipHybrid はチップ寄せの試作モデル。
+// TYPE A is the stable snapshot. TYPE B is the editable comparison model.
 enum class OpalineRenderModel
 {
-    Current,
-    ChipHybrid
+    TypeA,
+    TypeB
 };
 
 OpalinePatch normalizePatch(const OpalinePatch& patch);

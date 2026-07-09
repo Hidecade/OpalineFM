@@ -10,7 +10,7 @@ namespace
 // PL50を中心に、実機録音から得た上下方向のテーブルを使う。
 constexpr double kPegRateReferenceCents = 4800.0;
 constexpr double kPegRate0Seconds = 63.55;
-constexpr double kPegRate99Seconds = 0.008;
+constexpr double kPegRate99Seconds = 0.004;
 constexpr double kPegLowerLevelAnchorCents[] {
     -4800.0,
     -4052.84,
@@ -107,6 +107,7 @@ void OpalinePitchEnvelope::reset(const double sampleRate)
     currentCents = 0.0;
     targetCents = 0.0;
     centsPerSample = 0.0;
+    jumpSamplesRemaining = 0;
 }
 
 void OpalinePitchEnvelope::noteOn(const OpalinePitchEnvelopeParams& params)
@@ -138,17 +139,20 @@ void OpalinePitchEnvelope::startSegment(const Stage stage, const int targetLevel
 {
     currentStage = stage;
     targetCents = levelToCents(targetLevel);
+    jumpSamplesRemaining = 0;
     const double distance = std::abs(targetCents - currentCents);
     if (distance <= 0.000001)
     {
         currentCents = targetCents;
         centsPerSample = 0.0;
-        if (stage == Stage::Stage1)
-            startSegment(Stage::Stage2, currentParams.level2, currentParams.rate2);
-        else if (stage == Stage::Stage2)
-            currentStage = Stage::Sustain;
-        else if (stage == Stage::Release)
-            currentStage = Stage::Finished;
+        completeSegment();
+        return;
+    }
+
+    if (clampInt(rate, 0, 99) >= 99)
+    {
+        centsPerSample = 0.0;
+        jumpSamplesRemaining = std::max(1, static_cast<int>(std::round(kPegRate99Seconds * currentSampleRate)));
         return;
     }
 
@@ -159,6 +163,17 @@ void OpalinePitchEnvelope::startSegment(const Stage stage, const int targetLevel
 
 void OpalinePitchEnvelope::advanceSegment()
 {
+    if (jumpSamplesRemaining > 0)
+    {
+        --jumpSamplesRemaining;
+        if (jumpSamplesRemaining > 0)
+            return;
+
+        currentCents = targetCents;
+        completeSegment();
+        return;
+    }
+
     if (currentCents < targetCents)
         currentCents = std::min(targetCents, currentCents + centsPerSample);
     else
@@ -167,6 +182,11 @@ void OpalinePitchEnvelope::advanceSegment()
     if (currentCents != targetCents)
         return;
 
+    completeSegment();
+}
+
+void OpalinePitchEnvelope::completeSegment()
+{
     if (currentStage == Stage::Stage1)
         startSegment(Stage::Stage2, currentParams.level2, currentParams.rate2);
     else if (currentStage == Stage::Stage2)

@@ -857,69 +857,82 @@ void MainComponent::OpalineLookAndFeel::drawButtonBackground(juce::Graphics& g,
 {
     const bool opButton = button.getName() == "opEnableButton";
     const bool ampButton = button.getName() == "opAmpModButton";
-    if (!opButton && !ampButton)
+    if (opButton || ampButton)
     {
-        juce::LookAndFeel_V4::drawButtonBackground(g, button, backgroundColour, shouldDrawButtonAsHighlighted, shouldDrawButtonAsDown);
+        auto bounds = button.getLocalBounds().toFloat().reduced(1.0f);
+        const bool on = button.getToggleState();
+        const auto top = on ? (ampButton ? juce::Colour(0xff5ca8d7) : juce::Colour(0xff35d8bd)) : juce::Colour(0xff45443d);
+        const auto bottom = on ? (ampButton ? juce::Colour(0xff22618d) : juce::Colour(0xff07876e)) : juce::Colour(0xff22221e);
+        const auto outline = on ? (ampButton ? juce::Colour(0xff8bc9f0) : juce::Colour(0xff55e6d0)) : kControlBorder;
+
+        if (shouldDrawButtonAsDown)
+            bounds.translate(0.0f, 1.0f);
+
+        g.setColour(juce::Colours::black.withAlpha(0.38f));
+        g.fillRoundedRectangle(bounds.translated(0.0f, 3.0f), 4.0f);
+        g.setGradientFill(juce::ColourGradient(top, bounds.getX(), bounds.getY(), bottom, bounds.getX(), bounds.getBottom(), false));
+        g.fillRoundedRectangle(bounds, 4.0f);
+
+        if (shouldDrawButtonAsHighlighted)
+        {
+            g.setColour(juce::Colours::white.withAlpha(0.08f));
+            g.fillRoundedRectangle(bounds.reduced(2.0f), 3.0f);
+        }
+
+        g.setColour(outline.withAlpha(on ? 0.85f : 0.6f));
+        g.drawRoundedRectangle(bounds, 4.0f, 1.2f);
         return;
     }
 
-    auto bounds = button.getLocalBounds().toFloat().reduced(1.0f);
-    const bool on = button.getToggleState();
-    const auto top = on ? (ampButton ? juce::Colour(0xff5ca8d7) : juce::Colour(0xff35d8bd)) : juce::Colour(0xff45443d);
-    const auto bottom = on ? (ampButton ? juce::Colour(0xff22618d) : juce::Colour(0xff07876e)) : juce::Colour(0xff22221e);
-    const auto outline = on ? (ampButton ? juce::Colour(0xff8bc9f0) : juce::Colour(0xff55e6d0)) : kControlBorder;
-
-    if (shouldDrawButtonAsDown)
-        bounds.translate(0.0f, 1.0f);
-
-    g.setColour(juce::Colours::black.withAlpha(0.38f));
-    g.fillRoundedRectangle(bounds.translated(0.0f, 3.0f), 4.0f);
-    g.setGradientFill(juce::ColourGradient(top, bounds.getX(), bounds.getY(), bottom, bounds.getX(), bounds.getBottom(), false));
-    g.fillRoundedRectangle(bounds, 4.0f);
-
-    if (shouldDrawButtonAsHighlighted)
+    if (auto* textButton = dynamic_cast<juce::TextButton*>(&button))
     {
-        g.setColour(juce::Colours::white.withAlpha(0.08f));
-        g.fillRoundedRectangle(bounds.reduced(2.0f), 3.0f);
+        auto bounds = textButton->getLocalBounds().toFloat().reduced(1.0f);
+        if (shouldDrawButtonAsDown)
+            bounds.translate(0.0f, 1.0f);
+
+        const auto top = shouldDrawButtonAsDown ? juce::Colour(0xff101a1e) : juce::Colour(0xff17242a);
+        const auto bottom = shouldDrawButtonAsDown ? juce::Colour(0xff0a1114) : juce::Colour(0xff10191d);
+        const auto outline = shouldDrawButtonAsHighlighted ? juce::Colour(0xff4a6771) : juce::Colour(0xff263b43);
+
+        g.setColour(juce::Colours::black.withAlpha(0.32f));
+        g.fillRoundedRectangle(bounds.translated(0.0f, 2.0f), 4.5f);
+        g.setGradientFill(juce::ColourGradient(top, bounds.getX(), bounds.getY(), bottom, bounds.getX(), bounds.getBottom(), false));
+        g.fillRoundedRectangle(bounds, 4.5f);
+
+        g.setColour(juce::Colours::white.withAlpha(shouldDrawButtonAsHighlighted ? 0.08f : 0.035f));
+        g.drawHorizontalLine(static_cast<int>(bounds.getY()) + 1, bounds.getX() + 4.0f, bounds.getRight() - 4.0f);
+
+        g.setColour(outline);
+        g.drawRoundedRectangle(bounds, 4.5f, 1.1f);
+        return;
     }
 
-    g.setColour(outline.withAlpha(on ? 0.85f : 0.6f));
-    g.drawRoundedRectangle(bounds, 4.0f, 1.2f);
+    juce::LookAndFeel_V4::drawButtonBackground(g, button, backgroundColour, shouldDrawButtonAsHighlighted, shouldDrawButtonAsDown);
 }
-
 void MainComponent::OpalineLookAndFeel::drawButtonText(juce::Graphics& g,
                                                     juce::TextButton& button,
                                                     const bool,
                                                     const bool shouldDrawButtonAsDown)
 {
-    const bool engineButton = button.getName() == "engineModelButton";
-    if (button.getName() == "voiceBankButton" || engineButton)
-    {
-        auto bounds = button.getLocalBounds().reduced(engineButton ? 2 : 3, engineButton ? 0 : 1);
-        if (shouldDrawButtonAsDown)
-            bounds.translate(0, 1);
+    const bool opButton = button.getName() == "opEnableButton";
+    const bool ampButton = button.getName() == "opAmpModButton";
+    auto bounds = button.getLocalBounds().reduced(opButton || ampButton ? 2 : 4, opButton || ampButton ? 2 : 1);
+    if (shouldDrawButtonAsDown)
+        bounds.translate(0, 1);
 
-        g.setColour(button.findColour(juce::TextButton::textColourOffId));
-        g.setFont(juce::FontOptions(engineButton ? 9.5f : 12.0f, juce::Font::plain));
+    if (opButton || ampButton)
+    {
+        g.setColour(button.getToggleState() ? juce::Colours::white : kTextMuted);
+        g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
         g.drawFittedText(button.getButtonText(), bounds, juce::Justification::centred, 1);
         return;
     }
 
-    if (button.getName() != "opEnableButton" && button.getName() != "opAmpModButton")
-    {
-        juce::LookAndFeel_V4::drawButtonText(g, button, false, shouldDrawButtonAsDown);
-        return;
-    }
-
-    auto bounds = button.getLocalBounds().reduced(2);
-    if (shouldDrawButtonAsDown)
-        bounds.translate(0, 1);
-
-    g.setColour(button.getToggleState() ? juce::Colours::white : kTextMuted);
-    g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
+    const bool compact = button.getWidth() < 64 || button.getHeight() < 28;
+    g.setColour(button.findColour(juce::TextButton::textColourOffId).withAlpha(button.isEnabled() ? 1.0f : 0.48f));
+    g.setFont(juce::FontOptions(compact ? 12.0f : 13.0f, juce::Font::plain));
     g.drawFittedText(button.getButtonText(), bounds, juce::Justification::centred, 1);
 }
-
 void MainComponent::OpalineLookAndFeel::drawToggleButton(juce::Graphics& g,
                                                       juce::ToggleButton& button,
                                                       const bool shouldDrawButtonAsHighlighted,
@@ -1816,6 +1829,15 @@ MainComponent::MainComponent(const HostMode mode)
     powerButton.addListener(this);
     addAndMakeVisible(powerButton);
 
+    wavRecordButton.setName("wavRecordButton");
+    wavRecordButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff17242a));
+    wavRecordButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff0aa878));
+    wavRecordButton.setColour(juce::TextButton::textColourOffId, kTextPrimary);
+    wavRecordButton.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+    wavRecordButton.setLookAndFeel(&opalineLookAndFeel);
+    wavRecordButton.addListener(this);
+    addAndMakeVisible(wavRecordButton);
+
     engineModelButton.setClickingTogglesState(true);
     engineModelButton.setName("engineModelButton");
     engineModelButton.setLookAndFeel(&opalineLookAndFeel);
@@ -1952,21 +1974,23 @@ MainComponent::MainComponent(const HostMode mode)
         addAndMakeVisible(*label);
 
     setupLabel(effectReverbLabel, "Reverb");
-    setupLabel(effectMixLabel, "Mix");
+    setupLabel(effectMixLabel, "RevMix");
+    setupLabel(effectEchoMixLabel, "DlyMix");
     setupLabel(effectToneLabel, "Tone");
     setupLabel(effectChorusLabel, "Chorus");
     setupLabel(effectDelayLabel, "Delay");
     setupSlider(effectReverbSlider, 0, 99, 1, 0, juce::Slider::RotaryHorizontalVerticalDrag);
     setupSlider(effectMixSlider, 0, 99, 1, 0, juce::Slider::RotaryHorizontalVerticalDrag);
+    setupSlider(effectEchoMixSlider, 0, 99, 1, 0, juce::Slider::RotaryHorizontalVerticalDrag);
     setupSlider(effectToneSlider, 0, 99, 1, 50, juce::Slider::RotaryHorizontalVerticalDrag);
     setupSlider(effectChorusSlider, 0, 99, 1, 0, juce::Slider::RotaryHorizontalVerticalDrag);
     setupSlider(effectDelaySlider, 0, 99, 1, 0, juce::Slider::RotaryHorizontalVerticalDrag);
-    for (auto* slider : { &effectReverbSlider, &effectMixSlider, &effectToneSlider, &effectChorusSlider, &effectDelaySlider })
+    for (auto* slider : { &effectReverbSlider, &effectMixSlider, &effectEchoMixSlider, &effectToneSlider, &effectChorusSlider, &effectDelaySlider })
     {
         slider->addListener(this);
         addAndMakeVisible(*slider);
     }
-    for (auto* label : { &effectReverbLabel, &effectMixLabel, &effectToneLabel, &effectChorusLabel, &effectDelayLabel })
+    for (auto* label : { &effectReverbLabel, &effectMixLabel, &effectEchoMixLabel, &effectToneLabel, &effectChorusLabel, &effectDelayLabel })
         addAndMakeVisible(*label);
 
     setupLabel(pitchWheelLabel, "PITCH");
@@ -2061,12 +2085,12 @@ MainComponent::~MainComponent()
     }
     midiInputs.clear();
 
-    const std::array<juce::Slider*, 26> sliders { &volumeSlider, &transposeSlider, &balanceSlider, &algorithmSlider, &feedbackSlider,
+    const std::array<juce::Slider*, 27> sliders { &volumeSlider, &transposeSlider, &balanceSlider, &algorithmSlider, &feedbackSlider,
                                                   &lfoSpeedSlider, &lfoDelaySlider, &lfoPitchDepthSlider, &lfoAmpDepthSlider,
                                                   &lfoPitchSensitivitySlider, &lfoAmpSensitivitySlider,
                                                   &pegRate1Slider, &pegRate2Slider, &pegRate3Slider,
                                                   &pegLevel1Slider, &pegLevel2Slider, &pegLevel3Slider,
-                                                  &effectReverbSlider, &effectMixSlider, &effectToneSlider, &effectChorusSlider,
+                                                  &effectReverbSlider, &effectMixSlider, &effectEchoMixSlider, &effectToneSlider, &effectChorusSlider,
                                                   &effectDelaySlider, &pitchWheelSlider, &modWheelSlider,
                                                   &dualDetuneSlider, &splitPointSlider };
     for (auto* slider : sliders)
@@ -2079,6 +2103,7 @@ MainComponent::~MainComponent()
         comboBox->setLookAndFeel(nullptr);
     for (auto* button : { &loadVoiceBankButton, &saveVoiceBankButton, &exportVoiceLibraryButton, &storeVoiceButton })
         button->setLookAndFeel(nullptr);
+    wavRecordButton.setLookAndFeel(nullptr);
     engineModelButton.setLookAndFeel(nullptr);
     lfoSyncButton.setLookAndFeel(nullptr);
 
@@ -2131,6 +2156,15 @@ void MainComponent::setModWheelCallback(ControllerCallback callback)
 void MainComponent::setProgramNameChangedCallback(ProgramNameChangedCallback callback)
 {
     onProgramNameChanged = std::move(callback);
+}
+
+void MainComponent::setWavRecordingCallbacks(WavRecordingStartCallback startCallback,
+                                             WavRecordingStopCallback stopCallback,
+                                             WavRecordingSaveCallback saveCallback)
+{
+    onExternalWavRecordingStart = std::move(startCallback);
+    onExternalWavRecordingStop = std::move(stopCallback);
+    onExternalWavRecordingSave = std::move(saveCallback);
 }
 
 juce::String MainComponent::currentProgramName() const
@@ -2214,6 +2248,18 @@ void MainComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo& buffer
         if ((i & 7) == 0)
             scope.pushSample(left[i]);
     }
+
+    if (wavRecording.load(std::memory_order_relaxed))
+    {
+        std::lock_guard<std::mutex> recordingLock(recordingMutex);
+        const auto sampleCount = static_cast<std::size_t>(bufferToFill.numSamples);
+        wavRecordingInterleaved.reserve(wavRecordingInterleaved.size() + sampleCount * 2);
+        for (int i = 0; i < bufferToFill.numSamples; ++i)
+        {
+            wavRecordingInterleaved.push_back(left[i]);
+            wavRecordingInterleaved.push_back(right[i]);
+        }
+    }
 }
 
 void MainComponent::releaseResources() {}
@@ -2261,13 +2307,15 @@ void MainComponent::resized()
     auto header = area.removeFromTop(34);
     titleLabel.setBounds(header.removeFromLeft(210));
     titleLabel.setVisible(false);
+    wavRecordButton.setBounds(header.removeFromRight(68).withSizeKeepingCentre(68, 23));
+    header.removeFromRight(panelGap);
+    engineModelButton.setBounds(header.removeFromRight(68).withSizeKeepingCentre(68, 23));
+    header.removeFromRight(panelGap);
     if (hostMode == HostMode::StandaloneApp)
     {
         powerButton.setBounds(header.removeFromRight(82));
         header.removeFromRight(panelGap);
     }
-    engineModelButton.setBounds(header.removeFromRight(55).withSizeKeepingCentre(55, 23));
-    header.removeFromRight(panelGap);
     if (hostMode == HostMode::StandaloneApp)
     {
         midiInputSelect.setBounds(header.removeFromRight(180));
@@ -2429,8 +2477,8 @@ void MainComponent::resized()
 
     auto effectsContent = effects.reduced(0, 0);
     const int effectsCellWidth = knobColumnWidth;
-    std::array<juce::Label*, 5> effectLabels { &effectReverbLabel, &effectMixLabel, &effectToneLabel, &effectChorusLabel, &effectDelayLabel };
-    std::array<juce::Slider*, 5> effectSliders { &effectReverbSlider, &effectMixSlider, &effectToneSlider, &effectChorusSlider, &effectDelaySlider };
+    std::array<juce::Label*, 6> effectLabels { &effectReverbLabel, &effectDelayLabel, &effectChorusLabel, &effectMixLabel, &effectEchoMixLabel, &effectToneLabel };
+    std::array<juce::Slider*, 6> effectSliders { &effectReverbSlider, &effectDelaySlider, &effectChorusSlider, &effectMixSlider, &effectEchoMixSlider, &effectToneSlider };
     for (int row = 0; row < 2; ++row)
     {
         for (int col = 0; col < 3; ++col)
@@ -2589,7 +2637,7 @@ void MainComponent::loadVoiceBankFromFile(const juce::File& file)
             opaline::voiceBankFromSysex(bytes, file.getFileNameWithoutExtension().toStdString());
         populateVoiceBankSelect();
         refreshVoiceLists();
-        applySelectedVoice();
+        applySelectedVoice(voiceSelect.getSelectedId());
         refreshStatus();
         saveVoiceLibraryState();
     }
@@ -2616,7 +2664,7 @@ void MainComponent::loadVoiceLibraryFromFile(const juce::File& file)
         currentVoiceBankIndex = juce::jlimit(0, opaline::kOpalineVoiceBankCount - 1, currentVoiceBankIndex);
         populateVoiceBankSelect();
         refreshVoiceLists();
-        applySelectedVoice();
+        applySelectedVoice(voiceSelect.getSelectedId());
         refreshStatus();
         saveVoiceLibraryState();
     }
@@ -2725,10 +2773,21 @@ void MainComponent::saveVoiceLibraryState()
     settings.saveIfNeeded();
 }
 
-void MainComponent::applySelectedVoice()
+void MainComponent::applySelectedVoice(const int selectedId)
 {
-    const int index = juce::jlimit(0, static_cast<int>(factoryVoices.size()) - 1, voiceSelect.getSelectedId() - 1);
+    if (factoryVoices.empty())
+        return;
+
+    const int id = selectedId > 0 ? selectedId : voiceSelect.getSelectedId();
+    if (id <= 0)
+        return;
+
+    const int index = id - 1;
+    if (index < 0 || index >= static_cast<int>(factoryVoices.size()))
+        return;
+
     performanceState.voiceAIndex = index;
+    voiceSelect.setSelectedId(id, juce::dontSendNotification);
     currentPatch = factoryVoices[static_cast<std::size_t>(index)].patch;
 
     syncUiFromPatch();
@@ -2758,6 +2817,7 @@ void MainComponent::syncUiFromPatch()
     pegGraph.setEnvelope(currentPatch.pitchEnvelope);
     effectReverbSlider.setValue(currentPatch.effects.reverb, juce::dontSendNotification);
     effectMixSlider.setValue(currentPatch.effects.mix, juce::dontSendNotification);
+    effectEchoMixSlider.setValue(currentPatch.effects.echoMix, juce::dontSendNotification);
     effectToneSlider.setValue(currentPatch.effects.tone, juce::dontSendNotification);
     effectChorusSlider.setValue(currentPatch.effects.chorus, juce::dontSendNotification);
     effectDelaySlider.setValue(currentPatch.effects.delay, juce::dontSendNotification);
@@ -2789,6 +2849,7 @@ void MainComponent::updatePatchFromGlobalControls()
     pegGraph.setEnvelope(currentPatch.pitchEnvelope);
     currentPatch.effects.reverb = static_cast<int>(effectReverbSlider.getValue());
     currentPatch.effects.mix = static_cast<int>(effectMixSlider.getValue());
+    currentPatch.effects.echoMix = static_cast<int>(effectEchoMixSlider.getValue());
     currentPatch.effects.tone = static_cast<int>(effectToneSlider.getValue());
     currentPatch.effects.chorus = static_cast<int>(effectChorusSlider.getValue());
     currentPatch.effects.delay = static_cast<int>(effectDelaySlider.getValue());
@@ -2868,8 +2929,13 @@ void MainComponent::refreshPerformanceControls()
 void MainComponent::updatePerformanceFromControls()
 {
     performanceState.mode = static_cast<PerformanceMode>(juce::jlimit(1, 3, performanceModeSelect.getSelectedId()) - 1);
-    performanceState.voiceAIndex = juce::jmax(0, voiceSelect.getSelectedId() - 1);
-    performanceState.voiceBIndex = juce::jmax(0, voiceBSelect.getSelectedId() - 1);
+    const int maxVoiceIndex = juce::jmax(0, static_cast<int>(factoryVoices.size()) - 1);
+    const int selectedAId = voiceSelect.getSelectedId();
+    const int selectedBId = voiceBSelect.getSelectedId();
+    if (selectedAId > 0)
+        performanceState.voiceAIndex = juce::jlimit(0, maxVoiceIndex, selectedAId - 1);
+    if (selectedBId > 0)
+        performanceState.voiceBIndex = juce::jlimit(0, maxVoiceIndex, selectedBId - 1);
     performanceState.dualDetune = static_cast<int>(dualDetuneSlider.getValue());
     performanceState.splitPoint = static_cast<int>(splitPointSlider.getValue());
     performanceState.abBalance = static_cast<int>(balanceSlider.getValue());
@@ -2891,19 +2957,26 @@ void MainComponent::emitSynthStateChanged()
         onStateChanged(captureSynthState());
 }
 
-void MainComponent::applySynthState(const opalineapp::SynthState& state)
+void MainComponent::applySynthState(const opalineapp::SynthState& state, const bool resetPatchToSelectedVoice)
 {
     suppressStateCallback = true;
-    currentPatch = opaline::normalizePatch(state.patch);
+    const auto restoredPatch = opaline::normalizePatch(state.patch);
+    currentPatch = restoredPatch;
     performanceState = state.performance;
     if (!factoryVoices.empty())
     {
         const int maxVoiceIndex = juce::jmax(0, static_cast<int>(factoryVoices.size()) - 1);
         performanceState.voiceAIndex = juce::jlimit(0, maxVoiceIndex, performanceState.voiceAIndex);
         performanceState.voiceBIndex = juce::jlimit(0, maxVoiceIndex, performanceState.voiceBIndex);
+        if (resetPatchToSelectedVoice)
+        {
+            currentPatch = factoryVoices[static_cast<std::size_t>(performanceState.voiceAIndex)].patch;
+            currentPatch.transpose = restoredPatch.transpose;
+            currentPatch = opaline::normalizePatch(currentPatch);
+        }
     }
     masterVolume = juce::jlimit(0.0f, 1.0f, state.masterVolume);
-    chipRenderModel = state.renderModel == opaline::OpalineRenderModel::ChipHybrid;
+    chipRenderModel = state.renderModel == opaline::OpalineRenderModel::TypeB;
 
     syncingUi = true;
     volumeSlider.setValue(masterVolume, juce::dontSendNotification);
@@ -2953,7 +3026,7 @@ void MainComponent::applyPatchToEngine(const bool updateUi, const bool notifySta
 
 opaline::OpalineRenderModel MainComponent::currentRenderModel() const
 {
-    return chipRenderModel ? opaline::OpalineRenderModel::ChipHybrid : opaline::OpalineRenderModel::Current;
+    return chipRenderModel ? opaline::OpalineRenderModel::TypeB : opaline::OpalineRenderModel::TypeA;
 }
 
 void MainComponent::applyRenderModelToEnginesNoLock()
@@ -2965,6 +3038,7 @@ void MainComponent::applyRenderModelToEnginesNoLock()
 
 void MainComponent::refreshEngineModelButton()
 {
+    engineModelButton.setVisible(true);
     engineModelButton.setButtonText(chipRenderModel ? "TYPE B" : "TYPE A");
     engineModelButton.setToggleState(chipRenderModel, juce::dontSendNotification);
     engineModelButton.setColour(juce::TextButton::buttonColourId,
@@ -3388,6 +3462,138 @@ void MainComponent::saveMidiInputSelection() const
     settings.saveIfNeeded();
 }
 
+void MainComponent::startWavRecording()
+{
+    if (wavRecording.load(std::memory_order_relaxed))
+        return;
+
+    if (onExternalWavRecordingStart)
+    {
+        onExternalWavRecordingStart();
+    }
+    else
+    {
+        std::lock_guard<std::mutex> recordingLock(recordingMutex);
+        wavRecordingInterleaved.clear();
+        wavRecordingSampleRate = audioSampleRate > 0.0 ? audioSampleRate : 44100.0;
+        wavRecordingInterleaved.reserve(static_cast<std::size_t>(wavRecordingSampleRate) * 2 * 60);
+    }
+
+    wavRecording.store(true, std::memory_order_relaxed);
+    wavRecordButton.setButtonText("STOP");
+    wavRecordButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff0aa878));
+    statusLabel.setText("WAV recording...", juce::dontSendNotification);
+}
+
+void MainComponent::stopWavRecordingAndChooseFile()
+{
+    if (!wavRecording.exchange(false, std::memory_order_relaxed))
+        return;
+
+    if (onExternalWavRecordingStop)
+        onExternalWavRecordingStop();
+
+    wavRecordButton.setButtonText("WAV");
+    wavRecordButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff17242a));
+
+    if (!onExternalWavRecordingSave)
+    {
+        std::size_t recordedSamples = 0;
+        {
+            std::lock_guard<std::mutex> recordingLock(recordingMutex);
+            recordedSamples = wavRecordingInterleaved.size() / 2;
+        }
+
+        if (recordedSamples == 0)
+        {
+            statusLabel.setText("WAV recording is empty", juce::dontSendNotification);
+            return;
+        }
+    }
+
+    fileChooser = std::make_unique<juce::FileChooser>("Save WAV recording",
+                                                       juce::File::getSpecialLocation(juce::File::userMusicDirectory)
+                                                           .getChildFile("Opaline FM.wav"),
+                                                       "*.wav");
+    fileChooser->launchAsync(juce::FileBrowserComponent::saveMode
+                                 | juce::FileBrowserComponent::canSelectFiles
+                                 | juce::FileBrowserComponent::warnAboutOverwriting,
+                             [this](const juce::FileChooser& chooser)
+                             {
+                                 auto file = chooser.getResult();
+                                 if (file == juce::File {})
+                                 {
+                                     statusLabel.setText("WAV save cancelled", juce::dontSendNotification);
+                                     return;
+                                 }
+
+                                 if (!file.hasFileExtension("wav"))
+                                     file = file.withFileExtension("wav");
+                                 writeWavRecordingToFile(file);
+                             });
+}
+
+void MainComponent::writeWavRecordingToFile(const juce::File& file)
+{
+    if (onExternalWavRecordingSave)
+    {
+        const bool saved = onExternalWavRecordingSave(file);
+        statusLabel.setText(saved ? "WAV saved: " + file.getFileName() : "WAV save failed", juce::dontSendNotification);
+        return;
+    }
+
+    std::vector<float> interleaved;
+    double sampleRate = 44100.0;
+    {
+        std::lock_guard<std::mutex> recordingLock(recordingMutex);
+        interleaved = wavRecordingInterleaved;
+        sampleRate = wavRecordingSampleRate;
+        wavRecordingInterleaved.clear();
+    }
+
+    const int sampleCount = static_cast<int>(interleaved.size() / 2);
+    if (sampleCount <= 0)
+    {
+        statusLabel.setText("WAV recording is empty", juce::dontSendNotification);
+        return;
+    }
+
+    juce::AudioBuffer<float> buffer(2, sampleCount);
+    auto* left = buffer.getWritePointer(0);
+    auto* right = buffer.getWritePointer(1);
+    for (int i = 0; i < sampleCount; ++i)
+    {
+        left[i] = interleaved[static_cast<std::size_t>(i) * 2];
+        right[i] = interleaved[static_cast<std::size_t>(i) * 2 + 1];
+    }
+
+    juce::WavAudioFormat wavFormat;
+    std::unique_ptr<juce::OutputStream> output(file.createOutputStream().release());
+    if (output == nullptr)
+    {
+        statusLabel.setText("WAV save failed", juce::dontSendNotification);
+        return;
+    }
+
+    auto writer = wavFormat.createWriterFor(output,
+                                             juce::AudioFormatWriterOptions {}
+                                                 .withSampleRate(sampleRate)
+                                                 .withNumChannels(2)
+                                                 .withBitsPerSample(24));
+    if (writer == nullptr)
+    {
+        statusLabel.setText("WAV writer failed", juce::dontSendNotification);
+        return;
+    }
+
+    if (!writer->writeFromAudioSampleBuffer(buffer, 0, sampleCount))
+    {
+        statusLabel.setText("WAV write failed", juce::dontSendNotification);
+        return;
+    }
+
+    statusLabel.setText("WAV saved: " + file.getFileName(), juce::dontSendNotification);
+}
 void MainComponent::noteOn(const int note, const int velocity)
 {
     if (!powerOn && !startPlayback())
@@ -3673,7 +3879,7 @@ void MainComponent::comboBoxChanged(juce::ComboBox* comboBoxThatHasChanged)
     if (comboBoxThatHasChanged == &voiceSelect)
     {
         allNotesOff();
-        applySelectedVoice();
+        applySelectedVoice(voiceSelect.getSelectedId());
         saveVoiceLibraryState();
     }
     else if (comboBoxThatHasChanged == &voiceBankSelect)
@@ -3724,16 +3930,21 @@ void MainComponent::buttonClicked(juce::Button* button)
             return;
         }
 
+        if (wavRecording.load(std::memory_order_relaxed))
+            stopWavRecordingAndChooseFile();
+
         powerOn = false;
         powerButton.setButtonText("OFF");
         powerButton.setToggleState(false, juce::dontSendNotification);
         powerButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff172b27));
         allNotesOff();
     }
-    else if (button == &lfoSyncButton && !syncingUi)
+    else if (button == &wavRecordButton)
     {
-        updatePatchFromGlobalControls();
-        applyPatchToEngine();
+        if (wavRecording.load(std::memory_order_relaxed))
+            stopWavRecordingAndChooseFile();
+        else
+            startWavRecording();
     }
     else if (button == &engineModelButton)
     {
@@ -3742,6 +3953,11 @@ void MainComponent::buttonClicked(juce::Button* button)
         allNotesOff();
         applyPatchToEngine();
         refreshStatus();
+    }
+    else if (button == &lfoSyncButton && !syncingUi)
+    {
+        updatePatchFromGlobalControls();
+        applyPatchToEngine();
     }
     else if (button == &loadVoiceBankButton)
     {

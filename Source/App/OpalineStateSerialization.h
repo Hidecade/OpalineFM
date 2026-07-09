@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "App/OpalineAppState.h"
 
@@ -124,6 +124,7 @@ inline juce::ValueTree patchToValueTree(const opaline::OpalinePatch& patch)
     juce::ValueTree effects { state_ids::effects };
     effects.setProperty("reverb", patch.effects.reverb, nullptr);
     effects.setProperty("mix", patch.effects.mix, nullptr);
+    effects.setProperty("echoMix", patch.effects.echoMix, nullptr);
     effects.setProperty("tone", patch.effects.tone, nullptr);
     effects.setProperty("chorus", patch.effects.chorus, nullptr);
     effects.setProperty("delay", patch.effects.delay, nullptr);
@@ -174,6 +175,7 @@ inline opaline::OpalinePatch patchFromValueTree(const juce::ValueTree& tree, con
     {
         patch.effects.reverb = readInt(effects, "reverb", patch.effects.reverb);
         patch.effects.mix = readInt(effects, "mix", patch.effects.mix);
+        patch.effects.echoMix = readInt(effects, "echoMix", patch.effects.mix);
         patch.effects.tone = readInt(effects, "tone", patch.effects.tone);
         patch.effects.chorus = readInt(effects, "chorus", patch.effects.chorus);
         patch.effects.delay = readInt(effects, "delay", patch.effects.delay);
@@ -222,7 +224,9 @@ inline SynthState synthStateFromValueTree(const juce::ValueTree& tree, const Syn
         return state;
 
     state.masterVolume = juce::jlimit(0.0f, 1.0f, readFloat(tree, "masterVolume", state.masterVolume));
-    state.renderModel = static_cast<opaline::OpalineRenderModel>(juce::jlimit(0, 1, readInt(tree, "renderModel", static_cast<int>(state.renderModel))));
+    state.renderModel = readInt(tree, "renderModel", static_cast<int>(state.renderModel)) == 0
+        ? opaline::OpalineRenderModel::TypeA
+        : opaline::OpalineRenderModel::TypeB;
     state.patch = patchFromValueTree(tree.getChildWithName(state_ids::patch), state.patch);
 
     const auto performance = tree.getChildWithName(state_ids::performance);

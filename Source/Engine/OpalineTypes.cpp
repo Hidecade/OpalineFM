@@ -1,4 +1,4 @@
-﻿#include "Engine/OpalineTypes.h"
+#include "Engine/OpalineTypes.h"
 
 #include <algorithm>
 #include <cmath>
@@ -44,6 +44,7 @@ OpalinePatch normalizePatch(const OpalinePatch& patch)
 
     normalized.effects.reverb = clampInt(normalized.effects.reverb, 0, 99);
     normalized.effects.mix = clampInt(normalized.effects.mix, 0, 99);
+    normalized.effects.echoMix = clampInt(normalized.effects.echoMix, 0, 99);
     normalized.effects.tone = clampInt(normalized.effects.tone, 0, 99);
     normalized.effects.chorus = clampInt(normalized.effects.chorus, 0, 99);
     normalized.effects.delay = clampInt(normalized.effects.delay, 0, 99);

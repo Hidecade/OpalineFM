@@ -27,6 +27,7 @@ public:
 private:
     void startSegment(Stage stage, int targetLevel, int rate);
     void advanceSegment();
+    void completeSegment();
     static double levelToCents(int level);
     static double rateToBaseTimeSeconds(int rate);
 
@@ -36,5 +37,6 @@ private:
     double currentCents = 0.0;
     double targetCents = 0.0;
     double centsPerSample = 0.0;
+    int jumpSamplesRemaining = 0;
 };
 } // namespace opaline

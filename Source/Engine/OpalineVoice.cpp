@@ -11,7 +11,7 @@ namespace opaline
 {
 namespace
 {
-// LEVEL、TL、変調指数の調整係数。ChipHybridでは従来値とOPM風の値を混ぜる。
+// LEVEL、TL、変調指数の調整係数。TypeAは現行音色を保持し、TypeBはチップ互換寄りにする。
 constexpr double kCarrierLevelDbRange = 48.0;
 constexpr double kModulatorIndexScale = 0.82;
 constexpr double kModulatorIndexBlend = 0.05;
@@ -23,6 +23,15 @@ constexpr double kOpmEgIndexMax = 1023.0;
 constexpr double kChipLevelBlend = 0.50;
 constexpr double kChipModulatorBlend = 0.14;
 constexpr double kChipModulatorIndexScale = 0.82;
+struct RenderModelTrim
+{
+    double modulatorOpalineBlend = 0.0;
+    double modulatorLevelBoost = 0.0;
+    double outputGain = 1.0;
+};
+
+constexpr RenderModelTrim kTypeATrim { 0.35, 1.0, 1.19 };
+constexpr RenderModelTrim kTypeBChipTrim { 0.0, 0.0, 1.0 };
 constexpr double kModulatorAttackSoftenSeconds = 0.003;
 constexpr double kChipPhaseModGain = 1.0;
 constexpr double kModulatorAttackInitialScale = 0.96;
@@ -170,21 +179,14 @@ double modulatorAttackSoftening(const double age)
 
 double modulatorAttackSofteningForModel(const double age, const OpalineRenderModel renderModel)
 {
-    if (renderModel == OpalineRenderModel::ChipHybrid)
-        return 1.0;
-
+    (void) renderModel;
     return modulatorAttackSoftening(age);
 }
 
 double envelopeAmpForModel(const double envelopeAmp, const OpalineRenderModel renderModel)
 {
-    if (renderModel != OpalineRenderModel::ChipHybrid)
-        return envelopeAmp;
-
-    const double db = amplitudeFactorToDbOffset(envelopeAmp);
-    const double egIndex = std::round(clampDouble(db, 0.0, kOpmEgDbRange) * kOpmEgIndexMax / kOpmEgDbRange);
-    const double quantizedDb = clampDouble(egIndex, 0.0, kOpmEgIndexMax) * kOpmEgDbRange / kOpmEgIndexMax;
-    return dbToAmplitude(quantizedDb);
+    (void) renderModel;
+    return envelopeAmp;
 }
 
 bool isCarrierOperator(const Algorithm& algorithm, const int opIndex)
@@ -223,10 +225,31 @@ double opmPhaseBusToRadians(const double bus)
     return bus * kPi / kOpmSineIndexSteps * kOpmBusPhaseGain;
 }
 
+bool usesSharedTypeABase(const OpalineRenderModel renderModel)
+{
+    return renderModel == OpalineRenderModel::TypeA
+        || renderModel == OpalineRenderModel::TypeB;
+}
+
+bool usesChipOperatorPath(const OpalineRenderModel renderModel)
+{
+    return renderModel == OpalineRenderModel::TypeB;
+}
+
+const RenderModelTrim& trimForModel(const OpalineRenderModel renderModel)
+{
+    return renderModel == OpalineRenderModel::TypeB ? kTypeBChipTrim : kTypeATrim;
+}
+
 double opmPhaseBusToRadians(const double bus, const OpalineRenderModel renderModel)
 {
-    const double gain = renderModel == OpalineRenderModel::ChipHybrid ? kChipPhaseModGain : 1.0;
-    return opmPhaseBusToRadians(bus) * gain;
+    if (usesSharedTypeABase(renderModel))
+    {
+        const double phaseIndex = std::round(bus);
+        return phaseIndex * 2.0 * kPi / kOpmSineIndexSteps;
+    }
+
+    return opmPhaseBusToRadians(bus);
 }
 
 int chipOperatorPhaseIndex(const double phase)
@@ -249,7 +272,7 @@ int chipOperatorPhaseIndex(const double phase, const double modulationBus, const
 {
     // NEWでは1024stepのテーブルindex上で、PMとFBを整数加算する。
     const int baseIndex = chipOperatorPhaseIndex(phase);
-    const int modulationIndex = chipPhaseOffsetIndexFromRadians(opmPhaseBusToRadians(modulationBus, OpalineRenderModel::ChipHybrid));
+    const int modulationIndex = chipPhaseOffsetIndexFromRadians(opmPhaseBusToRadians(modulationBus, OpalineRenderModel::TypeB));
     const int feedbackIndex = chipPhaseOffsetIndexFromRadians(feedbackRadians);
     return (baseIndex + modulationIndex + feedbackIndex) & (static_cast<int>(kOpmSineIndexSteps) - 1);
 }
@@ -305,10 +328,8 @@ int chipOperatorLogSineAttenuation(const int phaseIndex)
 
 double quantizeOperatorAudioForModel(const double audio, const OpalineRenderModel renderModel)
 {
-    if (renderModel != OpalineRenderModel::ChipHybrid)
-        return audio;
-
-    return clampDouble(std::round(audio * 8191.0) / 8192.0, -1.0, 1.0);
+    (void) renderModel;
+    return audio;
 }
 
 double chipExpOutputFromAttenuation(const int attenuation)
@@ -353,51 +374,85 @@ double chipExpOutputFromAttenuation(const int attenuation)
     return static_cast<double>(output) / 8192.0;
 }
 
+double chipOperatorOutputFromAttenuationIndex(const int phaseIndex, const double attenuationIndex)
+{
+    const int waveAttenuation = chipOperatorLogSineAttenuation(phaseIndex);
+    const int egAttenuation = clampInt(static_cast<int>(std::round(attenuationIndex)), 0, 1023) << 2;
+    const int attenuation = clampInt(waveAttenuation + egAttenuation, 0, 4095);
+    const double output = static_cast<double>(chipOperatorSign(phaseIndex)) * chipExpOutputFromAttenuation(attenuation);
+    return quantizeOperatorAudioForModel(output, OpalineRenderModel::TypeB);
+}
+
 double chipOperatorOutputFromPhaseIndex(const int phaseIndex, const double amplitude)
 {
     if (amplitude <= 0.0)
         return 0.0;
 
-    const int waveAttenuation = chipOperatorLogSineAttenuation(phaseIndex);
     const int ampAttenuation = clampInt(
-        static_cast<int>(std::round(amplitudeFactorToDbOffset(amplitude) / kOpmLogAttenuationDbPerStep)), 0, 4095);
-    const int attenuation = clampInt(waveAttenuation + ampAttenuation, 0, 4095);
-    const double output = static_cast<double>(chipOperatorSign(phaseIndex)) * chipExpOutputFromAttenuation(attenuation);
-    return quantizeOperatorAudioForModel(output, OpalineRenderModel::ChipHybrid);
+        static_cast<int>(std::round(amplitudeFactorToDbOffset(amplitude) / kOpmLogAttenuationDbPerStep)), 0, 1023);
+    return chipOperatorOutputFromAttenuationIndex(phaseIndex, ampAttenuation);
 }
 
 double quantizeOperatorBusForModel(const double bus, const OpalineRenderModel renderModel)
 {
-    if (renderModel != OpalineRenderModel::ChipHybrid)
-        return bus;
+    if (usesSharedTypeABase(renderModel))
+        return clampDouble(std::round(bus), -kOpmOperatorBusPeak, kOpmOperatorBusPeak - 1.0);
 
-    return clampDouble(std::round(bus), -kOpmOperatorBusPeak, kOpmOperatorBusPeak - 1.0);
+    return bus;
+}
+
+int chipBusInteger(const double bus)
+{
+    return clampInt(static_cast<int>(std::round(bus)), -32768, 32767);
+}
+
+double chipArithmeticShiftRightOne(const double bus)
+{
+    const int value = chipBusInteger(bus);
+    return static_cast<double>(value >= 0 ? value / 2 : -(((-value) + 1) / 2));
 }
 
 double mixPhaseModulationForModel(const double sum, const int inputCount, const OpalineRenderModel renderModel)
 {
-    if (renderModel != OpalineRenderModel::ChipHybrid || inputCount <= 1)
-        return sum;
+    if (renderModel == OpalineRenderModel::TypeB && inputCount > 0)
+        return quantizeOperatorBusForModel(chipArithmeticShiftRightOne(sum), renderModel);
 
-    const double mixed = sum / static_cast<double>(std::min(inputCount, 2));
-    return quantizeOperatorBusForModel(mixed, renderModel);
+    if (usesSharedTypeABase(renderModel) && inputCount > 0)
+        return quantizeOperatorBusForModel(sum * 0.5, renderModel);
+
+    return sum;
 }
 
 double quantizeVoiceOutputForModel(const double sample, const OpalineRenderModel renderModel)
 {
-    if (renderModel != OpalineRenderModel::ChipHybrid)
-        return sample;
+    if (renderModel == OpalineRenderModel::TypeB)
+        return clampDouble(std::round(sample * 32768.0) / 32768.0, -1.0, 1.0);
 
-    return clampDouble(std::round(sample * 8191.0) / 8192.0, -1.0, 1.0);
+    return sample;
+}
+
+double chipMixerOutputFromBus(const double bus)
+{
+    const int mix = clampInt(static_cast<int>(std::round(bus)), -131072, 131071);
+    const int sign = mix < 0 ? -1 : 1;
+    const int magnitude = std::abs(mix);
+    if (magnitude == 0)
+        return 0.0;
+
+    const double normalized = static_cast<double>(magnitude) / (kOpmOperatorBusPeak * 4.0);
+    return clampDouble(static_cast<double>(sign) * normalized * kTypeBChipTrim.outputGain, -1.0, 1.0);
 }
 
 double feedbackHistoryBusForModel(const std::array<double, 2>& history, const OpalineRenderModel renderModel)
 {
     const double sum = history[0] + history[1];
-    if (renderModel != OpalineRenderModel::ChipHybrid)
-        return sum;
+    if (renderModel == OpalineRenderModel::TypeB)
+        return chipArithmeticShiftRightOne(sum);
 
-    return quantizeOperatorBusForModel(sum * 0.5, renderModel);
+    if (usesSharedTypeABase(renderModel))
+        return sum * 0.5;
+
+    return sum;
 }
 
 double opmFeedbackBusToRadians(const double bus, const int level, const OpalineRenderModel renderModel)
@@ -406,19 +461,11 @@ double opmFeedbackBusToRadians(const double bus, const int level, const OpalineR
     if (feedback <= 0)
         return 0.0;
 
-    if (renderModel == OpalineRenderModel::ChipHybrid)
+    if (usesSharedTypeABase(renderModel))
     {
-        static constexpr std::array<double, 8> kFeedbackGainTable {
-            0.0,
-            1.0 / 256.0,
-            1.0 / 128.0,
-            1.0 / 64.0,
-            1.0 / 32.0,
-            1.0 / 16.0,
-            1.0 / 8.0,
-            1.0 / 4.0
-        };
-        return opmPhaseBusToRadians(bus, renderModel) * kFeedbackGainTable[static_cast<std::size_t>(feedback)];
+        const double phaseIndex = quantizeOperatorBusForModel(bus, renderModel)
+            / std::pow(2.0, static_cast<double>(9 - feedback));
+        return phaseIndex * 2.0 * kPi / kOpmSineIndexSteps;
     }
 
     const int shift = feedback + 6;
@@ -472,7 +519,7 @@ double pitchModDepthForModel(const int depth, const int sensitivity, const int w
     if (clampInt(wave, 0, 3) == 1 && clampInt(sensitivity, 0, 7) == 7)
         return static_cast<double>(clampInt(depth, 0, 99)) / 99.0 * 8.0;
 
-    if (renderModel == OpalineRenderModel::ChipHybrid || renderModel == OpalineRenderModel::Current)
+    if (usesSharedTypeABase(renderModel))
         return chipStylePitchModDepth(depth, sensitivity);
 
     return opmStylePitchModDepth(depth, sensitivity);
@@ -572,7 +619,7 @@ void OpalineVoice::start(const OpalinePatch& patch, const int newMidiNote, const
     sampleAndHoldShiftRegister = static_cast<std::uint16_t>(sampleAndHoldValue << 8);
     feedbackHistory.fill(0.0);
     failed = false;
-    activeRenderModel = OpalineRenderModel::Current;
+    activeRenderModel = OpalineRenderModel::TypeB;
     pitchEnvelope.reset(currentSampleRate);
     pitchEnvelope.noteOn(patch.pitchEnvelope);
 
@@ -605,21 +652,20 @@ bool OpalineVoice::isActive() const
     if (failed)
         return false;
 
-    if (activeRenderModel == OpalineRenderModel::ChipHybrid)
+    if (activeRenderModel == OpalineRenderModel::TypeB)
     {
         for (const auto& envelope : chipEnvelopes)
         {
             if (envelope.isActive())
                 return true;
         }
+        return false;
     }
-    else
+
+    for (const auto& envelope : envelopes)
     {
-        for (const auto& envelope : envelopes)
-        {
-            if (envelope.isActive())
-                return true;
-        }
+        if (envelope.isActive())
+            return true;
     }
     return false;
 }
@@ -746,9 +792,17 @@ OperatorRender OpalineVoice::renderOperator(const int opIndex,
     if (phases[opSize] > 2.0 * kPi)
         phases[opSize] -= 2.0 * kPi;
 
-    const double rawEnvelopeAmp = renderModel == OpalineRenderModel::ChipHybrid
-        ? chipEnvelopes[opSize].next()
-        : envelopes[opSize].next();
+    double chipEnvelopeIndex = 0.0;
+    double rawEnvelopeAmp = 0.0;
+    if (usesChipOperatorPath(renderModel))
+    {
+        chipEnvelopeIndex = chipEnvelopes[opSize].nextIndex();
+        rawEnvelopeAmp = dbToAmplitude(chipEnvelopeIndex * kOpmEgDbRange / kOpmEgIndexMax);
+    }
+    else
+    {
+        rawEnvelopeAmp = envelopes[opSize].next();
+    }
     const double envelopeAmp = envelopeAmpForModel(rawEnvelopeAmp, renderModel);
     const bool carrier = isCarrierOperator(algorithm, opIndex);
     const double carrierVelocityFactor = operatorVelocityFactor(op.velocity, noteVelocity, true);
@@ -756,34 +810,7 @@ OperatorRender OpalineVoice::renderOperator(const int opIndex,
     const double ampMod = op.ampModEnable ? operatorAmpModFactor(ampDepth, lfoAm) : 1.0;
     double carrierAmp = 0.0;
     double modulatorIndex = 0.0;
-
-    if (renderModel == OpalineRenderModel::ChipHybrid)
-    {
-        // NEWはTL/dB/EG/Velocity/AMをログ領域でまとめ、従来モデルとブレンドする。
-        const double tl = nextOperatorTl(opIndex, op.level);
-        const double smoothedLevel = oppTlUnitsToLevel(tl * kOppTlSubsteps);
-        const double oldScaledLevel = keyboardScaledLevel(smoothedLevel, op.levelScale, midiNote);
-        const double chipTl = clampDouble(tl + keyboardScaleTlOffset(midiNote, op.levelScale), 0.0, kOppTlMax);
-        const double envelopeDb = amplitudeFactorToDbOffset(envelopeAmp);
-        const double ampModDb = op.ampModEnable ? amplitudeFactorToDbOffset(ampMod) : 0.0;
-
-        const double oldCarrierLevelDb = amplitudeToDb(outputLevelToCarrierAmplitude(oldScaledLevel));
-        const double chipCarrierLevelDb = opmTlToDb(chipTl);
-        const double carrierLevelDb = oldCarrierLevelDb * (1.0 - kChipLevelBlend) + chipCarrierLevelDb * kChipLevelBlend;
-        const double carrierVelocityDb = amplitudeFactorToDbOffset(carrierVelocityFactor);
-        carrierAmp = dbToAmplitude(carrierLevelDb + envelopeDb + carrierVelocityDb + ampModDb);
-
-        const double oldModulatorIndex = outputLevelToModulatorIndex(oldScaledLevel);
-        const double chipModulatorDb = opmTlToDb(chipTl) + envelopeDb
-            + amplitudeFactorToDbOffset(carrier ? carrierVelocityFactor : modulatorVelocityFactor) + ampModDb;
-        const double chipModulatorIndex = dbToAmplitude(chipModulatorDb) * kChipModulatorIndexScale;
-        modulatorIndex = oldModulatorIndex * envelopeAmp
-                * (carrier ? carrierVelocityFactor : modulatorVelocityFactor) * ampMod
-                * (1.0 - kChipModulatorBlend)
-            + chipModulatorIndex * kChipModulatorBlend;
-        modulatorIndex *= modulatorAttackSofteningForModel(ageSeconds, renderModel);
-    }
-    else
+    if (!usesChipOperatorPath(renderModel))
     {
         const double level = nextOperatorLevel(opIndex, op.level);
         const double scaledLevel = keyboardScaledLevel(level, op.levelScale, midiNote);
@@ -791,20 +818,39 @@ OperatorRender OpalineVoice::renderOperator(const int opIndex,
         const double ampModDb = op.ampModEnable ? amplitudeFactorToDbOffset(ampMod) : 0.0;
         const double carrierVelocityDb = amplitudeFactorToDbOffset(carrierVelocityFactor);
         const double modulatorVelocityDb = amplitudeFactorToDbOffset(carrier ? carrierVelocityFactor : modulatorVelocityFactor);
-        carrierAmp = dbToAmplitude(amplitudeToDb(outputLevelToCarrierAmplitude(scaledLevel))
+        const double baseCarrierAmp = usesSharedTypeABase(renderModel)
+            ? outputLevelToCarrierAmplitudeChipLike(scaledLevel)
+            : outputLevelToCarrierAmplitude(scaledLevel);
+        carrierAmp = dbToAmplitude(amplitudeToDb(baseCarrierAmp)
                                    + envelopeDb + carrierVelocityDb + ampModDb);
-        modulatorIndex = dbToAmplitude(amplitudeToDb(outputLevelToModulatorIndex(scaledLevel))
+        const auto& trim = trimForModel(renderModel);
+        const double modulatorLevel = usesSharedTypeABase(renderModel)
+            ? clampDouble(scaledLevel + trim.modulatorLevelBoost, 0.0, 99.0)
+            : scaledLevel;
+        const double compatibleModulatorIndex = outputLevelToModulatorIndex(modulatorLevel);
+        const double baseModulatorIndex = usesSharedTypeABase(renderModel)
+            ? outputLevelToModulatorIndexChipLike(modulatorLevel) * (1.0 - trim.modulatorOpalineBlend)
+                + compatibleModulatorIndex * trim.modulatorOpalineBlend
+            : compatibleModulatorIndex;
+        modulatorIndex = dbToAmplitude(amplitudeToDb(baseModulatorIndex)
                                        + envelopeDb + modulatorVelocityDb + ampModDb)
             * modulatorAttackSofteningForModel(ageSeconds, renderModel);
     }
 
     double carrierOutput = 0.0;
     double modulatorOutput = 0.0;
-    if (renderModel == OpalineRenderModel::ChipHybrid)
+    if (usesChipOperatorPath(renderModel))
     {
         const int phaseIndex = chipOperatorPhaseIndex(phases[opSize], phaseModulation, feedback);
-        carrierOutput = chipOperatorOutputFromPhaseIndex(phaseIndex, carrierAmp);
-        modulatorOutput = chipOperatorOutputFromPhaseIndex(phaseIndex, modulatorIndex);
+        const double chipTl = clampDouble(nextOperatorTl(opIndex, op.level)
+            + keyboardScaleTlOffset(midiNote, op.levelScale), 0.0, kOppTlMax);
+        const double velocityDb = amplitudeFactorToDbOffset(carrier ? carrierVelocityFactor : modulatorVelocityFactor);
+        const double ampModDb = op.ampModEnable ? amplitudeFactorToDbOffset(ampMod) : 0.0;
+        const double attenuationIndex = clampDouble(chipEnvelopeIndex + chipTl * kOppTlSubsteps
+            + (velocityDb + ampModDb) / kOpmLogAttenuationDbPerStep, 0.0, kOpmEgIndexMax);
+        const double opOut = chipOperatorOutputFromAttenuationIndex(phaseIndex, attenuationIndex);
+        carrierOutput = opOut;
+        modulatorOutput = opOut;
     }
     else
     {
@@ -887,7 +933,17 @@ double OpalineVoice::render(const OpalinePatch& patch,
     if (algorithm.carrierCount <= 0)
         return 0.0;
 
-    const double mixed = (sum / std::sqrt(static_cast<double>(algorithm.carrierCount))) * kCarrierMixGain;
+    double mixed = 0.0;
+    if (usesChipOperatorPath(renderModel))
+    {
+        mixed = chipMixerOutputFromBus(sum * kOpmOperatorBusPeak);
+    }
+    else
+    {
+        mixed = (sum / std::sqrt(static_cast<double>(algorithm.carrierCount))) * kCarrierMixGain;
+        if (usesSharedTypeABase(renderModel))
+            mixed *= trimForModel(renderModel).outputGain;
+    }
     return quantizeVoiceOutputForModel(mixed, renderModel);
 }
 } // namespace opaline

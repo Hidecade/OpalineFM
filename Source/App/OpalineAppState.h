@@ -26,6 +26,6 @@ struct SynthState
     opaline::OpalinePatch patch;
     PerformanceState performance;
     float masterVolume = 0.65f;
-    opaline::OpalineRenderModel renderModel = opaline::OpalineRenderModel::Current;
+    opaline::OpalineRenderModel renderModel = opaline::OpalineRenderModel::TypeB;
 };
 } // namespace opalineapp

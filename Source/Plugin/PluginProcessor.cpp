@@ -30,6 +30,7 @@ constexpr const char* pegLevel2 = "pegLevel2";
 constexpr const char* pegLevel3 = "pegLevel3";
 constexpr const char* effectReverb = "effectReverb";
 constexpr const char* effectMix = "effectMix";
+constexpr const char* effectEchoMix = "effectEchoMix";
 constexpr const char* effectTone = "effectTone";
 constexpr const char* effectChorus = "effectChorus";
 constexpr const char* effectDelay = "effectDelay";
@@ -126,7 +127,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout OpalineAudioProcessor::creat
     };
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::masterVolume, "Volume", juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.65f));
-    params.push_back(std::make_unique<juce::AudioParameterChoice>(param_ids::renderModel, "Engine", juce::StringArray { "TYPE A", "TYPE B" }, 0));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(param_ids::renderModel, "Engine", juce::StringArray { "TYPE A", "TYPE B" }, 1));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::algorithm, "Algorithm", intRange(1.0f, 8.0f), 1.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::feedback, "Feedback", intRange(0.0f, 7.0f), 2.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::transpose, "Transpose", intRange(-24.0f, 24.0f), 0.0f));
@@ -145,7 +146,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout OpalineAudioProcessor::creat
     params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::pegLevel2, "PL2", intRange(0.0f, 99.0f), 50.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::pegLevel3, "PL3", intRange(0.0f, 99.0f), 50.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::effectReverb, "Reverb", intRange(0.0f, 99.0f), 0.0f));
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::effectMix, "Mix", intRange(0.0f, 99.0f), 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::effectMix, "Reverb Mix", intRange(0.0f, 99.0f), 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::effectEchoMix, "Delay Mix", intRange(0.0f, 99.0f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::effectTone, "Tone", intRange(0.0f, 99.0f), 50.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::effectChorus, "Chorus", intRange(0.0f, 99.0f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::effectDelay, "Delay", intRange(0.0f, 99.0f), 0.0f));
@@ -215,6 +217,20 @@ void OpalineAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
         }
     }
 
+    if (wavRecording.load(std::memory_order_relaxed) && buffer.getNumChannels() > 0)
+    {
+        const juce::ScopedLock recordingLock(wavRecordingLock);
+        const auto sampleCount = static_cast<std::size_t>(buffer.getNumSamples());
+        wavRecordingInterleaved.reserve(wavRecordingInterleaved.size() + sampleCount * 2);
+        const auto* left = buffer.getReadPointer(0);
+        const auto* right = buffer.getNumChannels() > 1 ? buffer.getReadPointer(1) : left;
+        for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+        {
+            wavRecordingInterleaved.push_back(left[sample]);
+            wavRecordingInterleaved.push_back(right[sample]);
+        }
+    }
+
     midiMessages.clear();
 }
 
@@ -272,6 +288,13 @@ void OpalineAudioProcessor::setStateInformation(const void* data, const int size
         const auto tree = juce::ValueTree::fromXml(*xml);
         const juce::ScopedLock lock(engineLock);
         state = opalineapp::synthStateFromValueTree(tree, state);
+        if (!factoryPrograms.empty())
+        {
+            const int maxVoiceIndex = static_cast<int>(factoryPrograms.size()) - 1;
+            state.performance.voiceAIndex = juce::jlimit(0, maxVoiceIndex, state.performance.voiceAIndex);
+            state.performance.voiceBIndex = juce::jlimit(0, maxVoiceIndex, state.performance.voiceBIndex);
+            state.patch = patchForVoiceIndex(state.performance.voiceAIndex);
+        }
         currentProgramName = factoryProgramName(state.performance.voiceAIndex);
         applyStateToEngine();
         syncParametersFromState();
@@ -373,6 +396,58 @@ std::array<float, 256> OpalineAudioProcessor::getScopeSamples() const
     }
 
     return samples;
+}
+
+void OpalineAudioProcessor::startWavRecording()
+{
+    const juce::ScopedLock lock(wavRecordingLock);
+    wavRecordingInterleaved.clear();
+    wavRecordingSampleRate = currentSampleRate > 0.0 ? currentSampleRate : 44100.0;
+    wavRecordingInterleaved.reserve(static_cast<std::size_t>(wavRecordingSampleRate) * 2 * 60);
+    wavRecording.store(true, std::memory_order_relaxed);
+}
+
+void OpalineAudioProcessor::stopWavRecording()
+{
+    wavRecording.store(false, std::memory_order_relaxed);
+}
+
+bool OpalineAudioProcessor::stopWavRecordingAndSaveToFile(const juce::File& file)
+{
+    stopWavRecording();
+    std::vector<float> interleaved;
+    double sampleRate = 44100.0;
+    {
+        const juce::ScopedLock lock(wavRecordingLock);
+        interleaved = wavRecordingInterleaved;
+        sampleRate = wavRecordingSampleRate;
+        wavRecordingInterleaved.clear();
+    }
+
+    const int sampleCount = static_cast<int>(interleaved.size() / 2);
+    if (sampleCount <= 0)
+        return false;
+
+    juce::AudioBuffer<float> audio(2, sampleCount);
+    auto* left = audio.getWritePointer(0);
+    auto* right = audio.getWritePointer(1);
+    for (int i = 0; i < sampleCount; ++i)
+    {
+        left[i] = interleaved[static_cast<std::size_t>(i) * 2];
+        right[i] = interleaved[static_cast<std::size_t>(i) * 2 + 1];
+    }
+
+    juce::WavAudioFormat wavFormat;
+    std::unique_ptr<juce::OutputStream> output(file.createOutputStream().release());
+    if (output == nullptr)
+        return false;
+
+    auto writer = wavFormat.createWriterFor(output,
+                                            juce::AudioFormatWriterOptions {}
+                                                .withSampleRate(sampleRate)
+                                                .withNumChannels(2)
+                                                .withBitsPerSample(24));
+    return writer != nullptr && writer->writeFromAudioSampleBuffer(audio, 0, sampleCount);
 }
 
 void OpalineAudioProcessor::handleMidiMessage(const juce::MidiMessage& message)
@@ -498,8 +573,8 @@ void OpalineAudioProcessor::applyParametersToState()
 {
     state.masterVolume = juce::jlimit(0.0f, 1.0f, parameterFloat(parameters, param_ids::masterVolume, state.masterVolume));
     state.renderModel = parameterInt(parameters, param_ids::renderModel, static_cast<int>(state.renderModel)) == 0
-        ? opaline::OpalineRenderModel::Current
-        : opaline::OpalineRenderModel::ChipHybrid;
+        ? opaline::OpalineRenderModel::TypeA
+        : opaline::OpalineRenderModel::TypeB;
 
     auto patch = state.patch;
     patch.algorithm = parameterInt(parameters, param_ids::algorithm, patch.algorithm);
@@ -521,6 +596,7 @@ void OpalineAudioProcessor::applyParametersToState()
     patch.pitchEnvelope.level3 = parameterInt(parameters, param_ids::pegLevel3, patch.pitchEnvelope.level3);
     patch.effects.reverb = parameterInt(parameters, param_ids::effectReverb, patch.effects.reverb);
     patch.effects.mix = parameterInt(parameters, param_ids::effectMix, patch.effects.mix);
+    patch.effects.echoMix = parameterInt(parameters, param_ids::effectEchoMix, patch.effects.echoMix);
     patch.effects.tone = parameterInt(parameters, param_ids::effectTone, patch.effects.tone);
     patch.effects.chorus = parameterInt(parameters, param_ids::effectChorus, patch.effects.chorus);
     patch.effects.delay = parameterInt(parameters, param_ids::effectDelay, patch.effects.delay);
@@ -550,7 +626,7 @@ void OpalineAudioProcessor::applyParametersToState()
 void OpalineAudioProcessor::syncParametersFromState()
 {
     setApvtsParameter(parameters, param_ids::masterVolume, state.masterVolume);
-    setApvtsParameter(parameters, param_ids::renderModel, state.renderModel == opaline::OpalineRenderModel::ChipHybrid ? 1.0f : 0.0f);
+    setApvtsParameter(parameters, param_ids::renderModel, state.renderModel == opaline::OpalineRenderModel::TypeB ? 1.0f : 0.0f);
     setApvtsParameter(parameters, param_ids::algorithm, static_cast<float>(state.patch.algorithm));
     setApvtsParameter(parameters, param_ids::feedback, static_cast<float>(state.patch.feedback));
     setApvtsParameter(parameters, param_ids::transpose, static_cast<float>(state.patch.transpose));
@@ -570,6 +646,7 @@ void OpalineAudioProcessor::syncParametersFromState()
     setApvtsParameter(parameters, param_ids::pegLevel3, static_cast<float>(state.patch.pitchEnvelope.level3));
     setApvtsParameter(parameters, param_ids::effectReverb, static_cast<float>(state.patch.effects.reverb));
     setApvtsParameter(parameters, param_ids::effectMix, static_cast<float>(state.patch.effects.mix));
+    setApvtsParameter(parameters, param_ids::effectEchoMix, static_cast<float>(state.patch.effects.echoMix));
     setApvtsParameter(parameters, param_ids::effectTone, static_cast<float>(state.patch.effects.tone));
     setApvtsParameter(parameters, param_ids::effectChorus, static_cast<float>(state.patch.effects.chorus));
     setApvtsParameter(parameters, param_ids::effectDelay, static_cast<float>(state.patch.effects.delay));

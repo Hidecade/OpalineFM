@@ -51,6 +51,9 @@ public:
     double getCurrentModWheel() const;
     std::array<int, 128> getMidiUiVelocities() const;
     std::array<float, 256> getScopeSamples() const;
+    void startWavRecording();
+    void stopWavRecording();
+    bool stopWavRecordingAndSaveToFile(const juce::File& file);
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
@@ -71,7 +74,7 @@ private:
     opaline::OpalineEngine engine;
     opaline::OpalineEngine performanceEngineB;
     opalineapp::SynthState state;
-    opaline::OpalineRenderModel renderModel = opaline::OpalineRenderModel::Current;
+    opaline::OpalineRenderModel renderModel = opaline::OpalineRenderModel::TypeB;
     juce::AudioProcessorValueTreeState parameters;
     double currentSampleRate = 44100.0;
     double currentPitchBend = 0.0;
@@ -82,6 +85,10 @@ private:
     std::array<std::atomic<int>, 128> midiUiVelocities {};
     std::array<std::atomic<float>, 512> scopeSamples {};
     std::atomic<int> scopeWriteIndex { 0 };
+    std::vector<float> wavRecordingInterleaved;
+    double wavRecordingSampleRate = 44100.0;
+    std::atomic<bool> wavRecording { false };
+    mutable juce::CriticalSection wavRecordingLock;
     mutable juce::CriticalSection engineLock;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(OpalineAudioProcessor)
