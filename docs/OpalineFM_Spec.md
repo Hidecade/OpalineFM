@@ -106,10 +106,10 @@ PR 60 : 1.13 s
 PR 70 : 0.855 s
 PR 80 : 0.579 s
 PR 90 : 0.416 s
-PR 99 : short clock-like transition
+PR 99 : short audible transition, about 12 ms
 ```
 
-High-rate values around PR90-98 use measured correction data. PR99 is not a true mathematical zero; it is implemented as a short audible transition.
+High-rate values around PR90-98 use measured correction data. PR99 is not a true mathematical zero; it is implemented as a short audible transition so plucked/string-like pitch attacks keep a small "put" transient.
 
 ## LFO and Modulation
 

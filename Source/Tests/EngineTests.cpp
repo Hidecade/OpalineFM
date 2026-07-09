@@ -212,7 +212,7 @@ void testPitchEnvelope()
         { 96, 179 },
         { 97, 175 },
         { 98, 155 },
-        { 99, 6 }
+        { 99, 12 }
     };
 
     for (const auto& expected : measuredRates)
@@ -274,7 +274,8 @@ void testPitchEnvelope()
         params.level2 = expected.level;
         params.level3 = 50;
         envelope.noteOn(params);
-        for (int i = 0; i < 10; ++i)
+        value = envelope.nextSemitones();
+        for (int i = 1; i < 32 && envelope.stage() != opaline::OpalinePitchEnvelope::Stage::Sustain; ++i)
             value = envelope.nextSemitones();
 
         expectNear(value,
