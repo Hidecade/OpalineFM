@@ -23,6 +23,7 @@ constexpr double kOpmEgIndexMax = 1023.0;
 constexpr double kChipLevelBlend = 0.50;
 constexpr double kChipModulatorBlend = 0.14;
 constexpr double kChipModulatorIndexScale = 0.82;
+constexpr double kTypeAPhaseModulationGain = 0.90;
 struct RenderModelTrim
 {
     double modulatorOpalineBlend = 0.0;
@@ -31,7 +32,7 @@ struct RenderModelTrim
 };
 
 constexpr RenderModelTrim kTypeATrim { 0.35, 1.0, 1.19 };
-constexpr RenderModelTrim kTypeBChipTrim { 0.0, 0.0, 1.0 };
+constexpr RenderModelTrim kTypeBChipTrim { 0.0, 0.0, 2.0 };
 constexpr double kModulatorAttackSoftenSeconds = 0.003;
 constexpr double kChipPhaseModGain = 1.0;
 constexpr double kModulatorAttackInitialScale = 0.96;
@@ -473,9 +474,20 @@ double opmFeedbackBusToRadians(const double bus, const int level, const OpalineR
         / (kOpmSineIndexSteps * 65536.0) * kOpmBusPhaseGain;
 }
 
-double levelToOppTlTarget(const double level)
+double levelToOppTlTarget(const double level, const OpalineRenderModel renderModel)
 {
-    return std::round((1.0 - clampDouble(level, 0.0, 99.0) / 99.0) * kOppTlMax);
+    const double clampedLevel = clampDouble(level, 0.0, 99.0);
+    if (renderModel == OpalineRenderModel::TypeB)
+    {
+        if (clampedLevel <= 0.0)
+            return kOppTlMax;
+
+        const double directTl = 99.0 - clampedLevel;
+        const double stretchedTl = (1.0 - clampedLevel / 99.0) * kOppTlMax;
+        return std::round((directTl + stretchedTl) * 0.5);
+    }
+
+    return std::round((1.0 - clampedLevel / 99.0) * kOppTlMax);
 }
 
 double oppTlUnitsToLevel(const double units)
@@ -601,7 +613,7 @@ std::pair<double, double> opalinePitchLfoShape(const double phase, const int wav
 }
 }
 
-void OpalineVoice::start(const OpalinePatch& patch, const int newMidiNote, const int velocity, const double sampleRate)
+void OpalineVoice::start(const OpalinePatch& patch, const int newMidiNote, const int velocity, const double sampleRate, const OpalineRenderModel renderModel)
 {
     midiNote = newMidiNote;
     noteVelocity = clampInt(velocity, 0, 127);
@@ -619,14 +631,14 @@ void OpalineVoice::start(const OpalinePatch& patch, const int newMidiNote, const
     sampleAndHoldShiftRegister = static_cast<std::uint16_t>(sampleAndHoldValue << 8);
     feedbackHistory.fill(0.0);
     failed = false;
-    activeRenderModel = OpalineRenderModel::TypeB;
+    activeRenderModel = renderModel;
     pitchEnvelope.reset(currentSampleRate);
     pitchEnvelope.noteOn(patch.pitchEnvelope);
 
     for (int i = 0; i < kOperatorCount; ++i)
     {
         operatorOppTlUnits[static_cast<std::size_t>(i)] =
-            levelToOppTlTarget(patch.operators[static_cast<std::size_t>(i)].level) * kOppTlSubsteps;
+            levelToOppTlTarget(patch.operators[static_cast<std::size_t>(i)].level, renderModel) * kOppTlSubsteps;
         envelopes[static_cast<std::size_t>(i)].reset(currentSampleRate);
         envelopes[static_cast<std::size_t>(i)].noteOn(patch.operators[static_cast<std::size_t>(i)].envelope,
                                                       patch.operators[static_cast<std::size_t>(i)].rateScale,
@@ -679,7 +691,7 @@ double OpalineVoice::nextOperatorTl(const int index, const int targetLevel)
 {
     const auto opSize = static_cast<std::size_t>(index);
     double current = operatorOppTlUnits[opSize];
-    const double target = levelToOppTlTarget(targetLevel);
+    const double target = levelToOppTlTarget(targetLevel, activeRenderModel);
     const double stepInterval = std::max(1.0, currentSampleRate * kOppTlRampSeconds / (kOppTlMax * kOppTlSubsteps));
 
     operatorTlAccumulators[opSize] += 1.0;
@@ -780,6 +792,9 @@ OperatorRender OpalineVoice::renderOperator(const int opIndex,
                                           outputs)
                                .modulation;
     }
+    if (renderModel == OpalineRenderModel::TypeA)
+        phaseModulation *= kTypeAPhaseModulationGain;
+
     phaseModulation = mixPhaseModulationForModel(phaseModulation, algorithm.depCounts[opSize], renderModel);
 
     const double feedback = opIndex == 3

@@ -63,7 +63,7 @@ void OpalineEngine::noteOn(const int note, const int velocity)
                  voices.end());
 
     OpalineVoice voice;
-    voice.start(patch, clampInt(note, 0, 127), clampInt(velocity, 0, 127), currentSampleRate);
+    voice.start(patch, clampInt(note, 0, 127), clampInt(velocity, 0, 127), currentSampleRate, renderModel);
     voices.push_back(voice);
 
     while (static_cast<int>(voices.size()) > maxVoiceCount)

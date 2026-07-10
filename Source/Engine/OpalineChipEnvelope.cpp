@@ -61,7 +61,7 @@ int opmStyleKeyScaleValue(const int note, const int rateScale)
 double opalineEgRate(const int rate, const int note, const int rateScale, const OpalineChipEnvelope::Stage stage)
 {
     const bool release = stage == OpalineChipEnvelope::Stage::Release;
-    const int value = clampInt(rate, 0, release ? 15 : 31);
+    const int value = clampInt(release ? rate + 1 : rate, 0, release ? 15 : 31);
     if (!release && value <= 0)
         return 0.0;
 

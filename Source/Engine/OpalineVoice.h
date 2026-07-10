@@ -24,7 +24,7 @@ struct OperatorRender
 class OpalineVoice
 {
 public:
-    void start(const OpalinePatch& patch, int midiNote, int velocity, double sampleRate);
+    void start(const OpalinePatch& patch, int midiNote, int velocity, double sampleRate, OpalineRenderModel renderModel);
     void release();
     bool isActive() const;
     int note() const { return midiNote; }
