@@ -147,6 +147,30 @@ bool voiceLibraryFromXml(const juce::XmlElement& xml, opaline::OpalineVoiceLibra
     return true;
 }
 
+std::unique_ptr<juce::XmlElement> singleVoiceToXml(const opaline::OpalinePatch& patch, const juce::String& name)
+{
+    juce::ValueTree tree { "opalineVoice" };
+    tree.setProperty("version", 1, nullptr);
+    tree.setProperty("name", name, nullptr);
+    tree.addChild(opalineapp::patchToValueTree(opaline::normalizePatch(patch)), -1, nullptr);
+    return tree.createXml();
+}
+
+bool singleVoiceFromXml(const juce::XmlElement& xml, opaline::OpalinePatch& patch, juce::String& name)
+{
+    const auto tree = juce::ValueTree::fromXml(xml);
+    if (!tree.hasType("opalineVoice"))
+        return false;
+
+    const auto patchTree = tree.getChildWithName(opalineapp::state_ids::patch);
+    if (!patchTree.isValid())
+        return false;
+
+    patch = opalineapp::patchFromValueTree(patchTree, opaline::OpalinePatch {});
+    name = tree.getProperty("name").toString().substring(0, 10);
+    return true;
+}
+
 juce::String displayNameForVoice(int index, const opaline::OpalinePatchWithMetadata& voice)
 {
     const auto number = juce::String(index + 1).paddedLeft('0', 2);
@@ -221,8 +245,7 @@ bool isUnsafeAsioDeviceName(const juce::String& deviceName)
     const auto name = deviceName.toLowerCase();
     return name.contains("built-in")
         || name.contains("generic")
-        || name.contains("low latency")
-        || name.contains("’áƒŒƒCƒeƒ“ƒV");
+        || name.contains("low latency");
 }
 
 std::vector<juce::String> wasapiLowLatencyTypeOrder(const juce::String& requestedTypeName)
@@ -596,7 +619,7 @@ void MainComponent::OpalineLookAndFeel::drawLinearSlider(juce::Graphics& g,
         bounds = juce::Rectangle<float>(static_cast<float>(x),
                                         static_cast<float>(y),
                                         static_cast<float>(width),
-                                        static_cast<float>(height)).reduced(4.0f, 0.0f);
+                                        static_cast<float>(height)).reduced(2.0f, 0.0f);
 
     if (slider.getName() == "mainFader" || slider.getName() == "balanceFader")
     {
@@ -701,7 +724,7 @@ void MainComponent::OpalineLookAndFeel::drawLinearSlider(juce::Graphics& g,
 
     if (slider.getName() == "wheelFader")
     {
-        const auto slot = bounds.withSizeKeepingCentre(juce::jmin(bounds.getWidth(), 38.0f),
+        const auto slot = bounds.withSizeKeepingCentre(juce::jmin(bounds.getWidth(), 42.0f),
                                                        bounds.getHeight()).reduced(1.0f, 0.0f);
         g.setColour(juce::Colours::black.withAlpha(0.48f));
         g.fillRoundedRectangle(slot.translated(0.0f, 2.0f), 3.0f);
@@ -890,9 +913,16 @@ void MainComponent::OpalineLookAndFeel::drawButtonBackground(juce::Graphics& g,
         if (shouldDrawButtonAsDown)
             bounds.translate(0.0f, 1.0f);
 
-        const auto top = shouldDrawButtonAsDown ? juce::Colour(0xff101a1e) : juce::Colour(0xff17242a);
-        const auto bottom = shouldDrawButtonAsDown ? juce::Colour(0xff0a1114) : juce::Colour(0xff10191d);
-        const auto outline = shouldDrawButtonAsHighlighted ? juce::Colour(0xff4a6771) : juce::Colour(0xff263b43);
+        const bool storeButton = button.getName() == "storeVoiceButton";
+        const auto top = storeButton
+            ? (shouldDrawButtonAsDown ? juce::Colour(0xff541719) : juce::Colour(0xff7a292c))
+            : (shouldDrawButtonAsDown ? juce::Colour(0xff101a1e) : juce::Colour(0xff17242a));
+        const auto bottom = storeButton
+            ? (shouldDrawButtonAsDown ? juce::Colour(0xff310c0e) : juce::Colour(0xff491416))
+            : (shouldDrawButtonAsDown ? juce::Colour(0xff0a1114) : juce::Colour(0xff10191d));
+        const auto outline = storeButton
+            ? (shouldDrawButtonAsHighlighted ? juce::Colour(0xffd06b6e) : juce::Colour(0xff8f3b3e))
+            : (shouldDrawButtonAsHighlighted ? juce::Colour(0xff4a6771) : juce::Colour(0xff263b43));
 
         g.setColour(juce::Colours::black.withAlpha(0.32f));
         g.fillRoundedRectangle(bounds.translated(0.0f, 2.0f), 4.5f);
@@ -1342,7 +1372,7 @@ MainComponent::OperatorComponent::OperatorComponent(const int operatorIndex, Cha
     roleLabel.setColour(juce::Label::textColourId, kTextMuted);
     addAndMakeVisible(roleLabel);
 
-    static constexpr std::array<const char*, 6> opNames { "Ratio", "Detune", "Level", "Rate", "LevelSc", "Vel" };
+    static constexpr std::array<const char*, 6> opNames { "Ratio", "Detune", "Level", "RateSc", "LevelSc", "Vel" };
     static constexpr std::array<const char*, 5> egNames { "AR", "D1R", "D1L", "D2R", "RR" };
     for (int i = 0; i < 6; ++i)
         addLabeledSlider(opLabels[static_cast<std::size_t>(i)], opSliders[static_cast<std::size_t>(i)], opNames[static_cast<std::size_t>(i)]);
@@ -1350,6 +1380,21 @@ MainComponent::OperatorComponent::OperatorComponent(const int operatorIndex, Cha
         addLabeledSlider(egLabels[static_cast<std::size_t>(i)], egSliders[static_cast<std::size_t>(i)], egNames[static_cast<std::size_t>(i)]);
 
     setupSlider(opSliders[0], 0, 63, 1, op.ratioIndex);
+    opSliders[0].textFromValueFunction = [](const double value)
+    {
+        const auto index = static_cast<std::size_t>(juce::jlimit(0, 63, juce::roundToInt(value)));
+        return juce::String(opaline::opalineRatios()[index], 2);
+    };
+    opSliders[0].valueFromTextFunction = [](const juce::String& text)
+    {
+        const double requestedRatio = text.getDoubleValue();
+        const auto& ratios = opaline::opalineRatios();
+        const auto nearest = std::min_element(ratios.begin(), ratios.end(), [requestedRatio](const double a, const double b)
+        {
+            return std::abs(a - requestedRatio) < std::abs(b - requestedRatio);
+        });
+        return static_cast<double>(std::distance(ratios.begin(), nearest));
+    };
     setupSlider(opSliders[1], -3, 3, 1, op.detune);
     setupSlider(opSliders[2], 0, 99, 1, op.level);
     setupSlider(opSliders[3], 0, 3, 1, op.rateScale);
@@ -1767,7 +1812,9 @@ MainComponent::MainComponent(const HostMode mode)
     setupComboBox(voiceBankSelect);
     voiceBankSelect.addListener(this);
     addAndMakeVisible(voiceBankSelect);
-    for (auto* button : { &loadVoiceBankButton, &saveVoiceBankButton, &exportVoiceLibraryButton, &storeVoiceButton })
+    for (auto* button : { &loadVoiceBankButton, &saveVoiceBankButton, &exportVoiceLibraryButton,
+                          &loadSingleVoiceButton, &saveSingleVoiceButton, &copyVoiceButton,
+                          &pasteVoiceButton, &initVoiceButton, &storeVoiceButton })
     {
         button->setName("voiceBankButton");
         button->setColour(juce::TextButton::buttonColourId, juce::Colour(0xff1c1a15));
@@ -1778,6 +1825,8 @@ MainComponent::MainComponent(const HostMode mode)
         button->addListener(this);
         addAndMakeVisible(*button);
     }
+    storeVoiceButton.setName("storeVoiceButton");
+    pasteVoiceButton.setEnabled(false);
     setupComboBox(voiceSelect);
     voiceSelect.addListener(this);
     addAndMakeVisible(voiceSelect);
@@ -1995,7 +2044,7 @@ MainComponent::MainComponent(const HostMode mode)
 
     setupLabel(pitchWheelLabel, "PITCH");
     pitchWheelLabel.setJustificationType(juce::Justification::centred);
-    pitchWheelLabel.setFont(juce::FontOptions(13.0f, juce::Font::plain));
+    pitchWheelLabel.setFont(juce::FontOptions(10.0f, juce::Font::plain));
     setupSlider(pitchWheelSlider, -1.0, 1.0, 0.01, 0.0, juce::Slider::LinearVertical);
     pitchWheelSlider.setName("wheelFader");
     pitchWheelSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
@@ -2101,7 +2150,9 @@ MainComponent::~MainComponent()
     for (auto* comboBox : { &voiceSelect, &voiceBankSelect, &performanceModeSelect, &voiceBSelect,
                             &audioOutputSelect, &midiInputSelect, &lfoWaveSelect })
         comboBox->setLookAndFeel(nullptr);
-    for (auto* button : { &loadVoiceBankButton, &saveVoiceBankButton, &exportVoiceLibraryButton, &storeVoiceButton })
+    for (auto* button : { &loadVoiceBankButton, &saveVoiceBankButton, &exportVoiceLibraryButton,
+                          &loadSingleVoiceButton, &saveSingleVoiceButton, &copyVoiceButton,
+                          &pasteVoiceButton, &initVoiceButton, &storeVoiceButton })
         button->setLookAndFeel(nullptr);
     wavRecordButton.setLookAndFeel(nullptr);
     engineModelButton.setLookAndFeel(nullptr);
@@ -2169,7 +2220,7 @@ void MainComponent::setWavRecordingCallbacks(WavRecordingStartCallback startCall
 
 juce::String MainComponent::currentProgramName() const
 {
-    return performanceVoiceText(performanceState.voiceAIndex);
+    return currentVoiceText();
 }
 
 void MainComponent::setExternalMidiNoteState(const std::array<int, 128>& velocities)
@@ -2364,9 +2415,22 @@ void MainComponent::resized()
     auto aRow = patch.removeFromTop(28);
     voiceALabel.setBounds(aRow.removeFromLeft(22).withSizeKeepingCentre(20, 20));
     aRow.removeFromLeft(2);
-    storeVoiceButton.setBounds(aRow.removeFromRight(50).withSizeKeepingCentre(50, 22));
-    aRow.removeFromRight(3);
     voiceSelect.setBounds(aRow);
+    patch.removeFromTop(2);
+    auto bRow = patch.removeFromTop(26);
+    auto actionRow = bRow;
+    voiceBLabel.setBounds(bRow.removeFromLeft(22).withSizeKeepingCentre(20, 20));
+    bRow.removeFromLeft(2);
+    voiceBSelect.setBounds(bRow);
+
+    constexpr int actionButtonWidth = 44;
+    constexpr int actionButtonGap = 2;
+    for (auto* button : { &loadSingleVoiceButton, &saveSingleVoiceButton, &copyVoiceButton,
+                          &pasteVoiceButton, &initVoiceButton, &storeVoiceButton })
+    {
+        button->setBounds(actionRow.removeFromLeft(actionButtonWidth).withSizeKeepingCentre(actionButtonWidth, 22));
+        actionRow.removeFromLeft(actionButtonGap);
+    }
     patch.removeFromTop(2);
     auto perfRow = patch.removeFromTop(26);
     performanceModeSelect.setBounds(perfRow.removeFromLeft(88));
@@ -2375,11 +2439,6 @@ void MainComponent::resized()
     dualDetuneSlider.setBounds(perfRow);
     splitPointLabel.setBounds(dualDetuneLabel.getBounds());
     splitPointSlider.setBounds(dualDetuneSlider.getBounds());
-    patch.removeFromTop(2);
-    auto bRow = patch.removeFromTop(26);
-    voiceBLabel.setBounds(bRow.removeFromLeft(22).withSizeKeepingCentre(20, 20));
-    bRow.removeFromLeft(2);
-    voiceBSelect.setBounds(bRow);
 
     constexpr int knobSize = 54;
     constexpr int knobLabelHeight = 15;
@@ -2499,10 +2558,10 @@ void MainComponent::resized()
     auto middle = area.removeFromTop(140);
     auto pitchArea = middle.removeFromLeft(58).reduced(panelPad, panelPad);
     pitchWheelLabel.setBounds(pitchArea.removeFromBottom(14).translated(0, -2));
-    pitchWheelSlider.setBounds(pitchArea.reduced(6, 2));
+    pitchWheelSlider.setBounds(pitchArea.reduced(5, 2));
     auto modArea = middle.removeFromLeft(58).reduced(panelPad, panelPad);
     modWheelLabel.setBounds(modArea.removeFromBottom(14).translated(0, -2));
-    modWheelSlider.setBounds(modArea.reduced(6, 2));
+    modWheelSlider.setBounds(modArea.reduced(5, 2));
     middle.removeFromLeft(panelGap);
     keyboard.setBounds(middle.reduced(2));
 
@@ -2581,8 +2640,7 @@ void MainComponent::refreshVoiceLists()
     const int maxVoiceIndex = juce::jmax(0, static_cast<int>(factoryVoices.size()) - 1);
     performanceState.voiceAIndex = juce::jlimit(0, maxVoiceIndex, performanceState.voiceAIndex);
     performanceState.voiceBIndex = juce::jlimit(0, maxVoiceIndex, performanceState.voiceBIndex);
-    voiceSelect.setSelectedId(performanceState.voiceAIndex + 1, juce::dontSendNotification);
-    voiceBSelect.setSelectedId(performanceState.voiceBIndex + 1, juce::dontSendNotification);
+    refreshPerformanceControls();
     refreshStatus();
 }
 
@@ -2608,6 +2666,7 @@ void MainComponent::storeCurrentPatchToSelectedVoice()
     const int voiceIndex = juce::jlimit(0, opaline::kOpalineVoiceBankSize - 1, performanceState.voiceAIndex);
     auto& voice = voiceLibrary.banks[static_cast<std::size_t>(currentVoiceBankIndex)].voices[static_cast<std::size_t>(voiceIndex)];
     voice.patch = opaline::normalizePatch(currentPatch);
+    voice.name = currentVoiceName.trim().substring(0, 10).toStdString();
     if (voice.name.empty())
         voice.name = "VOICE " + std::to_string(voiceIndex + 1);
     voice.vmem = opaline::encodeCompatibleVmemVoice(voice);
@@ -2672,6 +2731,39 @@ void MainComponent::loadVoiceLibraryFromFile(const juce::File& file)
     {
         statusLabel.setText("Library load failed: " + juce::String(e.what()), juce::dontSendNotification);
     }
+}
+
+void MainComponent::loadSingleVoiceFromFile(const juce::File& file)
+{
+    const auto xml = juce::parseXML(file.loadFileAsString());
+    opaline::OpalinePatch loadedPatch;
+    juce::String loadedName;
+    if (xml == nullptr || !singleVoiceFromXml(*xml, loadedPatch, loadedName))
+    {
+        statusLabel.setText("Single voice load failed: invalid file", juce::dontSendNotification);
+        return;
+    }
+
+    allNotesOff();
+    currentPatch = loadedPatch;
+    currentVoiceName = loadedName.isNotEmpty() ? loadedName : file.getFileNameWithoutExtension().substring(0, 10);
+    refreshCurrentVoiceNameDisplay();
+    syncUiFromPatch();
+    applyPatchToEngine();
+    statusLabel.setText("Single voice loaded", juce::dontSendNotification);
+}
+
+void MainComponent::saveSingleVoiceToFile(const juce::File& file)
+{
+    updatePatchFromGlobalControls();
+    const auto xml = singleVoiceToXml(currentPatch, currentVoiceName);
+    if (xml == nullptr || !xml->writeTo(file))
+    {
+        statusLabel.setText("Single voice save failed", juce::dontSendNotification);
+        return;
+    }
+
+    statusLabel.setText("Single voice saved", juce::dontSendNotification);
 }
 
 void MainComponent::saveCurrentVoiceBankToFile(const juce::File& file)
@@ -2786,9 +2878,13 @@ void MainComponent::applySelectedVoice(const int selectedId)
     if (index < 0 || index >= static_cast<int>(factoryVoices.size()))
         return;
 
+    const int previousIndex = juce::jlimit(0, static_cast<int>(factoryVoices.size()) - 1, performanceState.voiceAIndex);
+    voiceSelect.changeItemText(previousIndex + 1, displayNameForVoice(previousIndex, factoryVoices[static_cast<std::size_t>(previousIndex)]));
     performanceState.voiceAIndex = index;
     voiceSelect.setSelectedId(id, juce::dontSendNotification);
     currentPatch = factoryVoices[static_cast<std::size_t>(index)].patch;
+    currentVoiceName = juce::String(factoryVoices[static_cast<std::size_t>(index)].name).substring(0, 10);
+    refreshCurrentVoiceNameDisplay();
 
     syncUiFromPatch();
     applyPatchToEngine();
@@ -2867,6 +2963,32 @@ opaline::OpalinePatch MainComponent::patchForVoiceIndex(const int index) const
     return patch;
 }
 
+void MainComponent::refreshCurrentVoiceNameDisplay()
+{
+    if (factoryVoices.empty())
+        return;
+
+    const int index = juce::jlimit(0, static_cast<int>(factoryVoices.size()) - 1, performanceState.voiceAIndex);
+    const auto number = juce::String(index + 1).paddedLeft('0', 2);
+    const auto name = currentVoiceName.isNotEmpty() ? currentVoiceName.substring(0, 10) : juce::String("INIT VOICE");
+    const auto displayText = "A" + number + " " + name;
+    voiceSelect.changeItemText(index + 1, displayText);
+    voiceSelect.setSelectedId(0, juce::dontSendNotification);
+    voiceSelect.setSelectedId(index + 1, juce::dontSendNotification);
+    voiceSelect.repaint();
+    refreshLcd();
+}
+
+juce::String MainComponent::currentVoiceText() const
+{
+    const int safeIndex = factoryVoices.empty() ? 0
+                                                : juce::jlimit(0, static_cast<int>(factoryVoices.size()) - 1, performanceState.voiceAIndex);
+    const auto bank = safeIndex < 16 ? "A" : "B";
+    const auto number = juce::String(safeIndex % 16 + 1).paddedLeft('0', 2);
+    const auto name = currentVoiceName.isNotEmpty() ? currentVoiceName.substring(0, 12) : juce::String("INIT VOICE");
+    return bank + number + " " + name;
+}
+
 juce::String MainComponent::performanceVoiceText(const int index) const
 {
     if (factoryVoices.empty())
@@ -2884,17 +3006,17 @@ void MainComponent::refreshLcd()
     switch (performanceState.mode)
     {
         case PerformanceMode::Single:
-            lcd.setLines("PLAY SINGLE", performanceVoiceText(performanceState.voiceAIndex));
+            lcd.setLines("PLAY SINGLE", currentVoiceText());
             break;
 
         case PerformanceMode::Dual:
-            lcd.setLines("DU:" + performanceVoiceText(performanceState.voiceAIndex),
+            lcd.setLines("DU:" + currentVoiceText(),
                          juce::String(performanceState.dualDetune).paddedLeft(' ', 2)
                             + ":" + performanceVoiceText(performanceState.voiceBIndex));
             break;
 
         case PerformanceMode::Split:
-            lcd.setLines("SP:" + performanceVoiceText(performanceState.voiceAIndex),
+            lcd.setLines("SP:" + currentVoiceText(),
                          juce::String(performanceState.splitPoint).paddedLeft(' ', 2)
                             + ":" + performanceVoiceText(performanceState.voiceBIndex));
             break;
@@ -2911,15 +3033,23 @@ void MainComponent::refreshPerformanceControls()
 {
     performanceModeSelect.setSelectedId(static_cast<int>(performanceState.mode) + 1, juce::dontSendNotification);
     voiceSelect.setSelectedId(performanceState.voiceAIndex + 1, juce::dontSendNotification);
-    voiceBSelect.setSelectedId(performanceState.voiceBIndex + 1, juce::dontSendNotification);
     dualDetuneSlider.setValue(performanceState.dualDetune, juce::dontSendNotification);
     splitPointSlider.setValue(performanceState.splitPoint, juce::dontSendNotification);
     balanceSlider.setValue(performanceState.abBalance, juce::dontSendNotification);
 
     const bool dual = performanceState.mode == PerformanceMode::Dual;
     const bool split = performanceState.mode == PerformanceMode::Split;
-    voiceBLabel.setVisible(dual || split);
-    voiceBSelect.setVisible(dual || split);
+    const bool single = performanceState.mode == PerformanceMode::Single;
+    voiceBLabel.setVisible(!single);
+    voiceBSelect.setVisible(!single);
+    voiceBSelect.setEnabled(!single);
+    if (!single)
+        voiceBSelect.setSelectedId(performanceState.voiceBIndex + 1, juce::dontSendNotification);
+
+    for (auto* button : { &loadSingleVoiceButton, &saveSingleVoiceButton, &copyVoiceButton,
+                          &pasteVoiceButton, &initVoiceButton, &storeVoiceButton })
+        button->setVisible(single);
+
     dualDetuneLabel.setVisible(dual);
     dualDetuneSlider.setVisible(dual);
     splitPointLabel.setVisible(split);
@@ -2960,6 +3090,7 @@ void MainComponent::emitSynthStateChanged()
 void MainComponent::applySynthState(const opalineapp::SynthState& state, const bool resetPatchToSelectedVoice)
 {
     suppressStateCallback = true;
+    const int previousVoiceAIndex = performanceState.voiceAIndex;
     const auto restoredPatch = opaline::normalizePatch(state.patch);
     currentPatch = restoredPatch;
     performanceState = state.performance;
@@ -2968,6 +3099,11 @@ void MainComponent::applySynthState(const opalineapp::SynthState& state, const b
         const int maxVoiceIndex = juce::jmax(0, static_cast<int>(factoryVoices.size()) - 1);
         performanceState.voiceAIndex = juce::jlimit(0, maxVoiceIndex, performanceState.voiceAIndex);
         performanceState.voiceBIndex = juce::jlimit(0, maxVoiceIndex, performanceState.voiceBIndex);
+        if (resetPatchToSelectedVoice || performanceState.voiceAIndex != previousVoiceAIndex)
+        {
+            currentVoiceName = juce::String(factoryVoices[static_cast<std::size_t>(performanceState.voiceAIndex)].name).substring(0, 10);
+            refreshCurrentVoiceNameDisplay();
+        }
         if (resetPatchToSelectedVoice)
         {
             currentPatch = factoryVoices[static_cast<std::size_t>(performanceState.voiceAIndex)].patch;
@@ -3878,6 +4014,9 @@ void MainComponent::comboBoxChanged(juce::ComboBox* comboBoxThatHasChanged)
 {
     if (comboBoxThatHasChanged == &voiceSelect)
     {
+        if (suppressVoiceSelectionCallback)
+            return;
+
         allNotesOff();
         applySelectedVoice(voiceSelect.getSelectedId());
         saveVoiceLibraryState();
@@ -4010,12 +4149,90 @@ void MainComponent::buttonClicked(juce::Button* button)
                                      exportVoiceLibraryToFile(file);
                                  });
     }
+    else if (button == &loadSingleVoiceButton)
+    {
+        fileChooser = std::make_unique<juce::FileChooser>("Load single Opaline voice",
+                                                          juce::File {},
+                                                          "*.opalinevoice");
+        fileChooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                                 [this](const juce::FileChooser& chooser)
+                                 {
+                                     const auto file = chooser.getResult();
+                                     if (file.existsAsFile())
+                                         loadSingleVoiceFromFile(file);
+                                 });
+    }
+    else if (button == &saveSingleVoiceButton)
+    {
+        auto name = currentVoiceName;
+        name = name.retainCharacters("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_ ");
+        if (name.isEmpty())
+            name = "OpalineVoice";
+
+        fileChooser = std::make_unique<juce::FileChooser>("Save single Opaline voice",
+                                                          juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
+                                                              .getChildFile(name + ".opalinevoice"),
+                                                          "*.opalinevoice");
+        fileChooser->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
+                                 [this](const juce::FileChooser& chooser)
+                                 {
+                                     auto file = chooser.getResult();
+                                     if (file == juce::File {})
+                                         return;
+                                     if (!file.hasFileExtension(".opalinevoice"))
+                                         file = file.withFileExtension(".opalinevoice");
+                                     saveSingleVoiceToFile(file);
+                                 });
+    }
+    else if (button == &initVoiceButton)
+    {
+        allNotesOff();
+        currentPatch = opaline::normalizePatch(opaline::OpalinePatch {});
+        currentVoiceName = "INIT VOICE";
+        refreshCurrentVoiceNameDisplay();
+        syncUiFromPatch();
+        applyPatchToEngine();
+        statusLabel.setText("Voice initialized", juce::dontSendNotification);
+    }
+    else if (button == &copyVoiceButton)
+    {
+        updatePatchFromGlobalControls();
+        const auto displayedName = voiceSelect.getText().fromFirstOccurrenceOf(" ", false, false).trim().substring(0, 10);
+        if (displayedName.isNotEmpty())
+            currentVoiceName = displayedName;
+        copiedVoice.patch = opaline::normalizePatch(currentPatch);
+        copiedVoice.name = currentVoiceName.trim().substring(0, 10).toStdString();
+        copiedVoice.vmem = opaline::encodeCompatibleVmemVoice(copiedVoice);
+        copiedVoice.hasVmem = true;
+        hasCopiedPatch = true;
+        pasteVoiceButton.setEnabled(true);
+        statusLabel.setText("Voice copied: " + currentVoiceName, juce::dontSendNotification);
+    }
+    else if (button == &pasteVoiceButton && hasCopiedPatch)
+    {
+        const int selectedId = voiceSelect.getSelectedId();
+        if (selectedId > 0 && selectedId <= static_cast<int>(factoryVoices.size()))
+            performanceState.voiceAIndex = selectedId - 1;
+
+        suppressVoiceSelectionCallback = true;
+        allNotesOff();
+        currentPatch = opaline::normalizePatch(copiedVoice.patch);
+        currentVoiceName = juce::String(copiedVoice.name).substring(0, 10);
+        refreshCurrentVoiceNameDisplay();
+        syncUiFromPatch();
+        applyPatchToEngine();
+        statusLabel.setText("Voice pasted: " + currentVoiceName, juce::dontSendNotification);
+        juce::MessageManager::callAsync([safeThis = juce::Component::SafePointer<MainComponent>(this)]
+        {
+            if (safeThis != nullptr)
+                safeThis->suppressVoiceSelectionCallback = false;
+        });
+    }
     else if (button == &storeVoiceButton)
     {
         storeCurrentPatchToSelectedVoice();
         refreshVoiceLists();
-        voiceSelect.setSelectedId(performanceState.voiceAIndex + 1, juce::dontSendNotification);
-        voiceBSelect.setSelectedId(performanceState.voiceBIndex + 1, juce::dontSendNotification);
+        refreshPerformanceControls();
         statusLabel.setText("Voice stored", juce::dontSendNotification);
         refreshStatus();
         saveVoiceLibraryState();

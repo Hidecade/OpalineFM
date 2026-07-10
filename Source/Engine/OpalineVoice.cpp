@@ -31,7 +31,7 @@ struct RenderModelTrim
     double outputGain = 1.0;
 };
 
-constexpr RenderModelTrim kTypeATrim { 0.35, 1.0, 1.19 };
+constexpr RenderModelTrim kTypeATrim { 0.35, 1.0, 0.833 };
 constexpr RenderModelTrim kTypeBChipTrim { 0.0, 0.0, 2.0 };
 constexpr double kModulatorAttackSoftenSeconds = 0.003;
 constexpr double kChipPhaseModGain = 1.0;

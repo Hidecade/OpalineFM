@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<opalineVoice version="1" name="Pianobrass">
+  <Patch algorithm="5" feedback="7" transpose="0">
+    <Lfo speed="35" delay="0" pitchDepth="0" ampDepth="0" pitchSensitivity="6"
+         ampSensitivity="0" sync="0" wave="2"/>
+    <PitchEnvelope rate1="99" rate2="99" rate3="99" level1="50" level2="50" level3="50"/>
+    <Effects reverb="0" mix="0" echoMix="0" tone="50" chorus="0" delay="0"/>
+    <Operator index="0" ratioIndex="4" detune="-3" level="99" rateScale="2"
+              levelScale="0" velocity="0" ampModEnable="0" enabled="1">
+      <Envelope attackRate="22" decay1Rate="4" decay1Level="13" decay2Rate="1"
+                releaseRate="5"/>
+    </Operator>
+    <Operator index="1" ratioIndex="42" detune="3" level="53" rateScale="2"
+              levelScale="52" velocity="0" ampModEnable="0" enabled="1">
+      <Envelope attackRate="22" decay1Rate="12" decay1Level="11" decay2Rate="8"
+                releaseRate="4"/>
+    </Operator>
+    <Operator index="2" ratioIndex="4" detune="-3" level="99" rateScale="2"
+              levelScale="0" velocity="0" ampModEnable="0" enabled="1">
+      <Envelope attackRate="17" decay1Rate="1" decay1Level="13" decay2Rate="1"
+                releaseRate="5"/>
+    </Operator>
+    <Operator index="3" ratioIndex="4" detune="3" level="72" rateScale="1"
+              levelScale="31" velocity="0" ampModEnable="0" enabled="1">
+      <Envelope attackRate="11" decay1Rate="3" decay1Level="13" decay2Rate="1"
+                releaseRate="7"/>
+    </Operator>
+  </Patch>
+</opalineVoice>

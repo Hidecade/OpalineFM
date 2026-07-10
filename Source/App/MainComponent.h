@@ -305,7 +305,9 @@ private:
     void storeCurrentPatchToSelectedVoice();
     void loadVoiceBankFromFile(const juce::File& file);
     void loadVoiceLibraryFromFile(const juce::File& file);
+    void loadSingleVoiceFromFile(const juce::File& file);
     void saveCurrentVoiceBankToFile(const juce::File& file);
+    void saveSingleVoiceToFile(const juce::File& file);
     void exportVoiceLibraryToFile(const juce::File& file);
     bool restoreSavedVoiceLibraryState();
     void saveVoiceLibraryState();
@@ -320,8 +322,10 @@ private:
     void updatePerformanceFromControls();
     void refreshPerformanceControls();
     void refreshLcd();
+    void refreshCurrentVoiceNameDisplay();
     void emitProgramNameChanged();
     opaline::OpalinePatch patchForVoiceIndex(int index) const;
+    juce::String currentVoiceText() const;
     juce::String performanceVoiceText(int index) const;
     void setupSlider(juce::Slider& slider, double min, double max, double step, double value, juce::Slider::SliderStyle style);
     void setupLabel(juce::Label& label, const juce::String& text);
@@ -374,7 +378,12 @@ private:
     juce::TextButton loadVoiceBankButton { "Load" };
     juce::TextButton saveVoiceBankButton { "Save" };
     juce::TextButton exportVoiceLibraryButton { "Export" };
-    juce::TextButton storeVoiceButton { "Store" };
+    juce::TextButton loadSingleVoiceButton { "LOAD" };
+    juce::TextButton saveSingleVoiceButton { "SAVE" };
+    juce::TextButton initVoiceButton { "INIT" };
+    juce::TextButton storeVoiceButton { "STORE" };
+    juce::TextButton copyVoiceButton { "COPY" };
+    juce::TextButton pasteVoiceButton { "PASTE" };
     juce::TextButton engineModelButton { "TYPE B" };
     juce::ToggleButton lfoSyncButton { "Sync" };
     UnitWheelSlider volumeSlider;
@@ -450,6 +459,8 @@ private:
     opaline::OpalineEngine engine;
     opaline::OpalineEngine performanceEngineB;
     opaline::OpalinePatch currentPatch;
+    opaline::OpalinePatchWithMetadata copiedVoice;
+    juce::String currentVoiceName { "INIT VOICE" };
     PerformanceState performanceState;
     opaline::OpalineVoiceLibrary voiceLibrary;
     int currentVoiceBankIndex = 0;
@@ -483,6 +494,8 @@ private:
     bool chipRenderModel = true;
     bool syncingUi = false;
     bool suppressStateCallback = false;
+    bool suppressVoiceSelectionCallback = false;
+    bool hasCopiedPatch = false;
     HostMode hostMode = HostMode::StandaloneApp;
     StateChangedCallback onStateChanged;
     RenderModelChangedCallback onRenderModelChanged;

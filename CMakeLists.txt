@@ -77,6 +77,7 @@ set(OPALINE_JUCE_DIR "" CACHE PATH "Path to a JUCE checkout. If empty, external/
 option(OPALINE_BUILD_STANDALONE "Build the JUCE standalone app when JUCE is available." ON)
 option(OPALINE_BUILD_PLUGIN "Build the JUCE VST3 plugin when JUCE is available." ON)
 option(OPALINE_BUILD_AU "Build the Audio Unit plugin format on macOS." ON)
+set(OPALINE_APP_ICON "${CMAKE_CURRENT_SOURCE_DIR}/assets/opalinefm-icon.png")
 
 set(OPALINE_RESOLVED_JUCE_DIR "")
 if (NOT OPALINE_BUILD_STANDALONE AND NOT OPALINE_BUILD_PLUGIN)
@@ -96,6 +97,8 @@ if (OPALINE_RESOLVED_JUCE_DIR)
         VERSION ${PROJECT_VERSION}
         COMPANY_NAME "Hidecade"
         BUNDLE_ID "jp.hidecade.opalinefm"
+        ICON_BIG "${OPALINE_APP_ICON}"
+        ICON_SMALL "${OPALINE_APP_ICON}"
     )
 
     target_sources(OpalineFM_Standalone
@@ -147,6 +150,8 @@ if (OPALINE_RESOLVED_JUCE_DIR)
         PLUGIN_CODE OpFM
         FORMATS ${OPALINE_PLUGIN_FORMATS}
         PRODUCT_NAME "Opaline FM"
+        ICON_BIG "${OPALINE_APP_ICON}"
+        ICON_SMALL "${OPALINE_APP_ICON}"
         NEEDS_WEB_BROWSER FALSE
         NEEDS_CURL FALSE
     )
