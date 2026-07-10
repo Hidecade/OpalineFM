@@ -86,6 +86,16 @@ C:\Program Files\Common Files\VST3\
 
 Then rescan plugins in the DAW.
 
+## Windows Installers
+
+Install Inno Setup 6 or 7, then build the release binaries and both Windows installers:
+
+```powershell
+.\scripts\build-windows-installers.ps1 -Version 0.3.0
+```
+
+The generated standalone and VST3 installers are written to `dist/`.
+
 ## Voice Files
 
 Opaline FM can load compatible 32-voice bulk SysEx banks:

@@ -15,6 +15,10 @@ file(MAKE_DIRECTORY "${OPALINE_GENERATED_DIR}")
 configure_file(Source/App/OpalineVersion.h.in "${OPALINE_GENERATED_DIR}/OpalineVersion.h" @ONLY)
 
 function(opaline_add_version_bump target_name)
+    if (NOT OPALINE_AUTO_INCREMENT_VERSION)
+        return()
+    endif()
+
     add_custom_command(TARGET ${target_name} POST_BUILD
         COMMAND ${CMAKE_COMMAND}
             -DVERSION_FILE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/OpalineVersion.cmake
@@ -24,6 +28,8 @@ function(opaline_add_version_bump target_name)
         VERBATIM
     )
 endfunction()
+
+option(OPALINE_AUTO_INCREMENT_VERSION "Increment the patch version after application and plugin builds." ON)
 
 if (MSVC OR CMAKE_GENERATOR MATCHES "Visual Studio")
     add_compile_options(/W4 /permissive- /utf-8)
