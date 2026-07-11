@@ -19,6 +19,10 @@ public:
     void noteOn(int note, int velocity);
     void noteOff(int note);
     void setPitchBend(double value);
+    void setPitchBendRange(int semitones);
+    void setPortamento(int value);
+    void setMonoMode(bool enabled);
+    void setSustainPedal(bool down);
     void setModWheel(double value);
     void setRenderModel(OpalineRenderModel model) { renderModel = model; }
     void panic();
@@ -47,6 +51,12 @@ private:
     double currentSampleRate = 44100.0;
     int maxVoiceCount = kDefaultMaxVoices;
     double pitchBend = 0.0;
+    int pitchBendRange = 2;
+    int portamento = 0;
+    bool monoMode = false;
+    bool sustainPedalDown = false;
+    std::array<bool, 128> sustainedNotes {};
+    int lastPlayedNote = -1;
     double modWheel = 0.0;
     OpalineRenderModel renderModel = OpalineRenderModel::TypeB;
     double globalLfoAge = 0.0;

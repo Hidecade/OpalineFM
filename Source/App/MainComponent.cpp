@@ -7,6 +7,7 @@
 #include <cstring>
 #include <fstream>
 #include <iterator>
+#include <limits>
 
 namespace
 {
@@ -1299,11 +1300,13 @@ void MainComponent::ScopeComponent::paint(juce::Graphics& g)
         ? 440.0 * std::pow(2.0, (static_cast<double>(note) - 69.0) / 12.0)
         : 0.0;
     const double periodSamples = frequency > 0.0 ? sampleRate / frequency : 256.0;
-    const int viewSamples = juce::jlimit(256, 2048,
-                                        static_cast<int>(std::round(sampleRate * 0.025)));
+    const int timeWindowSamples = static_cast<int>(std::round(sampleRate * 0.025));
+    const int minimumCycleWindow = static_cast<int>(std::round(periodSamples * 1.5));
+    const int viewSamples = juce::jlimit(256, 3072,
+                                        juce::jmax(timeWindowSamples, minimumCycleWindow));
 
     const int idealCentre = static_cast<int>(history.size()) - viewSamples / 2 - 2;
-    const int searchRadius = juce::jlimit(8, 1024,
+    const int searchRadius = juce::jlimit(8, 1536,
                                          static_cast<int>(std::round(periodSamples)));
     const int slopeSpan = juce::jlimit(1, 128,
                                       static_cast<int>(std::round(periodSamples * 0.125)));
@@ -1316,7 +1319,9 @@ void MainComponent::ScopeComponent::paint(juce::Graphics& g)
                                                maximumCentre),
                                     idealCentre + searchRadius);
     int centreCrossing = -1;
-    float strongestRise = 0.0f;
+    int closestDistance = std::numeric_limits<int>::max();
+    float closestRise = 0.0f;
+    const float minimumRise = peak * 0.025f;
     for (int i = searchStart; i <= searchEnd; ++i)
     {
         if (history[static_cast<std::size_t>(i - 1)] <= 0.0f
@@ -1324,9 +1329,12 @@ void MainComponent::ScopeComponent::paint(juce::Graphics& g)
         {
             const float rise = history[static_cast<std::size_t>(i + slopeSpan)]
                 - history[static_cast<std::size_t>(i - slopeSpan)];
-            if (rise > strongestRise)
+            const int distance = std::abs(i - idealCentre);
+            if (rise >= minimumRise
+                && (distance < closestDistance || (distance == closestDistance && rise > closestRise)))
             {
-                strongestRise = rise;
+                closestDistance = distance;
+                closestRise = rise;
                 centreCrossing = i;
             }
         }
@@ -1363,7 +1371,7 @@ void MainComponent::ScopeComponent::paint(juce::Graphics& g)
     }
     else
     {
-        constexpr float currentFrameWeight = 0.42f;
+        const float currentFrameWeight = periodSamples > 900.0 ? 0.25f : 0.42f;
         for (std::size_t i = 0; i < displaySamples.size(); ++i)
         {
             const float current = displaySamples[i] * displayGain;
@@ -1906,7 +1914,8 @@ MainComponent::MainComponent(const HostMode mode)
                           &loadSingleVoiceButton, &saveSingleVoiceButton, &copyVoiceButton,
                           &pasteVoiceButton, &initVoiceButton, &storeVoiceButton,
                           &voiceAPreviousButton, &voiceANextButton,
-                          &voiceBPreviousButton, &voiceBNextButton })
+                          &voiceBPreviousButton, &voiceBNextButton,
+                          &polyMonoAButton, &polyMonoBButton })
     {
         button->setName("voiceBankButton");
         button->setColour(juce::TextButton::buttonColourId, juce::Colour(0xff1c1a15));
@@ -1918,6 +1927,11 @@ MainComponent::MainComponent(const HostMode mode)
         addAndMakeVisible(*button);
     }
     storeVoiceButton.setName("storeVoiceButton");
+    for (auto* button : { &polyMonoAButton, &polyMonoBButton })
+    {
+        button->setClickingTogglesState(true);
+        button->setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff243d38));
+    }
     pasteVoiceButton.setEnabled(false);
     setupComboBox(voiceSelect);
     voiceSelect.addListener(this);
@@ -2146,6 +2160,13 @@ MainComponent::MainComponent(const HostMode mode)
     pitchWheelSlider.addListener(this);
     addAndMakeVisible(pitchWheelLabel);
     addAndMakeVisible(pitchWheelSlider);
+    setupLabel(pitchBendRangeLabel, "RANGE");
+    pitchBendRangeLabel.setJustificationType(juce::Justification::centred);
+    pitchBendRangeLabel.setFont(juce::FontOptions(9.0f, juce::Font::plain));
+    setupSlider(pitchBendRangeSlider, 0, 12, 1, 2, juce::Slider::RotaryHorizontalVerticalDrag);
+    pitchBendRangeSlider.addListener(this);
+    addAndMakeVisible(pitchBendRangeLabel);
+    addAndMakeVisible(pitchBendRangeSlider);
     setupLabel(modWheelLabel, "MODULATION");
     modWheelLabel.setJustificationType(juce::Justification::centred);
     modWheelLabel.setFont(juce::FontOptions(9.5f, juce::Font::plain));
@@ -2158,6 +2179,13 @@ MainComponent::MainComponent(const HostMode mode)
     modWheelSlider.addListener(this);
     addAndMakeVisible(modWheelLabel);
     addAndMakeVisible(modWheelSlider);
+    setupLabel(portamentoLabel, "PORTA");
+    portamentoLabel.setJustificationType(juce::Justification::centred);
+    portamentoLabel.setFont(juce::FontOptions(9.0f, juce::Font::plain));
+    setupSlider(portamentoSlider, 0, 99, 1, 0, juce::Slider::RotaryHorizontalVerticalDrag);
+    portamentoSlider.addListener(this);
+    addAndMakeVisible(portamentoLabel);
+    addAndMakeVisible(portamentoSlider);
 
     addAndMakeVisible(keyboard);
 
@@ -2229,13 +2257,14 @@ MainComponent::~MainComponent()
     }
     midiInputs.clear();
 
-    const std::array<juce::Slider*, 27> sliders { &volumeSlider, &transposeSlider, &balanceSlider, &algorithmSlider, &feedbackSlider,
+    const std::array<juce::Slider*, 29> sliders { &volumeSlider, &transposeSlider, &balanceSlider, &algorithmSlider, &feedbackSlider,
                                                   &lfoSpeedSlider, &lfoDelaySlider, &lfoPitchDepthSlider, &lfoAmpDepthSlider,
                                                   &lfoPitchSensitivitySlider, &lfoAmpSensitivitySlider,
                                                   &pegRate1Slider, &pegRate2Slider, &pegRate3Slider,
                                                   &pegLevel1Slider, &pegLevel2Slider, &pegLevel3Slider,
                                                   &effectReverbSlider, &effectMixSlider, &effectEchoMixSlider, &effectToneSlider, &effectChorusSlider,
-                                                  &effectDelaySlider, &pitchWheelSlider, &modWheelSlider,
+                                                   &effectDelaySlider, &pitchWheelSlider, &modWheelSlider,
+                                                   &pitchBendRangeSlider, &portamentoSlider,
                                                   &dualDetuneSlider, &splitPointSlider };
     for (auto* slider : sliders)
     {
@@ -2509,6 +2538,9 @@ void MainComponent::resized()
     lcd.setBounds(patch.removeFromTop(56));
     patch.removeFromTop(5);
     auto aRow = patch.removeFromTop(28);
+    const auto polyMonoArea = juce::Rectangle<int>(aRow.getRight() - 44, aRow.getY(), 44, aRow.getHeight());
+    polyMonoAButton.setBounds(polyMonoArea.withSizeKeepingCentre(44, 22));
+    aRow.removeFromRight(48);
     voiceALabel.setBounds(aRow.removeFromLeft(22).withSizeKeepingCentre(20, 20));
     aRow.removeFromLeft(2);
     voiceANextButton.setBounds(aRow.removeFromRight(22).withSizeKeepingCentre(22, 22));
@@ -2519,6 +2551,12 @@ void MainComponent::resized()
     patch.removeFromTop(2);
     auto bRow = patch.removeFromTop(26);
     auto actionRow = bRow;
+    if (performanceState.mode != PerformanceMode::Single)
+    {
+        const auto polyMonoBArea = juce::Rectangle<int>(bRow.getRight() - 44, bRow.getY(), 44, bRow.getHeight());
+        polyMonoBButton.setBounds(polyMonoBArea.withSizeKeepingCentre(44, 22));
+        bRow.removeFromRight(48);
+    }
     voiceBLabel.setBounds(bRow.removeFromLeft(22).withSizeKeepingCentre(20, 20));
     bRow.removeFromLeft(2);
     voiceBNextButton.setBounds(bRow.removeFromRight(22).withSizeKeepingCentre(22, 22));
@@ -2566,7 +2604,8 @@ void MainComponent::resized()
                                        juce::jmin(254, controlsPanelBounds.getRight() - lfo.getX() - 8),
                                        controlHeaderHeight);
     lfoWaveLabel.setBounds(lfoTop.removeFromLeft(58));
-    lfoWaveSelect.setBounds(lfoTop.removeFromLeft(112).withSizeKeepingCentre(112, topControlHeight));
+    auto lfoWaveSelectArea = lfoTop.removeFromLeft(112);
+    lfoWaveSelect.setBounds(lfoWaveSelectArea.withTrimmedRight(8).withSizeKeepingCentre(104, topControlHeight));
     lfoTop.removeFromLeft(8);
     lfoSyncButton.setBounds(lfoTop.removeFromLeft(76).withSizeKeepingCentre(76, topControlHeight));
 
@@ -2603,9 +2642,9 @@ void MainComponent::resized()
                feedbackLabel,
                feedbackSlider);
 
-    pegTitleLabel.setBounds(pegContent.getX() + pegCellWidth,
+    pegTitleLabel.setBounds(pegContent.getX(),
                             controlsPanelBounds.getY() + 3,
-                            pegCellWidth,
+                            pegCellWidth * 3,
                             controlHeaderHeight);
     std::array<juce::Label*, 6> pegLabels { &pegRate1Label, &pegRate2Label, &pegRate3Label,
                                             &pegLevel1Label, &pegLevel2Label, &pegLevel3Label };
@@ -2669,6 +2708,13 @@ void MainComponent::resized()
     auto modArea = middle.removeFromLeft(58).reduced(panelPad, panelPad);
     modWheelLabel.setBounds(modArea.removeFromBottom(14).translated(0, -2));
     modWheelSlider.setBounds(modArea.reduced(5, 2));
+    auto wheelControlColumn = middle.removeFromLeft(58).reduced(panelPad, panelPad).translated(0, 3);
+    auto rangeArea = wheelControlColumn.removeFromTop(wheelControlColumn.getHeight() / 2);
+    pitchBendRangeLabel.setBounds(rangeArea.removeFromTop(10));
+    pitchBendRangeSlider.setBounds(rangeArea.withSizeKeepingCentre(48, 52).translated(0, -3));
+    auto portamentoArea = wheelControlColumn;
+    portamentoLabel.setBounds(portamentoArea.removeFromTop(10).translated(0, -3));
+    portamentoSlider.setBounds(portamentoArea.withSizeKeepingCentre(48, 52).translated(0, -6));
     middle.removeFromLeft(panelGap);
     keyboard.setBounds(middle.reduced(2));
 
@@ -3144,6 +3190,10 @@ void MainComponent::refreshPerformanceControls()
     dualDetuneSlider.setValue(performanceState.dualDetune, juce::dontSendNotification);
     splitPointSlider.setValue(performanceState.splitPoint, juce::dontSendNotification);
     balanceSlider.setValue(performanceState.abBalance, juce::dontSendNotification);
+    polyMonoAButton.setToggleState(performanceState.monoA, juce::dontSendNotification);
+    polyMonoAButton.setButtonText(performanceState.monoA ? "MONO" : "POLY");
+    polyMonoBButton.setToggleState(performanceState.monoB, juce::dontSendNotification);
+    polyMonoBButton.setButtonText(performanceState.monoB ? "MONO" : "POLY");
 
     const bool dual = performanceState.mode == PerformanceMode::Dual;
     const bool split = performanceState.mode == PerformanceMode::Split;
@@ -3153,6 +3203,7 @@ void MainComponent::refreshPerformanceControls()
     voiceBSelect.setEnabled(!single);
     voiceBPreviousButton.setVisible(!single);
     voiceBNextButton.setVisible(!single);
+    polyMonoBButton.setVisible(!single);
     if (!single)
         voiceBSelect.setSelectedId(performanceState.voiceBIndex + 1, juce::dontSendNotification);
 
@@ -3187,6 +3238,8 @@ opalineapp::SynthState MainComponent::captureSynthState() const
     state.patch = currentPatch;
     state.performance = performanceState;
     state.masterVolume = masterVolume;
+    state.pitchBendRange = pitchBendRange;
+    state.portamento = portamento;
     state.renderModel = currentRenderModel();
     return state;
 }
@@ -3222,10 +3275,18 @@ void MainComponent::applySynthState(const opalineapp::SynthState& state, const b
         }
     }
     masterVolume = juce::jlimit(0.0f, 1.0f, state.masterVolume);
+    pitchBendRange = juce::jlimit(0, 12, state.pitchBendRange);
+    portamento = juce::jlimit(0, 99, state.portamento);
     chipRenderModel = state.renderModel == opaline::OpalineRenderModel::TypeB;
 
     syncingUi = true;
     volumeSlider.setValue(masterVolume, juce::dontSendNotification);
+    pitchBendRangeSlider.setValue(pitchBendRange, juce::dontSendNotification);
+    portamentoSlider.setValue(portamento, juce::dontSendNotification);
+    polyMonoAButton.setToggleState(performanceState.monoA, juce::dontSendNotification);
+    polyMonoAButton.setButtonText(performanceState.monoA ? "MONO" : "POLY");
+    polyMonoBButton.setToggleState(performanceState.monoB, juce::dontSendNotification);
+    polyMonoBButton.setButtonText(performanceState.monoB ? "MONO" : "POLY");
     syncUiFromPatch();
     refreshPerformanceControls();
     refreshEngineModelButton();
@@ -3253,8 +3314,14 @@ void MainComponent::applyPatchToEngine(const bool updateUi, const bool notifySta
         engine.setPatch(currentPatch);
         performanceEngineB.setPatch(patchForVoiceIndex(performanceState.voiceBIndex));
         engine.setPitchBend(currentPitchBend);
+        engine.setPitchBendRange(pitchBendRange);
+        engine.setPortamento(portamento);
+        engine.setMonoMode(performanceState.monoA);
         engine.setModWheel(currentModWheel);
         performanceEngineB.setPitchBend(juce::jlimit(-1.0, 1.0, currentPitchBend + static_cast<double>(performanceState.dualDetune) / 64.0));
+        performanceEngineB.setPitchBendRange(pitchBendRange);
+        performanceEngineB.setPortamento(portamento);
+        performanceEngineB.setMonoMode(performanceState.monoB);
         performanceEngineB.setModWheel(currentModWheel);
     }
     if (updateUi)
@@ -4127,6 +4194,13 @@ void MainComponent::handleIncomingMidiMessage(juce::MidiInput*, const juce::Midi
             modWheelSlider.setValue(value, juce::dontSendNotification);
         });
     }
+    else if (message.isController() && message.getControllerNumber() == 64)
+    {
+        const bool pedalDown = message.getControllerValue() >= 64;
+        std::lock_guard<std::mutex> lock(engineMutex);
+        engine.setSustainPedal(pedalDown);
+        performanceEngineB.setSustainPedal(pedalDown);
+    }
     else if (message.isAllNotesOff())
     {
         allNotesOff();
@@ -4203,6 +4277,16 @@ void MainComponent::buttonClicked(juce::Button* button)
         stepVoiceSelection(voiceBSelect, -1);
     else if (button == &voiceBNextButton)
         stepVoiceSelection(voiceBSelect, 1);
+    else if (button == &polyMonoAButton || button == &polyMonoBButton)
+    {
+        performanceState.monoA = polyMonoAButton.getToggleState();
+        performanceState.monoB = polyMonoBButton.getToggleState();
+        polyMonoAButton.setButtonText(performanceState.monoA ? "MONO" : "POLY");
+        polyMonoBButton.setButtonText(performanceState.monoB ? "MONO" : "POLY");
+        allNotesOff();
+        applyPatchToEngine(true, true);
+        saveVoiceLibraryState();
+    }
     else if (button == &powerButton)
     {
         if (!powerOn)
@@ -4400,6 +4484,19 @@ void MainComponent::sliderValueChanged(juce::Slider* slider)
             if (!dragging)
                 refreshStatus();
         }
+    }
+    else if (slider == &pitchBendRangeSlider || slider == &portamentoSlider)
+    {
+        pitchBendRange = static_cast<int>(pitchBendRangeSlider.getValue());
+        portamento = static_cast<int>(portamentoSlider.getValue());
+        {
+            std::lock_guard<std::mutex> lock(engineMutex);
+            engine.setPitchBendRange(pitchBendRange);
+            performanceEngineB.setPitchBendRange(pitchBendRange);
+            engine.setPortamento(portamento);
+            performanceEngineB.setPortamento(portamento);
+        }
+        emitSynthStateChanged();
     }
     else if (slider == &pitchWheelSlider)
     {

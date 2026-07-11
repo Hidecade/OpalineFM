@@ -161,6 +161,13 @@ PMS 6: 4.0 semitones
 PMS 7: 8.0 semitones
 ```
 
+## Performance Controls
+
+- Pitch Bend Range is `0..12` semitones and defaults to `2`. A range of `12` bends up or down by one octave at the wheel limits.
+- Portamento is `0..99` and defaults to `0`. Zero disables glide completely.
+- Portamento values `1..99` use a nonlinear time curve from approximately 10 ms to 2 seconds. A newly triggered voice starts at the previous played note and glides to its target note.
+- Both controls are global performance settings, not voice parameters, and are stored in standalone/plugin state.
+
 ## Plugin State
 
 DAWs save plugin state via `getStateInformation()` / `setStateInformation()` using a JUCE `ValueTree`.

@@ -24,12 +24,15 @@ struct OperatorRender
 class OpalineVoice
 {
 public:
-    void start(const OpalinePatch& patch, int midiNote, int velocity, double sampleRate, OpalineRenderModel renderModel);
+    void start(const OpalinePatch& patch, int midiNote, int velocity, double sampleRate,
+               OpalineRenderModel renderModel, int portamentoFromNote = -1,
+               double portamentoSeconds = 0.0);
     void release();
     bool isActive() const;
     int note() const { return midiNote; }
     double render(const OpalinePatch& patch,
                   double pitchBend,
+                  int pitchBendRange,
                   double modWheel,
                   double globalLfoAge,
                   OpalineRenderModel renderModel);
@@ -54,6 +57,8 @@ private:
     int noteVelocity = 100;
     double currentSampleRate = 44100.0;
     double ageSeconds = 0.0;
+    double portamentoOffsetSemitones = 0.0;
+    double portamentoStepPerSample = 0.0;
     std::array<double, kOperatorCount> phases {};
     std::array<double, kOperatorCount> operatorOppTlUnits {};
     std::array<double, kOperatorCount> operatorTlAccumulators {};

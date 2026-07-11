@@ -14,6 +14,14 @@ constexpr double kLimiterCeiling = 0.96;
 constexpr double kMaxDelaySeconds = 0.8;
 constexpr double kMaxChorusSeconds = 0.04;
 
+double portamentoSecondsForValue(const int value)
+{
+    if (value <= 0)
+        return 0.0;
+    const double normalized = static_cast<double>(clampInt(value, 1, 99)) / 99.0;
+    return 0.01 + 1.99 * normalized * normalized;
+}
+
 double softLimit(const double sample)
 {
     const double magnitude = std::abs(sample);
@@ -57,13 +65,20 @@ void OpalineEngine::setPatch(const OpalinePatch& newPatch)
 
 void OpalineEngine::noteOn(const int note, const int velocity)
 {
+    const int safeNote = clampInt(note, 0, 127);
+    sustainedNotes[static_cast<std::size_t>(safeNote)] = false;
+    if (monoMode)
+        voices.clear();
     voices.erase(std::remove_if(voices.begin(),
                                 voices.end(),
-                                [note](const OpalineVoice& voice) { return voice.note() == note; }),
+                                [safeNote](const OpalineVoice& voice) { return voice.note() == safeNote; }),
                  voices.end());
 
     OpalineVoice voice;
-    voice.start(patch, clampInt(note, 0, 127), clampInt(velocity, 0, 127), currentSampleRate, renderModel);
+    const int fromNote = portamento > 0 ? lastPlayedNote : -1;
+    voice.start(patch, safeNote, clampInt(velocity, 0, 127), currentSampleRate, renderModel,
+                fromNote, portamentoSecondsForValue(portamento));
+    lastPlayedNote = safeNote;
     voices.push_back(voice);
 
     while (static_cast<int>(voices.size()) > maxVoiceCount)
@@ -75,9 +90,16 @@ void OpalineEngine::noteOn(const int note, const int velocity)
 
 void OpalineEngine::noteOff(const int note)
 {
+    const int safeNote = clampInt(note, 0, 127);
+    if (sustainPedalDown)
+    {
+        sustainedNotes[static_cast<std::size_t>(safeNote)] = true;
+        return;
+    }
+
     for (auto& voice : voices)
     {
-        if (voice.note() == note)
+        if (voice.note() == safeNote)
             voice.release();
     }
 }
@@ -85,6 +107,39 @@ void OpalineEngine::noteOff(const int note)
 void OpalineEngine::setPitchBend(const double value)
 {
     pitchBend = clampDouble(value, -1.0, 1.0);
+}
+
+void OpalineEngine::setPitchBendRange(const int semitones)
+{
+    pitchBendRange = clampInt(semitones, 0, 12);
+}
+
+void OpalineEngine::setPortamento(const int value)
+{
+    portamento = clampInt(value, 0, 99);
+}
+
+void OpalineEngine::setMonoMode(const bool enabled)
+{
+    monoMode = enabled;
+}
+
+void OpalineEngine::setSustainPedal(const bool down)
+{
+    if (sustainPedalDown == down)
+        return;
+
+    sustainPedalDown = down;
+    if (sustainPedalDown)
+        return;
+
+    for (int note = 0; note < static_cast<int>(sustainedNotes.size()); ++note)
+    {
+        if (!sustainedNotes[static_cast<std::size_t>(note)])
+            continue;
+        sustainedNotes[static_cast<std::size_t>(note)] = false;
+        noteOff(note);
+    }
 }
 
 void OpalineEngine::setModWheel(const double value)
@@ -95,6 +150,9 @@ void OpalineEngine::setModWheel(const double value)
 void OpalineEngine::panic()
 {
     voices.clear();
+    sustainPedalDown = false;
+    sustainedNotes.fill(false);
+    lastPlayedNote = -1;
     globalLfoAge = 0.0;
     lastOutput = 0.0;
     lastLeft = 0.0;
@@ -240,7 +298,7 @@ StereoSample OpalineEngine::renderSample()
     double mixed = 0.0;
 
     for (auto& voice : voices)
-        mixed += voice.render(patch, pitchBend, modWheel, globalLfoAge, renderModel);
+        mixed += voice.render(patch, pitchBend, pitchBendRange, modWheel, globalLfoAge, renderModel);
 
     voices.erase(std::remove_if(voices.begin(),
                                 voices.end(),

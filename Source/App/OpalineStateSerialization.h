@@ -203,11 +203,15 @@ inline juce::ValueTree synthStateToValueTree(const SynthState& state)
     juce::ValueTree tree { state_ids::synthState };
     tree.setProperty("version", 1, nullptr);
     tree.setProperty("masterVolume", state.masterVolume, nullptr);
+    tree.setProperty("pitchBendRange", state.pitchBendRange, nullptr);
+    tree.setProperty("portamento", state.portamento, nullptr);
     tree.setProperty("renderModel", static_cast<int>(state.renderModel), nullptr);
     tree.addChild(patchToValueTree(state.patch), -1, nullptr);
 
     juce::ValueTree performance { state_ids::performance };
     performance.setProperty("mode", static_cast<int>(state.performance.mode), nullptr);
+    performance.setProperty("monoA", state.performance.monoA, nullptr);
+    performance.setProperty("monoB", state.performance.monoB, nullptr);
     performance.setProperty("voiceAIndex", state.performance.voiceAIndex, nullptr);
     performance.setProperty("voiceBIndex", state.performance.voiceBIndex, nullptr);
     performance.setProperty("dualDetune", state.performance.dualDetune, nullptr);
@@ -224,6 +228,8 @@ inline SynthState synthStateFromValueTree(const juce::ValueTree& tree, const Syn
         return state;
 
     state.masterVolume = juce::jlimit(0.0f, 1.0f, readFloat(tree, "masterVolume", state.masterVolume));
+    state.pitchBendRange = juce::jlimit(0, 12, readInt(tree, "pitchBendRange", state.pitchBendRange));
+    state.portamento = juce::jlimit(0, 99, readInt(tree, "portamento", state.portamento));
     state.renderModel = readInt(tree, "renderModel", static_cast<int>(state.renderModel)) == 0
         ? opaline::OpalineRenderModel::TypeA
         : opaline::OpalineRenderModel::TypeB;
@@ -233,6 +239,9 @@ inline SynthState synthStateFromValueTree(const juce::ValueTree& tree, const Syn
     if (performance.isValid())
     {
         state.performance.mode = static_cast<PerformanceMode>(juce::jlimit(0, 2, readInt(performance, "mode", 0)));
+        const bool legacyMono = static_cast<bool>(performance.getProperty("mono", false));
+        state.performance.monoA = static_cast<bool>(performance.getProperty("monoA", legacyMono));
+        state.performance.monoB = static_cast<bool>(performance.getProperty("monoB", legacyMono));
         state.performance.voiceAIndex = readInt(performance, "voiceAIndex", state.performance.voiceAIndex);
         state.performance.voiceBIndex = readInt(performance, "voiceBIndex", state.performance.voiceBIndex);
         state.performance.dualDetune = readInt(performance, "dualDetune", state.performance.dualDetune);

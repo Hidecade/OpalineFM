@@ -624,12 +624,23 @@ std::pair<double, double> opalinePitchLfoShape(const double phase, const int wav
 }
 }
 
-void OpalineVoice::start(const OpalinePatch& patch, const int newMidiNote, const int velocity, const double sampleRate, const OpalineRenderModel renderModel)
+void OpalineVoice::start(const OpalinePatch& patch, const int newMidiNote, const int velocity,
+                         const double sampleRate, const OpalineRenderModel renderModel,
+                         const int portamentoFromNote, const double portamentoSeconds)
 {
     midiNote = newMidiNote;
     noteVelocity = clampInt(velocity, 0, 127);
     currentSampleRate = sampleRate > 0.0 ? sampleRate : 44100.0;
     ageSeconds = 0.0;
+    portamentoOffsetSemitones = portamentoFromNote >= 0
+        ? static_cast<double>(portamentoFromNote - newMidiNote)
+        : 0.0;
+    const double portamentoSamples = portamentoSeconds > 0.0
+        ? portamentoSeconds * currentSampleRate
+        : 0.0;
+    portamentoStepPerSample = portamentoSamples > 0.0
+        ? std::abs(portamentoOffsetSemitones) / portamentoSamples
+        : 0.0;
     phases.fill(0.0);
     operatorTlAccumulators.fill(0.0);
     delayedPitchLfo = 0.0;
@@ -906,6 +917,7 @@ OperatorRender OpalineVoice::renderOperator(const int opIndex,
 
 double OpalineVoice::render(const OpalinePatch& patch,
                          const double pitchBend,
+                         const int pitchBendRange,
                          const double modWheel,
                          const double globalLfoAge,
                          const OpalineRenderModel renderModel)
@@ -930,9 +942,16 @@ double OpalineVoice::render(const OpalinePatch& patch,
     const double ampDepth = opmStyleAmpModDepth(patch.lfo.ampDepth, patch.lfo.ampSensitivity);
     const double appliedPitchLfo = nextPitchModulation(pitchLfo);
     const double pitchEnvelopeSemitones = pitchEnvelope.nextSemitones();
-    const double bendSemitones = clampDouble(pitchBend, -1.0, 1.0) * 2.0;
+    if (portamentoOffsetSemitones > 0.0)
+        portamentoOffsetSemitones = std::max(0.0, portamentoOffsetSemitones - portamentoStepPerSample);
+    else if (portamentoOffsetSemitones < 0.0)
+        portamentoOffsetSemitones = std::min(0.0, portamentoOffsetSemitones + portamentoStepPerSample);
+
+    const double bendSemitones = clampDouble(pitchBend, -1.0, 1.0)
+        * static_cast<double>(clampInt(pitchBendRange, 0, 12));
     const double baseFrequency = midiNoteToFrequency(static_cast<double>(midiNote + patch.transpose))
-        * std::pow(2.0, (bendSemitones + appliedPitchLfo + pitchEnvelopeSemitones) / 12.0);
+        * std::pow(2.0, (portamentoOffsetSemitones + bendSemitones
+                         + appliedPitchLfo + pitchEnvelopeSemitones) / 12.0);
 
     std::array<bool, kOperatorCount> computed {};
     std::array<OperatorRender, kOperatorCount> outputs {};

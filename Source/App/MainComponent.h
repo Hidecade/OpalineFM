@@ -380,6 +380,8 @@ private:
     juce::TextButton voiceANextButton { ">" };
     juce::TextButton voiceBPreviousButton { "<" };
     juce::TextButton voiceBNextButton { ">" };
+    juce::TextButton polyMonoAButton { "POLY" };
+    juce::TextButton polyMonoBButton { "POLY" };
     juce::ComboBox audioOutputSelect;
     juce::ComboBox midiInputSelect;
     juce::ComboBox lfoWaveSelect;
@@ -421,6 +423,8 @@ private:
     StepWheelSlider effectDelaySlider;
     juce::Slider pitchWheelSlider;
     juce::Slider modWheelSlider;
+    StepWheelSlider pitchBendRangeSlider;
+    StepWheelSlider portamentoSlider;
     UnitWheelSlider dualDetuneSlider;
     SplitPointSlider splitPointSlider;
     juce::Label volumeLabel;
@@ -455,6 +459,8 @@ private:
     juce::Label effectDelayLabel;
     juce::Label pitchWheelLabel;
     juce::Label modWheelLabel;
+    juce::Label pitchBendRangeLabel;
+    juce::Label portamentoLabel;
     VoiceBadgeLabel voiceALabel;
     VoiceBadgeLabel voiceBLabel;
     juce::Label dualDetuneLabel;
@@ -500,6 +506,8 @@ private:
     int retainedScopeTriggerNote = -1;
     double currentPitchBend = 0.0;
     double currentModWheel = 0.0;
+    int pitchBendRange = 2;
+    int portamento = 0;
     bool powerOn = false;
     bool audioStarted = false;
     bool chipRenderModel = true;
