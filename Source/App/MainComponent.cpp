@@ -2089,7 +2089,7 @@ MainComponent::MainComponent(const HostMode mode)
         addAndMakeVisible(*label);
 
     setupLabel(pegTitleLabel, "PITCH EG");
-    pegTitleLabel.setJustificationType(juce::Justification::centredLeft);
+    pegTitleLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(pegTitleLabel);
     addAndMakeVisible(pegGraph);
     setupLabel(pegRate1Label, "PR1");
@@ -2603,7 +2603,10 @@ void MainComponent::resized()
                feedbackLabel,
                feedbackSlider);
 
-    pegTitleLabel.setBounds(pegContent.getX() + 3, controlsPanelBounds.getY() + 3, pegContent.getWidth() - 6, controlHeaderHeight);
+    pegTitleLabel.setBounds(pegContent.getX() + pegCellWidth,
+                            controlsPanelBounds.getY() + 3,
+                            pegCellWidth,
+                            controlHeaderHeight);
     std::array<juce::Label*, 6> pegLabels { &pegRate1Label, &pegRate2Label, &pegRate3Label,
                                             &pegLevel1Label, &pegLevel2Label, &pegLevel3Label };
     std::array<juce::Slider*, 6> pegSliders { &pegRate1Slider, &pegRate2Slider, &pegRate3Slider,
