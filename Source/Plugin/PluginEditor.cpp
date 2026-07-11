@@ -55,18 +55,6 @@ OpalineAudioProcessorEditor::OpalineAudioProcessorEditor(OpalineAudioProcessor& 
     audioProcessor.setSynthStateFromEditor(mainComponent.captureSynthState());
     audioProcessor.setProgramNameFromEditor(mainComponent.currentProgramName());
     addAndMakeVisible(mainComponent);
-    setWantsKeyboardFocus(true);
-    setMouseClickGrabsKeyboardFocus(true);
-    mainComponent.setWantsKeyboardFocus(true);
-    mainComponent.setMouseClickGrabsKeyboardFocus(true);
-    juce::MessageManager::callAsync([safeThis = juce::Component::SafePointer<OpalineAudioProcessorEditor>(this)]
-    {
-        if (safeThis != nullptr)
-        {
-            safeThis->grabKeyboardFocus();
-            safeThis->mainComponent.grabKeyboardFocus();
-        }
-    });
     setSize(1024, 668);
     startTimerHz(60);
 }
@@ -79,12 +67,6 @@ OpalineAudioProcessorEditor::~OpalineAudioProcessorEditor()
 void OpalineAudioProcessorEditor::resized()
 {
     mainComponent.setBounds(getLocalBounds());
-}
-
-void OpalineAudioProcessorEditor::mouseDown(const juce::MouseEvent&)
-{
-    grabKeyboardFocus();
-    mainComponent.grabKeyboardFocus();
 }
 
 void OpalineAudioProcessorEditor::timerCallback()
@@ -108,5 +90,5 @@ void OpalineAudioProcessorEditor::timerCallback()
     mainComponent.setExternalMidiNoteState(audioProcessor.getMidiUiVelocities());
     mainComponent.setExternalControllerState(audioProcessor.getCurrentPitchBend(),
                                              audioProcessor.getCurrentModWheel());
-    mainComponent.setExternalScopeSamples(audioProcessor.getScopeSamples());
+    mainComponent.setExternalScopeSamples(audioProcessor.getScopeSamples(), audioProcessor.getSampleRate());
 }

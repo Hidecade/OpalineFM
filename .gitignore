@@ -1,6 +1,10 @@
 build/
 dist/
+audio/
 *.user
 *.suo
 *.VC.db
 *.VC.VC.opendb
+.DS_Store
+$null
+asan_*.txt

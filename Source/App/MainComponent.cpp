@@ -1251,17 +1251,24 @@ MainComponent::ScopeComponent::ScopeComponent()
 
 void MainComponent::ScopeComponent::pushSample(const float sample)
 {
-    const int index = writeIndex.fetch_add(1, std::memory_order_relaxed) & 255;
+    const int index = writeIndex.fetch_add(1, std::memory_order_relaxed) & 4095;
     samples[static_cast<std::size_t>(index)].store(juce::jlimit(-1.0f, 1.0f, sample), std::memory_order_relaxed);
 }
 
-void MainComponent::ScopeComponent::setSamples(const std::array<float, 256>& newSamples)
+void MainComponent::ScopeComponent::setSamples(const std::array<float, 4096>& newSamples)
 {
     for (std::size_t i = 0; i < samples.size(); ++i)
         samples[i].store(juce::jlimit(-1.0f, 1.0f, newSamples[i]), std::memory_order_relaxed);
 
     writeIndex.store(0, std::memory_order_relaxed);
 }
+
+void MainComponent::ScopeComponent::setTrigger(const int midiNote, const double sampleRate)
+{
+    triggerMidiNote.store(midiNote, std::memory_order_relaxed);
+    scopeSampleRate.store(sampleRate > 0.0 ? sampleRate : 44100.0, std::memory_order_relaxed);
+}
+
 void MainComponent::ScopeComponent::paint(juce::Graphics& g)
 {
     const auto area = getLocalBounds().toFloat().reduced(3.0f);
@@ -1270,25 +1277,107 @@ void MainComponent::ScopeComponent::paint(juce::Graphics& g)
     g.setColour(kControlBorder);
     g.drawRoundedRectangle(area, 4.0f, 1.0f);
 
-    std::array<float, 256> visibleSamples {};
+    std::array<float, 4096> history {};
     const int newest = writeIndex.load(std::memory_order_relaxed);
     float average = 0.0f;
-    for (int i = 0; i < 256; ++i)
+    float peak = 0.0f;
+    for (int i = 0; i < static_cast<int>(history.size()); ++i)
     {
-        const int readIndex = (newest + i) & 255;
+        const int readIndex = (newest + i) & 4095;
         const float value = samples[static_cast<std::size_t>(readIndex)].load(std::memory_order_relaxed);
-        visibleSamples[static_cast<std::size_t>(i)] = value;
+        history[static_cast<std::size_t>(i)] = value;
         average += value;
+        peak = juce::jmax(peak, std::abs(value));
     }
-    average /= static_cast<float>(visibleSamples.size());
+    average /= static_cast<float>(history.size());
+    for (auto& value : history)
+        value -= average;
+
+    const int note = triggerMidiNote.load(std::memory_order_relaxed);
+    const double sampleRate = scopeSampleRate.load(std::memory_order_relaxed);
+    const double frequency = note >= 0
+        ? 440.0 * std::pow(2.0, (static_cast<double>(note) - 69.0) / 12.0)
+        : 0.0;
+    const double periodSamples = frequency > 0.0 ? sampleRate / frequency : 256.0;
+    const int viewSamples = juce::jlimit(256, 2048,
+                                        static_cast<int>(std::round(sampleRate * 0.025)));
+
+    const int idealCentre = static_cast<int>(history.size()) - viewSamples / 2 - 2;
+    const int searchRadius = juce::jlimit(8, 1024,
+                                         static_cast<int>(std::round(periodSamples)));
+    const int slopeSpan = juce::jlimit(1, 128,
+                                      static_cast<int>(std::round(periodSamples * 0.125)));
+    const int halfView = viewSamples / 2;
+    const int minimumCentre = halfView + 1;
+    const int maximumCentre = static_cast<int>(history.size()) - halfView - 2;
+    const int searchStart = juce::jmax(juce::jmax(slopeSpan, minimumCentre),
+                                       idealCentre - searchRadius);
+    const int searchEnd = juce::jmin(juce::jmin(static_cast<int>(history.size()) - slopeSpan - 1,
+                                               maximumCentre),
+                                    idealCentre + searchRadius);
+    int centreCrossing = -1;
+    float strongestRise = 0.0f;
+    for (int i = searchStart; i <= searchEnd; ++i)
+    {
+        if (history[static_cast<std::size_t>(i - 1)] <= 0.0f
+            && history[static_cast<std::size_t>(i)] > 0.0f)
+        {
+            const float rise = history[static_cast<std::size_t>(i + slopeSpan)]
+                - history[static_cast<std::size_t>(i - slopeSpan)];
+            if (rise > strongestRise)
+            {
+                strongestRise = rise;
+                centreCrossing = i;
+            }
+        }
+    }
+
+    const double windowStart = note >= 0 && peak > 1.0e-4f && centreCrossing >= 0
+        ? static_cast<double>(centreCrossing) - static_cast<double>(viewSamples) * 0.5
+        : static_cast<double>(history.size() - viewSamples);
+
+    std::array<float, 256> displaySamples {};
+    float displayPeak = 0.0f;
+    for (int point = 0; point < static_cast<int>(displaySamples.size()); ++point)
+    {
+        const double position = windowStart
+            + static_cast<double>(viewSamples) * static_cast<double>(point) / 255.0;
+        const int index = juce::jlimit(0, static_cast<int>(history.size()) - 2, static_cast<int>(position));
+        const float fraction = static_cast<float>(position - static_cast<double>(index));
+        const float value = juce::jmap(fraction, history[static_cast<std::size_t>(index)],
+                                      history[static_cast<std::size_t>(index + 1)]);
+        displaySamples[static_cast<std::size_t>(point)] = value;
+        displayPeak = juce::jmax(displayPeak, std::abs(value));
+    }
+
+    const float displayGain = displayPeak > 1.0e-4f
+        ? juce::jmin(24.0f, 1.5f / std::sqrt(displayPeak))
+        : 1.0f;
+    const bool canStabilize = note >= 0 && centreCrossing >= 0 && displayPeak > 1.0e-4f;
+    if (!canStabilize || note != smoothedDisplayNote || !hasSmoothedDisplay)
+    {
+        for (std::size_t i = 0; i < displaySamples.size(); ++i)
+            smoothedDisplaySamples[i] = displaySamples[i] * displayGain;
+        smoothedDisplayNote = canStabilize ? note : -1;
+        hasSmoothedDisplay = canStabilize;
+    }
+    else
+    {
+        constexpr float currentFrameWeight = 0.42f;
+        for (std::size_t i = 0; i < displaySamples.size(); ++i)
+        {
+            const float current = displaySamples[i] * displayGain;
+            smoothedDisplaySamples[i] += (current - smoothedDisplaySamples[i]) * currentFrameWeight;
+        }
+    }
 
     juce::Path path;
-    for (int i = 0; i < 256; ++i)
+    for (int point = 0; point < static_cast<int>(displaySamples.size()); ++point)
     {
-        const float value = juce::jlimit(-1.0f, 1.0f, visibleSamples[static_cast<std::size_t>(i)] - average);
-        const float x = area.getX() + area.getWidth() * static_cast<float>(i) / 255.0f;
-        const float y = area.getCentreY() - value * area.getHeight() * 0.42f;
-        if (i == 0)
+        const float value = smoothedDisplaySamples[static_cast<std::size_t>(point)];
+        const float x = area.getX() + area.getWidth() * static_cast<float>(point) / 255.0f;
+        const float y = area.getCentreY() - juce::jlimit(-1.0f, 1.0f, value) * area.getHeight() * 0.46f;
+        if (point == 0)
             path.startNewSubPath(x, y);
         else
             path.lineTo(x, y);
@@ -1777,7 +1866,8 @@ void MainComponent::KeyboardComponent::updateHeldNote(const int note)
 
 void MainComponent::KeyboardComponent::mouseDown(const juce::MouseEvent& event)
 {
-    owner.grabKeyboardFocus();
+    if (owner.hostMode != HostMode::PluginEditor)
+        owner.grabKeyboardFocus();
     updateHeldNote(noteForPosition(event.getPosition()));
 }
 
@@ -1814,7 +1904,9 @@ MainComponent::MainComponent(const HostMode mode)
     addAndMakeVisible(voiceBankSelect);
     for (auto* button : { &loadVoiceBankButton, &saveVoiceBankButton, &exportVoiceLibraryButton,
                           &loadSingleVoiceButton, &saveSingleVoiceButton, &copyVoiceButton,
-                          &pasteVoiceButton, &initVoiceButton, &storeVoiceButton })
+                          &pasteVoiceButton, &initVoiceButton, &storeVoiceButton,
+                          &voiceAPreviousButton, &voiceANextButton,
+                          &voiceBPreviousButton, &voiceBNextButton })
     {
         button->setName("voiceBankButton");
         button->setColour(juce::TextButton::buttonColourId, juce::Colour(0xff1c1a15));
@@ -2110,13 +2202,16 @@ MainComponent::MainComponent(const HostMode mode)
     }
     refreshStatus();
 
-    setWantsKeyboardFocus(true);
-    setMouseClickGrabsKeyboardFocus(true);
-    juce::MessageManager::callAsync([safeThis = juce::Component::SafePointer<MainComponent>(this)]
+    if (hostMode != HostMode::PluginEditor)
     {
-        if (safeThis != nullptr)
-            safeThis->grabKeyboardFocus();
-    });
+        setWantsKeyboardFocus(true);
+        setMouseClickGrabsKeyboardFocus(true);
+        juce::MessageManager::callAsync([safeThis = juce::Component::SafePointer<MainComponent>(this)]
+        {
+            if (safeThis != nullptr)
+                safeThis->grabKeyboardFocus();
+        });
+    }
     startTimerHz(60);
 
     setSize(1024, 668);
@@ -2152,7 +2247,9 @@ MainComponent::~MainComponent()
         comboBox->setLookAndFeel(nullptr);
     for (auto* button : { &loadVoiceBankButton, &saveVoiceBankButton, &exportVoiceLibraryButton,
                           &loadSingleVoiceButton, &saveSingleVoiceButton, &copyVoiceButton,
-                          &pasteVoiceButton, &initVoiceButton, &storeVoiceButton })
+                          &pasteVoiceButton, &initVoiceButton, &storeVoiceButton,
+                          &voiceAPreviousButton, &voiceANextButton,
+                          &voiceBPreviousButton, &voiceBNextButton })
         button->setLookAndFeel(nullptr);
     wavRecordButton.setLookAndFeel(nullptr);
     engineModelButton.setLookAndFeel(nullptr);
@@ -2296,8 +2393,7 @@ void MainComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo& buffer
 
         left[i] = sample.left * outputGain;
         right[i] = sample.right * outputGain;
-        if ((i & 7) == 0)
-            scope.pushSample(left[i]);
+        scope.pushSample(left[i]);
     }
 
     if (wavRecording.load(std::memory_order_relaxed))
@@ -2415,12 +2511,20 @@ void MainComponent::resized()
     auto aRow = patch.removeFromTop(28);
     voiceALabel.setBounds(aRow.removeFromLeft(22).withSizeKeepingCentre(20, 20));
     aRow.removeFromLeft(2);
+    voiceANextButton.setBounds(aRow.removeFromRight(22).withSizeKeepingCentre(22, 22));
+    aRow.removeFromRight(2);
+    voiceAPreviousButton.setBounds(aRow.removeFromRight(22).withSizeKeepingCentre(22, 22));
+    aRow.removeFromRight(3);
     voiceSelect.setBounds(aRow);
     patch.removeFromTop(2);
     auto bRow = patch.removeFromTop(26);
     auto actionRow = bRow;
     voiceBLabel.setBounds(bRow.removeFromLeft(22).withSizeKeepingCentre(20, 20));
     bRow.removeFromLeft(2);
+    voiceBNextButton.setBounds(bRow.removeFromRight(22).withSizeKeepingCentre(22, 22));
+    bRow.removeFromRight(2);
+    voiceBPreviousButton.setBounds(bRow.removeFromRight(22).withSizeKeepingCentre(22, 22));
+    bRow.removeFromRight(3);
     voiceBSelect.setBounds(bRow);
 
     constexpr int actionButtonWidth = 44;
@@ -2580,7 +2684,8 @@ void MainComponent::resized()
 
 void MainComponent::mouseDown(const juce::MouseEvent&)
 {
-    grabKeyboardFocus();
+    if (hostMode != HostMode::PluginEditor)
+        grabKeyboardFocus();
 }
 
 void MainComponent::loadFactoryVoices()
@@ -3043,6 +3148,8 @@ void MainComponent::refreshPerformanceControls()
     voiceBLabel.setVisible(!single);
     voiceBSelect.setVisible(!single);
     voiceBSelect.setEnabled(!single);
+    voiceBPreviousButton.setVisible(!single);
+    voiceBNextButton.setVisible(!single);
     if (!single)
         voiceBSelect.setSelectedId(performanceState.voiceBIndex + 1, juce::dontSendNotification);
 
@@ -3859,13 +3966,16 @@ void MainComponent::repaintKeyboardAsync()
 
 bool MainComponent::pcKeyboardInputAllowed() const
 {
+    if (hostMode == HostMode::PluginEditor)
+        return false;
+
     if (auto* peer = getPeer())
     {
         if (!peer->isFocused())
             return false;
     }
 
-    return hostMode == HostMode::PluginEditor || hasKeyboardFocus(true);
+    return hasKeyboardFocus(true);
 }
 
 void MainComponent::syncPcKeyboardNotes()
@@ -3932,14 +4042,24 @@ void MainComponent::setExternalControllerState(const double pitchBend, const dou
     modWheelSlider.setValue(safeModWheel, juce::dontSendNotification);
 }
 
-void MainComponent::setExternalScopeSamples(const std::array<float, 256>& samples)
+void MainComponent::setExternalScopeSamples(const std::array<float, 4096>& samples, const double sampleRate)
 {
+    audioSampleRate = sampleRate > 0.0 ? sampleRate : audioSampleRate;
     scope.setSamples(samples);
 }
 
 void MainComponent::timerCallback()
 {
     syncPcKeyboardNotes();
+    int triggerNote = -1;
+    for (int note = 0; note < 128; ++note)
+    {
+        if (gMidiUiHeldNotes[static_cast<std::size_t>(note)].load(std::memory_order_relaxed))
+            triggerNote = note;
+    }
+    if (triggerNote >= 0)
+        retainedScopeTriggerNote = triggerNote + currentPatch.transpose;
+    scope.setTrigger(retainedScopeTriggerNote, audioSampleRate);
 }
 
 void MainComponent::handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage& message)
@@ -4061,7 +4181,26 @@ void MainComponent::comboBoxChanged(juce::ComboBox* comboBoxThatHasChanged)
 
 void MainComponent::buttonClicked(juce::Button* button)
 {
-    if (button == &powerButton)
+    const auto stepVoiceSelection = [](juce::ComboBox& comboBox, const int delta)
+    {
+        const int itemCount = comboBox.getNumItems();
+        if (itemCount <= 0)
+            return;
+
+        const int currentIndex = juce::jmax(0, comboBox.getSelectedItemIndex());
+        const int nextIndex = (currentIndex + delta + itemCount) % itemCount;
+        comboBox.setSelectedItemIndex(nextIndex, juce::sendNotificationSync);
+    };
+
+    if (button == &voiceAPreviousButton)
+        stepVoiceSelection(voiceSelect, -1);
+    else if (button == &voiceANextButton)
+        stepVoiceSelection(voiceSelect, 1);
+    else if (button == &voiceBPreviousButton)
+        stepVoiceSelection(voiceBSelect, -1);
+    else if (button == &voiceBNextButton)
+        stepVoiceSelection(voiceBSelect, 1);
+    else if (button == &powerButton)
     {
         if (!powerOn)
         {

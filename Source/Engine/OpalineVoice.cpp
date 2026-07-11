@@ -147,25 +147,30 @@ double outputLevelToModulatorIndexChipLike(const double level)
     return outputLevelToCarrierAmplitudeChipLike(level) * kChipModulatorIndexScale;
 }
 
-double keyboardScaledLevel(const double level, const int levelScale, const int note)
-{
-    const double scale = clampDouble(static_cast<double>(levelScale), 0.0, 99.0);
-    if (scale <= 0.0)
-        return level;
-
-    const double highKeyAmount = clampDouble((static_cast<double>(note) - 60.0) / 36.0, 0.0, 1.0);
-    return clampDouble(level - highKeyAmount * scale * 0.45, 0.0, 99.0);
-}
-
-double keyboardScaleTlOffset(const int note, const int levelScale)
+double measuredKeyboardScaleTlOffset(const int note, const int levelScale)
 {
     const double scale = clampDouble(static_cast<double>(levelScale), 0.0, 99.0);
     if (scale <= 0.0)
         return 0.0;
 
-    const double highKeyAmount = clampDouble((static_cast<double>(note) - 60.0) / 36.0, 0.0, 1.0);
-    return highKeyAmount * scale * 0.45 * kOppTlMax / 99.0;
+    // MIDI note 0 is the normalization point; attenuation doubles every octave.
+    const double octaveFactor = std::pow(2.0, static_cast<double>(note) / 12.0);
+    return clampDouble(std::floor(scale * octaveFactor / 384.0), 0.0, kOppTlMax);
 }
+
+int keyboardScaledTargetLevel(const int level, const int levelScale, const int note)
+{
+    const int scaleAmount = static_cast<int>(measuredKeyboardScaleTlOffset(note, levelScale));
+    return clampInt(level - scaleAmount, 0, 99);
+}
+
+double keyboardScaledLevel(const double level, const int levelScale, const int note)
+{
+    const double tlOffset = measuredKeyboardScaleTlOffset(note, levelScale);
+    return clampDouble(level - tlOffset * 99.0 / kOppTlMax, 0.0, 99.0);
+}
+
+
 
 double operatorAmpModFactor(const double depth, const double shapeValue)
 {
@@ -427,21 +432,29 @@ double mixPhaseModulationForModel(const double sum, const int inputCount, const 
 double quantizeVoiceOutputForModel(const double sample, const OpalineRenderModel renderModel)
 {
     if (renderModel == OpalineRenderModel::TypeB)
-        return clampDouble(std::round(sample * 32768.0) / 32768.0, -1.0, 1.0);
+        return std::round(sample * 32768.0) / 32768.0;
 
     return sample;
 }
 
+int opmDacQuantizeMix(const int input)
+{
+    const int mix = clampInt(input, -32768, 32767);
+    const int magnitude = std::abs(mix);
+    int exponent = 1;
+    while (exponent < 7 && magnitude >= (512 << exponent))
+        ++exponent;
+
+    const int step = 1 << (exponent - 1);
+    const int quantizedMagnitude = (magnitude / step) * step;
+    return mix < 0 ? -quantizedMagnitude : quantizedMagnitude;
+}
+
 double chipMixerOutputFromBus(const double bus)
 {
-    const int mix = clampInt(static_cast<int>(std::round(bus)), -131072, 131071);
-    const int sign = mix < 0 ? -1 : 1;
-    const int magnitude = std::abs(mix);
-    if (magnitude == 0)
-        return 0.0;
-
-    const double normalized = static_cast<double>(magnitude) / (kOpmOperatorBusPeak * 4.0);
-    return clampDouble(static_cast<double>(sign) * normalized * kTypeBChipTrim.outputGain, -1.0, 1.0);
+    const int accumulated = clampInt(static_cast<int>(std::round(bus)), -131072, 131071);
+    const int dacOutput = opmDacQuantizeMix(accumulated);
+    return static_cast<double>(dacOutput) / (kOpmOperatorBusPeak * 2.0);
 }
 
 double feedbackHistoryBusForModel(const std::array<double, 2>& history, const OpalineRenderModel renderModel)
@@ -482,9 +495,7 @@ double levelToOppTlTarget(const double level, const OpalineRenderModel renderMod
         if (clampedLevel <= 0.0)
             return kOppTlMax;
 
-        const double directTl = 99.0 - clampedLevel;
-        const double stretchedTl = (1.0 - clampedLevel / 99.0) * kOppTlMax;
-        return std::round((directTl + stretchedTl) * 0.5);
+        return std::round(99.0 - clampedLevel);
     }
 
     return std::round((1.0 - clampedLevel / 99.0) * kOppTlMax);
@@ -637,8 +648,12 @@ void OpalineVoice::start(const OpalinePatch& patch, const int newMidiNote, const
 
     for (int i = 0; i < kOperatorCount; ++i)
     {
+        const auto& op = patch.operators[static_cast<std::size_t>(i)];
+        const int targetLevel = renderModel == OpalineRenderModel::TypeB
+            ? keyboardScaledTargetLevel(op.level, op.levelScale, midiNote)
+            : op.level;
         operatorOppTlUnits[static_cast<std::size_t>(i)] =
-            levelToOppTlTarget(patch.operators[static_cast<std::size_t>(i)].level, renderModel) * kOppTlSubsteps;
+            levelToOppTlTarget(targetLevel, renderModel) * kOppTlSubsteps;
         envelopes[static_cast<std::size_t>(i)].reset(currentSampleRate);
         envelopes[static_cast<std::size_t>(i)].noteOn(patch.operators[static_cast<std::size_t>(i)].envelope,
                                                       patch.operators[static_cast<std::size_t>(i)].rateScale,
@@ -857,8 +872,8 @@ OperatorRender OpalineVoice::renderOperator(const int opIndex,
     if (usesChipOperatorPath(renderModel))
     {
         const int phaseIndex = chipOperatorPhaseIndex(phases[opSize], phaseModulation, feedback);
-        const double chipTl = clampDouble(nextOperatorTl(opIndex, op.level)
-            + keyboardScaleTlOffset(midiNote, op.levelScale), 0.0, kOppTlMax);
+        const int scaledTargetLevel = keyboardScaledTargetLevel(op.level, op.levelScale, midiNote);
+        const double chipTl = nextOperatorTl(opIndex, scaledTargetLevel);
         const double velocityDb = amplitudeFactorToDbOffset(carrier ? carrierVelocityFactor : modulatorVelocityFactor);
         const double ampModDb = op.ampModEnable ? amplitudeFactorToDbOffset(ampMod) : 0.0;
         const double attenuationIndex = clampDouble(chipEnvelopeIndex + chipTl * kOppTlSubsteps

@@ -210,11 +210,8 @@ void OpalineAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
             buffer.setSample(0, sample, left);
         if (buffer.getNumChannels() > 1)
             buffer.setSample(1, sample, right);
-        if ((sample & 7) == 0)
-        {
-            const int index = scopeWriteIndex.fetch_add(1, std::memory_order_relaxed) & 511;
-            scopeSamples[static_cast<std::size_t>(index)].store(left, std::memory_order_relaxed);
-        }
+        const int scopeIndex = scopeWriteIndex.fetch_add(1, std::memory_order_relaxed) & 4095;
+        scopeSamples[static_cast<std::size_t>(scopeIndex)].store(left, std::memory_order_relaxed);
     }
 
     if (wavRecording.load(std::memory_order_relaxed) && buffer.getNumChannels() > 0)
@@ -326,12 +323,19 @@ void OpalineAudioProcessor::setRenderModelFromEditor(const opaline::OpalineRende
 
 void OpalineAudioProcessor::noteOnFromEditor(const int note, const int velocity)
 {
+    if (juce::isPositiveAndBelow(note, static_cast<int>(midiUiVelocities.size())))
+        midiUiVelocities[static_cast<std::size_t>(note)].store(juce::jlimit(1, 127, velocity),
+                                                               std::memory_order_relaxed);
+
     const juce::ScopedLock lock(engineLock);
     performNoteOn(note, velocity);
 }
 
 void OpalineAudioProcessor::noteOffFromEditor(const int note)
 {
+    if (juce::isPositiveAndBelow(note, static_cast<int>(midiUiVelocities.size())))
+        midiUiVelocities[static_cast<std::size_t>(note)].store(0, std::memory_order_relaxed);
+
     const juce::ScopedLock lock(engineLock);
     performNoteOff(note);
 }
@@ -384,13 +388,13 @@ std::array<int, 128> OpalineAudioProcessor::getMidiUiVelocities() const
     return velocities;
 }
 
-std::array<float, 256> OpalineAudioProcessor::getScopeSamples() const
+std::array<float, 4096> OpalineAudioProcessor::getScopeSamples() const
 {
-    std::array<float, 256> samples {};
+    std::array<float, 4096> samples {};
     const int newest = scopeWriteIndex.load(std::memory_order_relaxed);
     for (int i = 0; i < static_cast<int>(samples.size()); ++i)
     {
-        const int index = (newest - static_cast<int>(samples.size()) + i) & 511;
+        const int index = (newest - static_cast<int>(samples.size()) + i) & 4095;
         samples[static_cast<std::size_t>(i)] =
             scopeSamples[static_cast<std::size_t>(index)].load(std::memory_order_relaxed);
     }

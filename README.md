@@ -91,7 +91,7 @@ Then rescan plugins in the DAW.
 Install Inno Setup 6 or 7, then build the release binaries and both Windows installers:
 
 ```powershell
-.\scripts\build-windows-installers.ps1 -Version 0.3.0
+.\scripts\build-windows-installers.ps1 -Version 0.4.0
 ```
 
 The generated standalone and VST3 installers are written to `dist/`.

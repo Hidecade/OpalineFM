@@ -111,6 +111,33 @@ PR 99 : short audible transition, about 12 ms
 
 High-rate values around PR90-98 use measured correction data. PR99 is not a true mathematical zero; it is implemented as a short audible transition so plucked/string-like pitch attacks keep a small "put" transient.
 
+## Keyboard Level Scaling
+
+Keyboard Level Scaling (`LevelSc`) follows measurements from a DX21 recording. MIDI note 0 is the normalization point, where the integer TL offset is zero for the supported `LevelSc` range. The attenuation doubles for every octave above MIDI note 0. MIDI note numbers are normative; octave names such as C0 or C1 are not used as the specification because their naming differs between hosts.
+
+The TL offset is calculated as:
+
+```text
+octaveFactor = 2 ^ (midiNote / 12)
+levelScaleTl = floor(LevelSc / 384 * octaveFactor)
+levelScaleTl = clamp(levelScaleTl, 0, 127)
+```
+
+This is mathematically equivalent to anchoring the measured expression at MIDI note 36 as `floor(LevelSc / 48 * 2 ^ ((midiNote - 36) / 12))`; the MIDI-note-0 form is used to make the zero-level behavior explicit.
+
+Measured TL-equivalent attenuation at MIDI notes 36, 48, 60, 72, 84, and 96:
+
+```text
+LevelSc  36  48  60  72  84  96
+      0   0   0   0   0   0   0
+     25   0   1   2   4   8  16
+     50   1   2   4   8  16  33
+     75   1   3   6  12  25  50
+     99   1   3   7  16  33  67
+```
+
+One TL step corresponds to approximately `0.752575 dB`. The measured curve applies to both Type A and Type B. Type B subtracts the integer scaling amount from the operator's `0..99` LEVEL first, clamps the effective LEVEL to zero, and then converts it to TL. This ensures that strong scaling can fully silence a low-level operator at high notes. Type A converts the same scaling amount to its compatible LEVEL domain. The integer scaling value is rounded down only after the complete expression is evaluated.
+
 ## LFO and Modulation
 
 Important behavior:

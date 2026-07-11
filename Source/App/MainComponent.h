@@ -62,7 +62,7 @@ public:
     juce::String currentProgramName() const;
     void setExternalMidiNoteState(const std::array<int, 128>& velocities);
     void setExternalControllerState(double pitchBend, double modWheel);
-    void setExternalScopeSamples(const std::array<float, 256>& samples);
+    void setExternalScopeSamples(const std::array<float, 4096>& samples, double sampleRate);
 
     void prepareToPlay(int samplesPerBlockExpected, double sampleRate) override;
     void getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferToFill) override;
@@ -149,14 +149,20 @@ private:
     public:
         ScopeComponent();
         void pushSample(float sample);
-        void setSamples(const std::array<float, 256>& newSamples);
+        void setSamples(const std::array<float, 4096>& newSamples);
+        void setTrigger(int midiNote, double sampleRate);
         void paint(juce::Graphics& g) override;
 
     private:
         void timerCallback() override { repaint(); }
 
-        std::array<std::atomic<float>, 256> samples {};
+        std::array<std::atomic<float>, 4096> samples {};
         std::atomic<int> writeIndex { 0 };
+        std::atomic<int> triggerMidiNote { -1 };
+        std::atomic<double> scopeSampleRate { 44100.0 };
+        std::array<float, 256> smoothedDisplaySamples {};
+        int smoothedDisplayNote = -1;
+        bool hasSmoothedDisplay = false;
     };
 
     class PitchEnvelopeGraphComponent final : public juce::Component
@@ -370,6 +376,10 @@ private:
     juce::ComboBox voiceBankSelect;
     juce::ComboBox performanceModeSelect;
     juce::ComboBox voiceBSelect;
+    juce::TextButton voiceAPreviousButton { "<" };
+    juce::TextButton voiceANextButton { ">" };
+    juce::TextButton voiceBPreviousButton { "<" };
+    juce::TextButton voiceBNextButton { ">" };
     juce::ComboBox audioOutputSelect;
     juce::ComboBox midiInputSelect;
     juce::ComboBox lfoWaveSelect;
@@ -487,6 +497,7 @@ private:
 
     float masterVolume = 0.65f;
     double audioSampleRate = 44100.0;
+    int retainedScopeTriggerNote = -1;
     double currentPitchBend = 0.0;
     double currentModWheel = 0.0;
     bool powerOn = false;

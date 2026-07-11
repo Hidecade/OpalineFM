@@ -50,7 +50,7 @@ public:
     double getCurrentPitchBend() const;
     double getCurrentModWheel() const;
     std::array<int, 128> getMidiUiVelocities() const;
-    std::array<float, 256> getScopeSamples() const;
+    std::array<float, 4096> getScopeSamples() const;
     void startWavRecording();
     void stopWavRecording();
     bool stopWavRecordingAndSaveToFile(const juce::File& file);
@@ -83,7 +83,7 @@ private:
     juce::String currentProgramName { "Opaline FM" };
     std::vector<opaline::OpalinePatchWithMetadata> factoryPrograms;
     std::array<std::atomic<int>, 128> midiUiVelocities {};
-    std::array<std::atomic<float>, 512> scopeSamples {};
+    std::array<std::atomic<float>, 4096> scopeSamples {};
     std::atomic<int> scopeWriteIndex { 0 };
     std::vector<float> wavRecordingInterleaved;
     double wavRecordingSampleRate = 44100.0;
