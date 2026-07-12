@@ -19,7 +19,21 @@ Opaline FM is an independent project and is not affiliated with Yamaha Corporati
 - Per-voice editing, initialization, copy/paste, load, save, and store operations
 - Built-in effects: reverb, delay, chorus, wet mixes, and tone
 - WAV recording in the standalone application
-- Windows standalone and VST3 builds, plus signed macOS standalone, VST3, and Audio Unit package paths
+- Signed and notarized macOS standalone, VST3, and Audio Unit installer packages
+
+## Downloads
+
+The current public release is macOS only. Download signed and notarized packages from the [GitHub Releases page](https://github.com/Hidecade/OpalineFM/releases).
+
+Choose the package for the format you need:
+
+- `OpalineFM-Standalone-0.3.2.0-macOS.pkg`: standalone app. Use this if you want to play Opaline FM without a DAW.
+- `OpalineFM-AU-0.3.2.0-macOS.pkg`: Audio Unit instrument for Logic Pro, GarageBand, and AU hosts.
+- `OpalineFM-VST3-0.3.2.0-macOS.pkg`: VST3 instrument for VST3-compatible DAWs.
+
+Windows installers are not included in the current public release. Windows build scripts remain in the repository for development and testing.
+
+The `Source code` archives shown by GitHub Releases are generated automatically by GitHub. Most users should download one of the `.pkg` installers above.
 
 ## Quick Start
 
@@ -136,20 +150,6 @@ In the standalone application, press **WAV** to begin recording. The button chan
 
 ## Installing Release Builds
 
-### Windows Standalone
-
-Run the standalone installer and launch **Opaline FM** from the Start menu. No DAW is required.
-
-### Windows VST3
-
-Run the VST3 installer, or copy the complete `Opaline FM.vst3` bundle to:
-
-```text
-C:\Program Files\Common Files\VST3\
-```
-
-Rescan plugins in the DAW, create an instrument track, and insert Opaline FM.
-
 ### macOS Standalone, VST3, and Audio Unit
 
 Run the signed and notarized macOS package for the build you want:
@@ -167,6 +167,10 @@ The packages install to the standard macOS application and plug-in locations:
 ```
 
 Restart the DAW or rescan plug-ins after installing VST3 or Audio Unit packages.
+
+In Logic Pro, insert Opaline FM from a software instrument track's **Instrument** slot, not from an Audio FX slot: **AU Instruments > Hidecade > Opaline FM > Stereo**. If it does not appear, open **Logic Pro > Settings > Plug-In Manager** and run **Reset & Rescan Selection** or **Full Audio Unit Reset**, then restart Logic Pro.
+
+The current release does not ship Windows installers. Windows builds can be created from source by developers, but they are not part of the signed public release assets.
 
 ## Building from Source
 
@@ -193,7 +197,7 @@ cmake --preset macos-debug
 cmake --build --preset plugin-au-macos-debug
 ```
 
-Windows installers require Inno Setup 6 or 7:
+Windows development installers require Inno Setup 6 or 7:
 
 ```powershell
 .\scripts\build-windows-installers.ps1 -Version 0.3.2
@@ -219,6 +223,8 @@ Generated installers are written to `dist/`.
 ## Legal and Project Status
 
 Opaline FM is unofficial and is not affiliated with Yamaha Corporation. Product names are used only to describe file-format and synthesis compatibility.
+
+Release binaries are currently free to download and use. This repository does not currently grant a broad open-source license for project-specific source code, documentation, images, scripts, or factory patches; do not assume redistribution, reuse, or sublicensing rights unless a license is added or written permission is provided by the rights holder.
 
 Do not redistribute third-party factory banks unless their redistribution rights are confirmed. Binary distribution must comply with the selected JUCE license and include applicable VST3 SDK and third-party notices.
 
