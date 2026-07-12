@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+set -euo pipefail
+export COPYFILE_DISABLE=1
+
+configuration="Release"
+build_directory=""
+skip_build=0
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --configuration)
+            configuration="$2"
+            shift 2
+            ;;
+        --build-directory)
+            build_directory="$2"
+            shift 2
+            ;;
+        --skip-build)
+            skip_build=1
+            shift
+            ;;
+        -h|--help)
+            echo "Usage: $0 [--configuration Release] [--build-directory build/macos-clt-release] [--skip-build]"
+            exit 0
+            ;;
+        *)
+            echo "Unknown argument: $1" >&2
+            exit 2
+            ;;
+    esac
+done
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "$script_dir/.." && pwd)"
+version_file="$repo_root/cmake/OpalineVersion.cmake"
+
+major="$(sed -nE 's/.*OPALINE_VERSION_MAJOR[[:space:]]+([0-9]+).*/\1/p' "$version_file")"
+minor="$(sed -nE 's/.*OPALINE_VERSION_MINOR[[:space:]]+([0-9]+).*/\1/p' "$version_file")"
+patch="$(sed -nE 's/.*OPALINE_VERSION_PATCH[[:space:]]+([0-9]+).*/\1/p' "$version_file")"
+tweak="$(sed -nE 's/.*OPALINE_VERSION_TWEAK[[:space:]]+([0-9]+).*/\1/p' "$version_file")"
+version="$major.$minor.$patch"
+if [[ -n "$tweak" ]]; then
+    version="$version.$tweak"
+fi
+
+if [[ -z "$build_directory" ]]; then
+    build_directory="build/macos-clt-release"
+fi
+
+build_root="$repo_root/$build_directory"
+dist_directory="$repo_root/dist"
+stage_root="$build_root/package-stage"
+artifact_root="$build_root/OpalineFM_Plugin_artefacts/$configuration"
+standalone_artifact="$artifact_root/Standalone/Opaline FM.app"
+vst3_artifact="$artifact_root/VST3/Opaline FM.vst3"
+au_artifact="$artifact_root/AU/Opaline FM.component"
+
+if [[ "$skip_build" -eq 0 ]]; then
+    cmake -S "$repo_root" -B "$build_root" \
+        -DCMAKE_BUILD_TYPE="$configuration" \
+        -DOPALINE_AUTO_INCREMENT_VERSION=OFF \
+        -DOPALINE_BUILD_STANDALONE=ON \
+        -DOPALINE_BUILD_PLUGIN=ON \
+        -DOPALINE_BUILD_AU=ON
+
+    cmake --build "$build_root" --config "$configuration" --target \
+        OpalineFM_Plugin_Standalone \
+        OpalineFM_Plugin_VST3 \
+        OpalineFM_Plugin_AU
+fi
+
+for required in "$standalone_artifact" "$vst3_artifact" "$au_artifact"; do
+    if [[ ! -e "$required" ]]; then
+        echo "Required artifact was not found: $required" >&2
+        exit 1
+    fi
+done
+
+mkdir -p "$dist_directory"
+rm -rf "$stage_root"
+
+app_stage="$stage_root/standalone/Applications"
+vst3_stage="$stage_root/vst3/Library/Audio/Plug-Ins/VST3"
+au_stage="$stage_root/au/Library/Audio/Plug-Ins/Components"
+
+mkdir -p "$app_stage" "$vst3_stage" "$au_stage"
+ditto --norsrc --noextattr "$standalone_artifact" "$app_stage/Opaline FM.app"
+ditto --norsrc --noextattr "$vst3_artifact" "$vst3_stage/Opaline FM.vst3"
+ditto --norsrc --noextattr "$au_artifact" "$au_stage/Opaline FM.component"
+
+if command -v xattr >/dev/null 2>&1; then
+    xattr -cr "$stage_root"
+fi
+
+if command -v codesign >/dev/null 2>&1; then
+    codesign --force --deep --sign - "$app_stage/Opaline FM.app"
+    codesign --force --deep --sign - "$vst3_stage/Opaline FM.vst3"
+    codesign --force --deep --sign - "$au_stage/Opaline FM.component"
+fi
+
+app_components="$stage_root/standalone-components.plist"
+vst3_components="$stage_root/vst3-components.plist"
+au_components="$stage_root/au-components.plist"
+
+pkgbuild --analyze --root "$stage_root/standalone" "$app_components"
+pkgbuild --analyze --root "$stage_root/vst3" "$vst3_components"
+pkgbuild --analyze --root "$stage_root/au" "$au_components"
+
+set_non_relocatable() {
+    local component_plist="$1"
+    if ! /usr/libexec/PlistBuddy -c "Set :0:BundleIsRelocatable false" "$component_plist" 2>/dev/null; then
+        /usr/libexec/PlistBuddy -c "Add :0:BundleIsRelocatable bool false" "$component_plist"
+    fi
+}
+
+set_non_relocatable "$app_components"
+set_non_relocatable "$vst3_components"
+set_non_relocatable "$au_components"
+
+pkgbuild \
+    --root "$stage_root/standalone" \
+    --component-plist "$app_components" \
+    --identifier "jp.hidecade.opalinefm.standalone" \
+    --version "$version" \
+    --install-location "/" \
+    "$dist_directory/OpalineFM-Standalone-$version-macOS.pkg"
+
+pkgbuild \
+    --root "$stage_root/vst3" \
+    --component-plist "$vst3_components" \
+    --identifier "jp.hidecade.opalinefm.vst3" \
+    --version "$version" \
+    --install-location "/" \
+    "$dist_directory/OpalineFM-VST3-$version-macOS.pkg"
+
+pkgbuild \
+    --root "$stage_root/au" \
+    --component-plist "$au_components" \
+    --identifier "jp.hidecade.opalinefm.au" \
+    --version "$version" \
+    --install-location "/" \
+    "$dist_directory/OpalineFM-AU-$version-macOS.pkg"
+
+echo "Installers created in $dist_directory"

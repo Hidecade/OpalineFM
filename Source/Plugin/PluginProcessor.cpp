@@ -137,7 +137,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout OpalineAudioProcessor::creat
     params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::modWheelPitchRange, "Mod Wheel Pitch", intRange(0.0f, 99.0f), 99.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::modWheelAmpRange, "Mod Wheel Amplitude", intRange(0.0f, 99.0f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterBool>(param_ids::effectsEnabled, "Effects", true));
-    params.push_back(std::make_unique<juce::AudioParameterChoice>(param_ids::renderModel, "Engine", juce::StringArray { "TYPE A", "TYPE B" }, 1));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(param_ids::renderModel, "Engine", juce::StringArray { "TYPE B", "TYPE B" }, 1));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::algorithm, "Algorithm", intRange(1.0f, 8.0f), 1.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::feedback, "Feedback", intRange(0.0f, 7.0f), 2.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::transpose, "Transpose", intRange(-24.0f, 24.0f), 0.0f));
@@ -324,8 +324,9 @@ void OpalineAudioProcessor::setSynthStateFromEditor(const opalineapp::SynthState
 
 void OpalineAudioProcessor::setRenderModelFromEditor(const opaline::OpalineRenderModel newRenderModel)
 {
+    (void) newRenderModel;
     const juce::ScopedLock lock(engineLock);
-    renderModel = newRenderModel;
+    renderModel = opaline::OpalineRenderModel::TypeB;
     state.renderModel = renderModel;
     engine.setRenderModel(renderModel);
     performanceEngineB.setRenderModel(renderModel);
@@ -531,6 +532,7 @@ void OpalineAudioProcessor::applyStateToEngine()
     state.portamento = juce::jlimit(0, 99, state.portamento);
     state.modWheelPitchRange = juce::jlimit(0, 99, state.modWheelPitchRange);
     state.modWheelAmpRange = juce::jlimit(0, 99, state.modWheelAmpRange);
+    state.renderModel = opaline::OpalineRenderModel::TypeB;
     renderModel = state.renderModel;
     if (preparedPerformanceMode != state.performance.mode)
     {
@@ -623,9 +625,7 @@ void OpalineAudioProcessor::applyParametersToState()
     state.modWheelPitchRange = juce::jlimit(0, 99, parameterInt(parameters, param_ids::modWheelPitchRange, state.modWheelPitchRange));
     state.modWheelAmpRange = juce::jlimit(0, 99, parameterInt(parameters, param_ids::modWheelAmpRange, state.modWheelAmpRange));
     state.effectsEnabled = parameterBool(parameters, param_ids::effectsEnabled, state.effectsEnabled);
-    state.renderModel = parameterInt(parameters, param_ids::renderModel, static_cast<int>(state.renderModel)) == 0
-        ? opaline::OpalineRenderModel::TypeA
-        : opaline::OpalineRenderModel::TypeB;
+    state.renderModel = opaline::OpalineRenderModel::TypeB;
 
     auto patch = state.patch;
     patch.algorithm = parameterInt(parameters, param_ids::algorithm, patch.algorithm);

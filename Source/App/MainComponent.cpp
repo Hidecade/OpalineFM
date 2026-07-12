@@ -18,6 +18,7 @@ constexpr int kPreferredAudioBufferSize = 128;
 constexpr int kMaxLowLatencyAudioBufferSize = 128;
 constexpr std::array<int, 4> kLowLatencyAudioBufferSizes { 32, 64, 96, 128 };
 constexpr float kAsioOutputTrim = 0.50f;
+constexpr bool kShowEngineModelButton = false;
 
 struct PcKeyNote
 {
@@ -2125,7 +2126,7 @@ MainComponent::MainComponent(const HostMode mode, const bool allowPluginPcKeyboa
     engineModelButton.setLookAndFeel(&opalineLookAndFeel);
     engineModelButton.addListener(this);
     refreshEngineModelButton();
-    addAndMakeVisible(engineModelButton);
+    addChildComponent(engineModelButton);
 
     setupLabel(volumeLabel, "VOLUME");
     volumeLabel.setJustificationType(juce::Justification::centred);
@@ -2623,8 +2624,11 @@ void MainComponent::resized()
     header.removeFromRight(panelGap);
     wavRecordButton.setBounds(header.removeFromRight(68).withSizeKeepingCentre(68, 23));
     header.removeFromRight(panelGap);
-    engineModelButton.setBounds(header.removeFromRight(68).withSizeKeepingCentre(68, 23));
-    header.removeFromRight(panelGap);
+    if constexpr (kShowEngineModelButton)
+    {
+        engineModelButton.setBounds(header.removeFromRight(68).withSizeKeepingCentre(68, 23));
+        header.removeFromRight(panelGap);
+    }
     if (hostMode == HostMode::StandaloneApp)
     {
         powerButton.setBounds(header.removeFromRight(82));
@@ -3450,7 +3454,7 @@ void MainComponent::applySynthState(const opalineapp::SynthState& state, const b
     modWheelPitchRange = juce::jlimit(0, 99, state.modWheelPitchRange);
     modWheelAmpRange = juce::jlimit(0, 99, state.modWheelAmpRange);
     effectsEnabled = state.effectsEnabled;
-    chipRenderModel = state.renderModel == opaline::OpalineRenderModel::TypeB;
+    chipRenderModel = true;
 
     syncingUi = true;
     volumeSlider.setValue(masterVolume, juce::dontSendNotification);
@@ -3521,7 +3525,7 @@ void MainComponent::applyPatchToEngine(const bool updateUi, const bool notifySta
 
 opaline::OpalineRenderModel MainComponent::currentRenderModel() const
 {
-    return chipRenderModel ? opaline::OpalineRenderModel::TypeB : opaline::OpalineRenderModel::TypeA;
+    return opaline::OpalineRenderModel::TypeB;
 }
 
 void MainComponent::applyRenderModelToEnginesNoLock()
@@ -3533,13 +3537,14 @@ void MainComponent::applyRenderModelToEnginesNoLock()
 
 void MainComponent::refreshEngineModelButton()
 {
-    engineModelButton.setVisible(true);
-    engineModelButton.setButtonText(chipRenderModel ? "TYPE B" : "TYPE A");
-    engineModelButton.setToggleState(chipRenderModel, juce::dontSendNotification);
+    chipRenderModel = true;
+    engineModelButton.setVisible(kShowEngineModelButton);
+    engineModelButton.setButtonText("TYPE B");
+    engineModelButton.setToggleState(true, juce::dontSendNotification);
     engineModelButton.setColour(juce::TextButton::buttonColourId,
-                                chipRenderModel ? juce::Colour(0xff243d38) : juce::Colour(0xff1c1a15));
+                                juce::Colour(0xff243d38));
     engineModelButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff0aa878));
-    engineModelButton.setColour(juce::TextButton::textColourOffId, chipRenderModel ? juce::Colours::white : kTextPrimary);
+    engineModelButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
     engineModelButton.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
 }
 
@@ -3644,7 +3649,7 @@ void MainComponent::refreshStatus()
                         : performanceState.mode == PerformanceMode::Dual ? "DUAL"
                         : "SPLIT";
     statusLabel.setText(audioStatus + "   " + midiStatus + "   Perf: " + modeName
-                            + "   Engine: " + (chipRenderModel ? "TYPE B" : "TYPE A")
+                            + "   Engine: TYPE B"
                             + "   Bank: " + juce::String(currentVoiceBankIndex + 1)
                             + "   Voices: " + juce::String(factoryVoices.size())
                             + "   LFO: " + lfoWaveName(currentPatch.lfo.wave),
@@ -4549,7 +4554,7 @@ void MainComponent::buttonClicked(juce::Button* button)
     }
     else if (button == &engineModelButton)
     {
-        chipRenderModel = engineModelButton.getToggleState();
+        chipRenderModel = true;
         refreshEngineModelButton();
         allNotesOff();
         applyPatchToEngine();
