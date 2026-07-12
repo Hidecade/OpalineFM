@@ -5,6 +5,8 @@ export COPYFILE_DISABLE=1
 configuration="Release"
 build_directory=""
 skip_build=0
+application_sign_identity="${OPALINE_APPLICATION_SIGN_IDENTITY:-}"
+installer_sign_identity="${OPALINE_INSTALLER_SIGN_IDENTITY:-}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -20,8 +22,16 @@ while [[ $# -gt 0 ]]; do
             skip_build=1
             shift
             ;;
+        --application-sign-identity)
+            application_sign_identity="$2"
+            shift 2
+            ;;
+        --installer-sign-identity)
+            installer_sign_identity="$2"
+            shift 2
+            ;;
         -h|--help)
-            echo "Usage: $0 [--configuration Release] [--build-directory build/macos-clt-release] [--skip-build]"
+            echo "Usage: $0 [--configuration Release] [--build-directory build/macos-clt-release] [--skip-build] [--application-sign-identity IDENTITY] [--installer-sign-identity IDENTITY]"
             exit 0
             ;;
         *)
@@ -94,9 +104,15 @@ if command -v xattr >/dev/null 2>&1; then
 fi
 
 if command -v codesign >/dev/null 2>&1; then
-    codesign --force --deep --sign - "$app_stage/Opaline FM.app"
-    codesign --force --deep --sign - "$vst3_stage/Opaline FM.vst3"
-    codesign --force --deep --sign - "$au_stage/Opaline FM.component"
+    if [[ -n "$application_sign_identity" ]]; then
+        codesign --force --deep --options runtime --timestamp --sign "$application_sign_identity" "$app_stage/Opaline FM.app"
+        codesign --force --deep --options runtime --timestamp --sign "$application_sign_identity" "$vst3_stage/Opaline FM.vst3"
+        codesign --force --deep --options runtime --timestamp --sign "$application_sign_identity" "$au_stage/Opaline FM.component"
+    else
+        codesign --force --deep --sign - "$app_stage/Opaline FM.app"
+        codesign --force --deep --sign - "$vst3_stage/Opaline FM.vst3"
+        codesign --force --deep --sign - "$au_stage/Opaline FM.component"
+    fi
 fi
 
 app_components="$stage_root/standalone-components.plist"
@@ -118,13 +134,17 @@ set_non_relocatable "$app_components"
 set_non_relocatable "$vst3_components"
 set_non_relocatable "$au_components"
 
+standalone_pkg="$dist_directory/OpalineFM-Standalone-$version-macOS.pkg"
+vst3_pkg="$dist_directory/OpalineFM-VST3-$version-macOS.pkg"
+au_pkg="$dist_directory/OpalineFM-AU-$version-macOS.pkg"
+
 pkgbuild \
     --root "$stage_root/standalone" \
     --component-plist "$app_components" \
     --identifier "jp.hidecade.opalinefm.standalone" \
     --version "$version" \
     --install-location "/" \
-    "$dist_directory/OpalineFM-Standalone-$version-macOS.pkg"
+    "$standalone_pkg"
 
 pkgbuild \
     --root "$stage_root/vst3" \
@@ -132,7 +152,7 @@ pkgbuild \
     --identifier "jp.hidecade.opalinefm.vst3" \
     --version "$version" \
     --install-location "/" \
-    "$dist_directory/OpalineFM-VST3-$version-macOS.pkg"
+    "$vst3_pkg"
 
 pkgbuild \
     --root "$stage_root/au" \
@@ -140,6 +160,17 @@ pkgbuild \
     --identifier "jp.hidecade.opalinefm.au" \
     --version "$version" \
     --install-location "/" \
-    "$dist_directory/OpalineFM-AU-$version-macOS.pkg"
+    "$au_pkg"
+
+if [[ -n "$installer_sign_identity" ]]; then
+    signed_directory="$stage_root/signed-packages"
+    mkdir -p "$signed_directory"
+    productsign --sign "$installer_sign_identity" "$standalone_pkg" "$signed_directory/$(basename "$standalone_pkg")"
+    productsign --sign "$installer_sign_identity" "$vst3_pkg" "$signed_directory/$(basename "$vst3_pkg")"
+    productsign --sign "$installer_sign_identity" "$au_pkg" "$signed_directory/$(basename "$au_pkg")"
+    mv "$signed_directory/$(basename "$standalone_pkg")" "$standalone_pkg"
+    mv "$signed_directory/$(basename "$vst3_pkg")" "$vst3_pkg"
+    mv "$signed_directory/$(basename "$au_pkg")" "$au_pkg"
+fi
 
 echo "Installers created in $dist_directory"
