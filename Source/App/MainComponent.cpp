@@ -174,9 +174,9 @@ bool singleVoiceFromXml(const juce::XmlElement& xml, opaline::OpalinePatch& patc
 
 juce::String displayNameForVoice(int index, const opaline::OpalinePatchWithMetadata& voice)
 {
-    const auto number = juce::String(index + 1).paddedLeft('0', 2);
+    const auto number = juce::String(index + 1);
     const auto name = voice.name.empty() ? juce::String("VOICE") : juce::String(voice.name);
-    return "A" + number + " " + name;
+    return number + " " + name;
 }
 
 bool isBlackKey(int midiNote)
@@ -389,6 +389,7 @@ constexpr const char* kPerformanceModeSetting = "performanceMode";
 constexpr const char* kDualDetuneSetting = "dualDetune";
 constexpr const char* kSplitPointSetting = "splitPoint";
 constexpr const char* kAbBalanceSetting = "abBalance";
+constexpr const char* kLastFileChooserDirectorySetting = "lastFileChooserDirectory";
 constexpr const char* kVoiceLibraryFileName = "VoiceLibrary.xml";
 
 juce::PropertiesFile::Options settingsOptions()
@@ -401,6 +402,24 @@ juce::PropertiesFile::Options settingsOptions()
     options.storageFormat = juce::PropertiesFile::storeAsXML;
     options.millisecondsBeforeSaving = 0;
     return options;
+}
+
+juce::File rememberedFileChooserDirectory(const juce::File& fallback)
+{
+    juce::PropertiesFile settings(settingsOptions());
+    const juce::File savedDirectory(settings.getValue(kLastFileChooserDirectorySetting));
+    return savedDirectory.isDirectory() ? savedDirectory : fallback;
+}
+
+void rememberFileChooserDirectory(const juce::File& file)
+{
+    const auto directory = file.isDirectory() ? file : file.getParentDirectory();
+    if (!directory.isDirectory())
+        return;
+
+    juce::PropertiesFile settings(settingsOptions());
+    settings.setValue(kLastFileChooserDirectorySetting, directory.getFullPathName());
+    settings.saveIfNeeded();
 }
 
 juce::File voiceLibraryStateFile()
@@ -629,25 +648,35 @@ void MainComponent::OpalineLookAndFeel::drawLinearSlider(juce::Graphics& g,
                                         static_cast<float>(width),
                                         static_cast<float>(height)).reduced(5.0f, 1.0f);
         const auto panel = bounds.reduced(1.0f);
-        g.setColour(juce::Colours::black.withAlpha(0.42f));
-        g.fillRoundedRectangle(panel.translated(0.0f, 1.5f), 3.0f);
-        g.setGradientFill(juce::ColourGradient(juce::Colour(0xff2f3033),
+        g.setColour(juce::Colour(0xff050504));
+        g.fillRoundedRectangle(panel, 1.5f);
+        const auto recessedFace = panel.reduced(2.0f);
+        g.setGradientFill(juce::ColourGradient(juce::Colour(0xff12110e),
                                                panel.getX(),
                                                panel.getY(),
-                                               juce::Colour(0xff0c0d0f),
+                                               juce::Colour(0xff1b1914),
                                                panel.getX(),
                                                panel.getBottom(),
                                                false));
-        g.fillRoundedRectangle(panel, 3.0f);
-        g.setColour(juce::Colours::white.withAlpha(0.13f));
-        g.drawLine(panel.getX() + 2.0f, panel.getY() + 1.0f, panel.getRight() - 2.0f, panel.getY() + 1.0f, 1.0f);
-        g.setColour(juce::Colour(0xff050506));
-        g.drawRoundedRectangle(panel, 3.0f, 1.0f);
-        g.setColour(juce::Colours::white.withAlpha(0.05f));
-        g.drawRoundedRectangle(panel.reduced(1.0f), 2.0f, 1.0f);
+        g.fillRoundedRectangle(recessedFace, 1.0f);
+
+        g.setColour(juce::Colours::black.withAlpha(0.82f));
+        g.drawLine(panel.getX() + 1.0f, panel.getY() + 1.0f,
+                   panel.getRight() - 1.0f, panel.getY() + 1.0f, 1.5f);
+        g.drawLine(panel.getX() + 1.0f, panel.getY() + 1.0f,
+                   panel.getX() + 1.0f, panel.getBottom() - 1.0f, 1.5f);
+        g.setColour(juce::Colour(0xff8a8372).withAlpha(0.22f));
+        g.drawLine(panel.getX() + 2.0f, panel.getBottom() - 1.0f,
+                   panel.getRight() - 1.0f, panel.getBottom() - 1.0f, 1.0f);
+        g.drawLine(panel.getRight() - 1.0f, panel.getY() + 2.0f,
+                   panel.getRight() - 1.0f, panel.getBottom() - 1.0f, 1.0f);
+        g.setColour(juce::Colour(0xff030302));
+        g.drawRoundedRectangle(panel, 1.5f, 1.0f);
+        g.setColour(juce::Colours::black.withAlpha(0.38f));
+        g.drawRoundedRectangle(recessedFace, 1.0f, 1.0f);
 
         const float slotX = panel.getX() + panel.getWidth() * 0.32f;
-        const auto slot = juce::Rectangle<float>(slotX, panel.getY() + 14.0f, 7.0f, panel.getHeight() - 28.0f);
+        const auto slot = juce::Rectangle<float>(slotX, panel.getY() + 14.0f, 5.0f, panel.getHeight() - 28.0f);
         g.setGradientFill(juce::ColourGradient(juce::Colour(0xff020304),
                                                slot.getCentreX(),
                                                slot.getY(),
@@ -660,17 +689,20 @@ void MainComponent::OpalineLookAndFeel::drawLinearSlider(juce::Graphics& g,
         g.drawRoundedRectangle(slot, 2.0f, 1.0f);
 
         const float tickX = panel.getX() + panel.getWidth() * 0.62f;
-        g.setColour(juce::Colour(0xffaaa8b8).withAlpha(0.55f));
-        for (int i = 0; i < 9; ++i)
+        const bool isBalanceFader = slider.getName() == "balanceFader";
+        const bool hasCentreMark = isBalanceFader || slider.getMaximum() > 1.0;
+        for (int i = 0; i < 11; ++i)
         {
-            const float yPos = slot.getY() + static_cast<float>(i) * slot.getHeight() / 8.0f;
-            const float tickWidth = (i % 4 == 0) ? 13.0f : 10.0f;
-            g.drawLine(tickX, yPos, tickX + tickWidth, yPos, 1.5f);
+            const float yPos = slot.getY() + static_cast<float>(i) * slot.getHeight() / 10.0f;
+            const bool centreMark = hasCentreMark && i == 5;
+            const float tickWidth = centreMark ? 16.0f : (i % 5 == 0) ? 13.0f : 9.0f;
+            g.setColour(centreMark ? juce::Colour(0xffd6d5df).withAlpha(0.82f)
+                                   : juce::Colour(0xffaaa8b8).withAlpha(0.55f));
+            g.drawLine(tickX, yPos, tickX + tickWidth, yPos, centreMark ? 2.2f : 1.5f);
         }
 
         g.setColour(kTextPrimary);
         g.setFont(juce::FontOptions(8.5f, juce::Font::bold));
-        const bool isBalanceFader = slider.getName() == "balanceFader";
         const auto topText = isBalanceFader ? "A" : (slider.getMaximum() > 1.0 ? "+24" : "MAX");
         const auto bottomText = isBalanceFader ? "B" : (slider.getMaximum() > 1.0 ? "-24" : "MIN");
         g.drawText(topText, panel.withTrimmedLeft(panel.getWidth() * 0.55f).withHeight(13.0f), juce::Justification::centred);
@@ -685,23 +717,23 @@ void MainComponent::OpalineLookAndFeel::drawLinearSlider(juce::Graphics& g,
         const float valueY = juce::jmap(static_cast<float>(juce::jlimit(0.0, 1.0, normalizedValue)),
                                         slot.getBottom() - 10.0f,
                                         slot.getY() + 10.0f);
-        const auto grip = juce::Rectangle<float>(panel.getX() + 2.0f, valueY - 9.0f, panel.getWidth() * 0.44f, 18.0f);
-        g.setColour(juce::Colours::black.withAlpha(0.32f));
-        g.fillRoundedRectangle(grip.translated(0.0f, 1.0f), 2.5f);
-        g.setGradientFill(juce::ColourGradient(juce::Colour(0xffc7cbd0),
+        const auto grip = juce::Rectangle<float>(panel.getX() + 2.0f, valueY - 4.5f, panel.getWidth() * 0.55f, 9.0f);
+        g.setColour(juce::Colours::black.withAlpha(0.62f));
+        g.fillRoundedRectangle(grip.translated(0.0f, 2.0f), 1.2f);
+        g.setGradientFill(juce::ColourGradient(juce::Colour(0xffbfc8ca),
                                                grip.getCentreX(),
                                                grip.getY(),
-                                               juce::Colour(0xff6f747b),
+                                               juce::Colour(0xff657074),
                                                grip.getCentreX(),
                                                grip.getBottom(),
                                                false));
-        g.fillRoundedRectangle(grip, 2.5f);
-        g.setColour(juce::Colours::white.withAlpha(0.32f));
-        g.drawLine(grip.getX() + 2.0f, grip.getY() + 2.0f, grip.getRight() - 2.0f, grip.getY() + 2.0f, 1.0f);
-        g.setColour(juce::Colour(0xff25282d).withAlpha(0.78f));
-        g.drawRoundedRectangle(grip, 2.5f, 1.0f);
-        g.setColour(juce::Colour(0xffffffff).withAlpha(0.34f));
-        g.drawLine(grip.getX() + 4.0f, grip.getCentreY(), grip.getRight() - 4.0f, grip.getCentreY(), 1.0f);
+        g.fillRoundedRectangle(grip, 1.2f);
+        g.setColour(juce::Colours::white.withAlpha(0.42f));
+        g.drawLine(grip.getX() + 1.5f, grip.getY() + 1.5f, grip.getRight() - 1.5f, grip.getY() + 1.5f, 1.0f);
+        g.setColour(juce::Colour(0xff202528));
+        g.drawRoundedRectangle(grip, 1.2f, 1.0f);
+        g.setColour(juce::Colour(0xff30383b).withAlpha(0.8f));
+        g.drawLine(grip.getX() + 2.0f, grip.getCentreY(), grip.getRight() - 2.0f, grip.getCentreY(), 1.0f);
 
         juce::String valueText;
         if (slider.getMaximum() <= 1.0)
@@ -709,17 +741,21 @@ void MainComponent::OpalineLookAndFeel::drawLinearSlider(juce::Graphics& g,
         else
             valueText = juce::String(static_cast<int>(std::round(slider.getValue())));
 
-        const auto valueBox = juce::Rectangle<float>(tickX + 10.0f - 10.0f,
-                                                     panel.getCentreY() - 8.0f,
-                                                     20.0f,
-                                                     16.0f);
-        g.setColour(juce::Colour(0xff030607));
-        g.fillRoundedRectangle(valueBox, 2.0f);
-        g.setColour(kValueText.withAlpha(0.85f));
-        g.drawRoundedRectangle(valueBox, 2.0f, 1.0f);
-        g.setColour(kValueText);
-        g.setFont(juce::FontOptions(9.0f, juce::Font::bold));
-        g.drawText(valueText, valueBox, juce::Justification::centred);
+        const double displayUntil = static_cast<double>(slider.getProperties().getWithDefault("valueDisplayUntil", 0.0));
+        if (slider.isMouseButtonDown() || juce::Time::getMillisecondCounterHiRes() < displayUntil)
+        {
+            const auto valueBox = juce::Rectangle<float>(tickX,
+                                                         panel.getCentreY() - 8.0f,
+                                                         20.0f,
+                                                         16.0f);
+            g.setColour(juce::Colour(0xff030607));
+            g.fillRoundedRectangle(valueBox, 2.0f);
+            g.setColour(kValueText.withAlpha(0.85f));
+            g.drawRoundedRectangle(valueBox, 2.0f, 1.0f);
+            g.setColour(kValueText);
+            g.setFont(juce::FontOptions(9.0f, juce::Font::bold));
+            g.drawText(valueText, valueBox, juce::Justification::centred);
+        }
         return;
     }
 
@@ -885,26 +921,82 @@ void MainComponent::OpalineLookAndFeel::drawButtonBackground(juce::Graphics& g,
     {
         auto bounds = button.getLocalBounds().toFloat().reduced(1.0f);
         const bool on = button.getToggleState();
-        const auto top = on ? (ampButton ? juce::Colour(0xff5ca8d7) : juce::Colour(0xff35d8bd)) : juce::Colour(0xff45443d);
-        const auto bottom = on ? (ampButton ? juce::Colour(0xff22618d) : juce::Colour(0xff07876e)) : juce::Colour(0xff22221e);
-        const auto outline = on ? (ampButton ? juce::Colour(0xff8bc9f0) : juce::Colour(0xff55e6d0)) : kControlBorder;
+        const auto top = on ? (ampButton ? juce::Colour(0xff327fa8) : juce::Colour(0xff23876a)) : juce::Colour(0xff45443d);
+        const auto bottom = on ? (ampButton ? juce::Colour(0xff14425b) : juce::Colour(0xff0d4939)) : juce::Colour(0xff22221e);
+        const auto outline = on ? (ampButton ? juce::Colour(0xff31566a) : juce::Colour(0xff29483d)) : kControlBorder;
+        constexpr float cornerRadius = 2.5f;
 
         if (shouldDrawButtonAsDown)
             bounds.translate(0.0f, 1.0f);
 
         g.setColour(juce::Colours::black.withAlpha(0.38f));
-        g.fillRoundedRectangle(bounds.translated(0.0f, 3.0f), 4.0f);
+        g.fillRoundedRectangle(bounds.translated(0.0f, 3.0f), cornerRadius);
         g.setGradientFill(juce::ColourGradient(top, bounds.getX(), bounds.getY(), bottom, bounds.getX(), bounds.getBottom(), false));
-        g.fillRoundedRectangle(bounds, 4.0f);
+        g.fillRoundedRectangle(bounds, cornerRadius);
+
+        if (on)
+        {
+            g.setColour((ampButton ? juce::Colour(0xffc5e7f7) : juce::Colour(0xffb8f4dc)).withAlpha(0.18f));
+            g.drawHorizontalLine(static_cast<int>(bounds.getY()) + 1,
+                                 bounds.getX() + 3.0f, bounds.getRight() - 3.0f);
+        }
 
         if (shouldDrawButtonAsHighlighted)
         {
             g.setColour(juce::Colours::white.withAlpha(0.08f));
-            g.fillRoundedRectangle(bounds.reduced(2.0f), 3.0f);
+            g.fillRoundedRectangle(bounds.reduced(2.0f), 1.5f);
         }
 
         g.setColour(outline.withAlpha(on ? 0.85f : 0.6f));
-        g.drawRoundedRectangle(bounds, 4.0f, 1.2f);
+        g.drawRoundedRectangle(bounds, cornerRadius, 1.2f);
+        return;
+    }
+
+    if (button.getName() == "dx21FunctionButton" || button.getName() == "dx21StoreButton"
+        || button.getName() == "dx21BlueButton" || button.getName() == "dx21ToggleButton")
+    {
+        auto bounds = button.getLocalBounds().toFloat().reduced(1.0f);
+        if (shouldDrawButtonAsDown)
+            bounds.translate(0.0f, 1.0f);
+
+        const bool red = button.getName() == "dx21StoreButton";
+        const bool blue = button.getName() == "dx21BlueButton";
+        const bool inactiveToggle = button.getName() == "dx21ToggleButton" && !button.getToggleState();
+        const auto top = inactiveToggle
+            ? (shouldDrawButtonAsDown ? juce::Colour(0xff30312e) : juce::Colour(0xff454640))
+            : blue
+            ? (shouldDrawButtonAsDown ? juce::Colour(0xff286887) : juce::Colour(0xff327fa8))
+            : red
+            ? (shouldDrawButtonAsDown ? juce::Colour(0xff642628) : juce::Colour(0xff87383a))
+            : (shouldDrawButtonAsDown ? juce::Colour(0xff17674f) : juce::Colour(0xff23876a));
+        const auto bottom = inactiveToggle
+            ? (shouldDrawButtonAsDown ? juce::Colour(0xff171815) : juce::Colour(0xff23241f))
+            : blue
+            ? (shouldDrawButtonAsDown ? juce::Colour(0xff102f42) : juce::Colour(0xff14425b))
+            : red
+            ? (shouldDrawButtonAsDown ? juce::Colour(0xff351113) : juce::Colour(0xff541d20))
+            : (shouldDrawButtonAsDown ? juce::Colour(0xff0a3026) : juce::Colour(0xff0d4939));
+        const auto outline = inactiveToggle
+            ? (shouldDrawButtonAsHighlighted ? juce::Colour(0xff65675f) : juce::Colour(0xff3b3d37))
+            : blue
+            ? (shouldDrawButtonAsHighlighted ? juce::Colour(0xff59849a) : juce::Colour(0xff31566a))
+            : red
+            ? (shouldDrawButtonAsHighlighted ? juce::Colour(0xff956467) : juce::Colour(0xff5c3032))
+            : (shouldDrawButtonAsHighlighted ? juce::Colour(0xff527b6c) : juce::Colour(0xff29483d));
+
+        g.setColour(juce::Colours::black.withAlpha(0.55f));
+        g.fillRoundedRectangle(bounds.translated(0.0f, 2.0f), 2.5f);
+        g.setGradientFill(juce::ColourGradient(top, bounds.getX(), bounds.getY(), bottom,
+                                               bounds.getX(), bounds.getBottom(), false));
+        g.fillRoundedRectangle(bounds, 2.5f);
+        g.setColour((inactiveToggle ? juce::Colour(0xffd7d8d2)
+                          : blue ? juce::Colour(0xffc5e7f7)
+                          : red ? juce::Colour(0xffffd7d8) : juce::Colour(0xffb8f4dc))
+                        .withAlpha(shouldDrawButtonAsHighlighted ? 0.34f : 0.18f));
+        g.drawHorizontalLine(static_cast<int>(bounds.getY()) + 1,
+                             bounds.getX() + 3.0f, bounds.getRight() - 3.0f);
+        g.setColour(outline);
+        g.drawRoundedRectangle(bounds, 2.5f, 1.1f);
         return;
     }
 
@@ -954,7 +1046,18 @@ void MainComponent::OpalineLookAndFeel::drawButtonText(juce::Graphics& g,
     if (opButton || ampButton)
     {
         g.setColour(button.getToggleState() ? juce::Colours::white : kTextMuted);
-        g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
+        g.setFont(juce::FontOptions(11.0f, juce::Font::bold));
+        g.drawFittedText(button.getButtonText(), bounds, juce::Justification::centred, 1);
+        return;
+    }
+
+    if (button.getName() == "dx21FunctionButton" || button.getName() == "dx21StoreButton"
+        || button.getName() == "dx21BlueButton" || button.getName() == "dx21ToggleButton")
+    {
+        const bool inactiveToggle = button.getName() == "dx21ToggleButton" && !button.getToggleState();
+        g.setColour((inactiveToggle ? kTextMuted : juce::Colour(0xffdcfff1))
+                        .withAlpha(button.isEnabled() ? 1.0f : 0.48f));
+        g.setFont(juce::FontOptions(11.0f, juce::Font::bold));
         g.drawFittedText(button.getButtonText(), bounds, juce::Justification::centred, 1);
         return;
     }
@@ -1617,7 +1720,7 @@ void MainComponent::OperatorComponent::resized()
     const auto enableBounds = top.removeFromLeft(42).withHeight(22);
     enableButton.setBounds(enableBounds);
     top.removeFromLeft(5);
-    const auto ampModBounds = top.removeFromLeft(32).withHeight(22);
+    const auto ampModBounds = top.removeFromLeft(42).withHeight(22);
     ampModButton.setBounds(ampModBounds);
     top.removeFromLeft(5);
     roleLabel.setBounds(top.withY(enableBounds.getY()).withHeight(enableBounds.getHeight()));
@@ -1874,7 +1977,7 @@ void MainComponent::KeyboardComponent::updateHeldNote(const int note)
 
 void MainComponent::KeyboardComponent::mouseDown(const juce::MouseEvent& event)
 {
-    if (owner.hostMode != HostMode::PluginEditor)
+    if (owner.hostMode != HostMode::PluginEditor || owner.pluginPcKeyboardAllowed)
         owner.grabKeyboardFocus();
     updateHeldNote(noteForPosition(event.getPosition()));
 }
@@ -1894,9 +1997,10 @@ void MainComponent::KeyboardComponent::mouseExit(const juce::MouseEvent&)
     updateHeldNote(-1);
 }
 
-MainComponent::MainComponent(const HostMode mode)
+MainComponent::MainComponent(const HostMode mode, const bool allowPluginPcKeyboard)
     : keyboard(*this),
-      hostMode(mode)
+      hostMode(mode),
+      pluginPcKeyboardAllowed(allowPluginPcKeyboard)
 {
     setupLabel(titleLabel, "Opaline FM");
     titleLabel.setFont(juce::FontOptions(22.0f, juce::Font::bold));
@@ -1915,7 +2019,8 @@ MainComponent::MainComponent(const HostMode mode)
                           &pasteVoiceButton, &initVoiceButton, &storeVoiceButton,
                           &voiceAPreviousButton, &voiceANextButton,
                           &voiceBPreviousButton, &voiceBNextButton,
-                          &polyMonoAButton, &polyMonoBButton })
+                          &polyMonoAButton, &polyMonoBButton,
+                          &portamentoModeAButton, &portamentoModeBButton })
     {
         button->setName("voiceBankButton");
         button->setColour(juce::TextButton::buttonColourId, juce::Colour(0xff1c1a15));
@@ -1926,14 +2031,29 @@ MainComponent::MainComponent(const HostMode mode)
         button->addListener(this);
         addAndMakeVisible(*button);
     }
-    storeVoiceButton.setName("storeVoiceButton");
+    storeVoiceButton.setName("dx21StoreButton");
+    for (auto* button : { &loadVoiceBankButton, &saveVoiceBankButton, &exportVoiceLibraryButton })
+        button->setName("dx21BlueButton");
+    for (auto* button : { &loadSingleVoiceButton, &saveSingleVoiceButton, &copyVoiceButton,
+                          &pasteVoiceButton, &initVoiceButton })
+        button->setName("dx21BlueButton");
     for (auto* button : { &polyMonoAButton, &polyMonoBButton })
     {
+        button->setName("dx21ToggleButton");
         button->setClickingTogglesState(true);
+        button->setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff243d38));
+    }
+    for (auto* button : { &voiceAPreviousButton, &voiceANextButton,
+                          &voiceBPreviousButton, &voiceBNextButton })
+        button->setName("dx21FunctionButton");
+    for (auto* button : { &portamentoModeAButton, &portamentoModeBButton })
+    {
+        button->setName("dx21ToggleButton");
         button->setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff243d38));
     }
     pasteVoiceButton.setEnabled(false);
     setupComboBox(voiceSelect);
+    voiceSelect.setEditableText(true);
     voiceSelect.addListener(this);
     addAndMakeVisible(voiceSelect);
 
@@ -1984,7 +2104,7 @@ MainComponent::MainComponent(const HostMode mode)
     powerButton.addListener(this);
     addAndMakeVisible(powerButton);
 
-    wavRecordButton.setName("wavRecordButton");
+    wavRecordButton.setName("dx21BlueButton");
     wavRecordButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff17242a));
     wavRecordButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff0aa878));
     wavRecordButton.setColour(juce::TextButton::textColourOffId, kTextPrimary);
@@ -1992,6 +2112,13 @@ MainComponent::MainComponent(const HostMode mode)
     wavRecordButton.setLookAndFeel(&opalineLookAndFeel);
     wavRecordButton.addListener(this);
     addAndMakeVisible(wavRecordButton);
+
+    effectsEnableButton.setClickingTogglesState(true);
+    effectsEnableButton.setToggleState(true, juce::dontSendNotification);
+    effectsEnableButton.setName("dx21ToggleButton");
+    effectsEnableButton.setLookAndFeel(&opalineLookAndFeel);
+    effectsEnableButton.addListener(this);
+    addAndMakeVisible(effectsEnableButton);
 
     engineModelButton.setClickingTogglesState(true);
     engineModelButton.setName("engineModelButton");
@@ -2002,7 +2129,7 @@ MainComponent::MainComponent(const HostMode mode)
 
     setupLabel(volumeLabel, "VOLUME");
     volumeLabel.setJustificationType(juce::Justification::centred);
-    volumeLabel.setFont(juce::FontOptions(9.0f, juce::Font::plain));
+    volumeLabel.setFont(juce::FontOptions(10.0f, juce::Font::plain));
     addAndMakeVisible(volumeLabel);
     setupSlider(volumeSlider, 0.0, 1.0, 0.01, masterVolume, juce::Slider::LinearVertical);
     volumeSlider.setName("mainFader");
@@ -2013,7 +2140,7 @@ MainComponent::MainComponent(const HostMode mode)
 
     setupLabel(transposeLabel, "TRANSPOSE");
     transposeLabel.setJustificationType(juce::Justification::centred);
-    transposeLabel.setFont(juce::FontOptions(9.0f, juce::Font::plain));
+    transposeLabel.setFont(juce::FontOptions(10.0f, juce::Font::plain));
     addAndMakeVisible(transposeLabel);
     setupSlider(transposeSlider, -24.0, 24.0, 1.0, 0.0, juce::Slider::LinearVertical);
     transposeSlider.setName("mainFader");
@@ -2024,7 +2151,7 @@ MainComponent::MainComponent(const HostMode mode)
 
     setupLabel(balanceLabel, "BALANCE");
     balanceLabel.setJustificationType(juce::Justification::centred);
-    balanceLabel.setFont(juce::FontOptions(9.0f, juce::Font::plain));
+    balanceLabel.setFont(juce::FontOptions(10.0f, juce::Font::plain));
     addAndMakeVisible(balanceLabel);
     setupSlider(balanceSlider, -100.0, 100.0, 1.0, 0.0, juce::Slider::LinearVertical);
     balanceSlider.setName("balanceFader");
@@ -2186,6 +2313,20 @@ MainComponent::MainComponent(const HostMode mode)
     portamentoSlider.addListener(this);
     addAndMakeVisible(portamentoLabel);
     addAndMakeVisible(portamentoSlider);
+    setupLabel(modWheelPitchRangeLabel, "MOD PITCH");
+    modWheelPitchRangeLabel.setJustificationType(juce::Justification::centred);
+    modWheelPitchRangeLabel.setFont(juce::FontOptions(8.0f, juce::Font::plain));
+    setupSlider(modWheelPitchRangeSlider, 0, 99, 1, 99, juce::Slider::RotaryHorizontalVerticalDrag);
+    modWheelPitchRangeSlider.addListener(this);
+    addAndMakeVisible(modWheelPitchRangeLabel);
+    addAndMakeVisible(modWheelPitchRangeSlider);
+    setupLabel(modWheelAmpRangeLabel, "MOD AMP");
+    modWheelAmpRangeLabel.setJustificationType(juce::Justification::centred);
+    modWheelAmpRangeLabel.setFont(juce::FontOptions(8.0f, juce::Font::plain));
+    setupSlider(modWheelAmpRangeSlider, 0, 99, 1, 0, juce::Slider::RotaryHorizontalVerticalDrag);
+    modWheelAmpRangeSlider.addListener(this);
+    addAndMakeVisible(modWheelAmpRangeLabel);
+    addAndMakeVisible(modWheelAmpRangeSlider);
 
     addAndMakeVisible(keyboard);
 
@@ -2230,7 +2371,7 @@ MainComponent::MainComponent(const HostMode mode)
     }
     refreshStatus();
 
-    if (hostMode != HostMode::PluginEditor)
+    if (hostMode != HostMode::PluginEditor || pluginPcKeyboardAllowed)
     {
         setWantsKeyboardFocus(true);
         setMouseClickGrabsKeyboardFocus(true);
@@ -2257,7 +2398,7 @@ MainComponent::~MainComponent()
     }
     midiInputs.clear();
 
-    const std::array<juce::Slider*, 29> sliders { &volumeSlider, &transposeSlider, &balanceSlider, &algorithmSlider, &feedbackSlider,
+    const std::array<juce::Slider*, 31> sliders { &volumeSlider, &transposeSlider, &balanceSlider, &algorithmSlider, &feedbackSlider,
                                                   &lfoSpeedSlider, &lfoDelaySlider, &lfoPitchDepthSlider, &lfoAmpDepthSlider,
                                                   &lfoPitchSensitivitySlider, &lfoAmpSensitivitySlider,
                                                   &pegRate1Slider, &pegRate2Slider, &pegRate3Slider,
@@ -2265,6 +2406,7 @@ MainComponent::~MainComponent()
                                                   &effectReverbSlider, &effectMixSlider, &effectEchoMixSlider, &effectToneSlider, &effectChorusSlider,
                                                    &effectDelaySlider, &pitchWheelSlider, &modWheelSlider,
                                                    &pitchBendRangeSlider, &portamentoSlider,
+                                                   &modWheelPitchRangeSlider, &modWheelAmpRangeSlider,
                                                   &dualDetuneSlider, &splitPointSlider };
     for (auto* slider : sliders)
     {
@@ -2281,6 +2423,7 @@ MainComponent::~MainComponent()
                           &voiceBPreviousButton, &voiceBNextButton })
         button->setLookAndFeel(nullptr);
     wavRecordButton.setLookAndFeel(nullptr);
+    effectsEnableButton.setLookAndFeel(nullptr);
     engineModelButton.setLookAndFeel(nullptr);
     lfoSyncButton.setLookAndFeel(nullptr);
 
@@ -2455,15 +2598,8 @@ void MainComponent::paint(juce::Graphics& g)
     drawHeaderTitle(g, header.removeFromLeft(210).toFloat());
 
     area.removeFromTop(panelGap);
-    auto top = area.removeFromTop(198);
-    const auto faders = top.removeFromLeft(178).reduced(panelPad, 0).toFloat();
-    top.removeFromLeft(panelGap);
-    const auto patch = top.removeFromLeft(300).reduced(panelPad, 0).toFloat();
-    top.removeFromLeft(panelGap);
-    const auto controls = top.reduced(panelPad, 0).toFloat();
-    drawMetalPanel(g, faders, 2.0f);
-    drawMetalPanel(g, patch, 2.0f);
-    drawMetalPanel(g, controls, 2.0f);
+    const auto top = area.removeFromTop(198).toFloat();
+    drawMetalPanel(g, top.reduced(static_cast<float>(panelPad), 0.0f), 2.0f);
 
     area.removeFromTop(panelGap);
     const auto middle = area.removeFromTop(140).toFloat();
@@ -2483,6 +2619,8 @@ void MainComponent::resized()
     auto header = area.removeFromTop(34);
     titleLabel.setBounds(header.removeFromLeft(210));
     titleLabel.setVisible(false);
+    effectsEnableButton.setBounds(header.removeFromRight(68).withSizeKeepingCentre(68, 23));
+    header.removeFromRight(panelGap);
     wavRecordButton.setBounds(header.removeFromRight(68).withSizeKeepingCentre(68, 23));
     header.removeFromRight(panelGap);
     engineModelButton.setBounds(header.removeFromRight(68).withSizeKeepingCentre(68, 23));
@@ -2502,7 +2640,7 @@ void MainComponent::resized()
     statusLabel.setBounds(header);
 
     area.removeFromTop(panelGap);
-    auto top = area.removeFromTop(198);
+    auto top = area.removeFromTop(198).reduced(2);
     auto faders = top.removeFromLeft(178).reduced(panelPad, 0);
     faders.removeFromTop(5);
     auto sliderRow = faders.removeFromTop(144);
@@ -2522,60 +2660,61 @@ void MainComponent::resized()
     faders.removeFromTop(3);
     scope.setBounds(faders.removeFromTop(46).reduced(4, 2));
 
-    top.removeFromLeft(panelGap);
+    constexpr int topPanelGap = 2;
+    top.removeFromLeft(topPanelGap);
     auto patch = top.removeFromLeft(300).reduced(panelPad + 8, panelPad);
     patch.translate(0, 4);
+    const auto gridCell = [](const juce::Rectangle<int>& row, const int column, const int span = 1)
+    {
+        const int left = row.getX() + row.getWidth() * column / 6;
+        const int right = row.getX() + row.getWidth() * (column + span) / 6;
+        return juce::Rectangle<int>(left, row.getY(), right - left, row.getHeight());
+    };
     auto bankRow = patch.removeFromTop(28);
     constexpr int topControlHeight = 24;
-    voiceBankSelect.setBounds(bankRow.removeFromLeft(112).withSizeKeepingCentre(112, topControlHeight));
-    bankRow.removeFromLeft(3);
-    loadVoiceBankButton.setBounds(bankRow.removeFromLeft(48).withSizeKeepingCentre(48, topControlHeight));
-    bankRow.removeFromLeft(3);
-    saveVoiceBankButton.setBounds(bankRow.removeFromLeft(48).withSizeKeepingCentre(48, topControlHeight));
-    bankRow.removeFromLeft(3);
-    exportVoiceLibraryButton.setBounds(bankRow.removeFromLeft(58).withSizeKeepingCentre(58, topControlHeight));
+    const auto bankSelectArea = gridCell(bankRow, 0, 3).reduced(1, 0);
+    voiceBankSelect.setBounds(bankSelectArea.withSizeKeepingCentre(bankSelectArea.getWidth(), topControlHeight));
+    loadVoiceBankButton.setBounds(gridCell(bankRow, 3).reduced(2, 3));
+    saveVoiceBankButton.setBounds(gridCell(bankRow, 4).reduced(2, 3));
+    exportVoiceLibraryButton.setBounds(gridCell(bankRow, 5).reduced(2, 3));
     patch.removeFromTop(4);
     lcd.setBounds(patch.removeFromTop(56));
     patch.removeFromTop(5);
     auto aRow = patch.removeFromTop(28);
-    const auto polyMonoArea = juce::Rectangle<int>(aRow.getRight() - 44, aRow.getY(), 44, aRow.getHeight());
-    polyMonoAButton.setBounds(polyMonoArea.withSizeKeepingCentre(44, 22));
-    aRow.removeFromRight(48);
-    voiceALabel.setBounds(aRow.removeFromLeft(22).withSizeKeepingCentre(20, 20));
-    aRow.removeFromLeft(2);
-    voiceANextButton.setBounds(aRow.removeFromRight(22).withSizeKeepingCentre(22, 22));
-    aRow.removeFromRight(2);
-    voiceAPreviousButton.setBounds(aRow.removeFromRight(22).withSizeKeepingCentre(22, 22));
-    aRow.removeFromRight(3);
-    voiceSelect.setBounds(aRow);
+    auto aVoice = gridCell(aRow, 0, 3);
+    voiceALabel.setBounds(aVoice.removeFromLeft(22).withSizeKeepingCentre(20, 20));
+    aVoice.removeFromLeft(2);
+    voiceSelect.setBounds(aVoice.reduced(1, 0).withSizeKeepingCentre(aVoice.getWidth() - 2, topControlHeight));
+    auto aNavigation = gridCell(aRow, 3).reduced(1, 0);
+    voiceAPreviousButton.setBounds(aNavigation.removeFromLeft(aNavigation.getWidth() / 2).reduced(1, 3));
+    voiceANextButton.setBounds(aNavigation.reduced(1, 3));
+    polyMonoAButton.setBounds(gridCell(aRow, 4).reduced(2, 3));
+    portamentoModeAButton.setBounds(gridCell(aRow, 5).reduced(2, 3));
     patch.removeFromTop(2);
     auto bRow = patch.removeFromTop(26);
     auto actionRow = bRow;
-    if (performanceState.mode != PerformanceMode::Single)
-    {
-        const auto polyMonoBArea = juce::Rectangle<int>(bRow.getRight() - 44, bRow.getY(), 44, bRow.getHeight());
-        polyMonoBButton.setBounds(polyMonoBArea.withSizeKeepingCentre(44, 22));
-        bRow.removeFromRight(48);
-    }
-    voiceBLabel.setBounds(bRow.removeFromLeft(22).withSizeKeepingCentre(20, 20));
-    bRow.removeFromLeft(2);
-    voiceBNextButton.setBounds(bRow.removeFromRight(22).withSizeKeepingCentre(22, 22));
-    bRow.removeFromRight(2);
-    voiceBPreviousButton.setBounds(bRow.removeFromRight(22).withSizeKeepingCentre(22, 22));
-    bRow.removeFromRight(3);
-    voiceBSelect.setBounds(bRow);
+    auto bVoice = gridCell(bRow, 0, 3);
+    voiceBLabel.setBounds(bVoice.removeFromLeft(22).withSizeKeepingCentre(20, 20));
+    bVoice.removeFromLeft(2);
+    voiceBSelect.setBounds(bVoice.reduced(1, 0).withSizeKeepingCentre(bVoice.getWidth() - 2, topControlHeight));
+    auto bNavigation = gridCell(bRow, 3).reduced(1, 0);
+    voiceBPreviousButton.setBounds(bNavigation.removeFromLeft(bNavigation.getWidth() / 2).reduced(1, 2));
+    voiceBNextButton.setBounds(bNavigation.reduced(1, 2));
+    polyMonoBButton.setBounds(gridCell(bRow, 4).reduced(2, 2));
+    portamentoModeBButton.setBounds(gridCell(bRow, 5).reduced(2, 2));
 
-    constexpr int actionButtonWidth = 44;
-    constexpr int actionButtonGap = 2;
-    for (auto* button : { &loadSingleVoiceButton, &saveSingleVoiceButton, &copyVoiceButton,
-                          &pasteVoiceButton, &initVoiceButton, &storeVoiceButton })
+    const std::array<juce::TextButton*, 6> actionButtons { &loadSingleVoiceButton, &saveSingleVoiceButton,
+                                                          &copyVoiceButton, &pasteVoiceButton,
+                                                          &initVoiceButton, &storeVoiceButton };
+    for (int column = 0; column < static_cast<int>(actionButtons.size()); ++column)
     {
-        button->setBounds(actionRow.removeFromLeft(actionButtonWidth).withSizeKeepingCentre(actionButtonWidth, 22));
-        actionRow.removeFromLeft(actionButtonGap);
+        actionButtons[static_cast<std::size_t>(column)]->setBounds(gridCell(actionRow, column).reduced(2, 2));
     }
     patch.removeFromTop(2);
     auto perfRow = patch.removeFromTop(26);
-    performanceModeSelect.setBounds(perfRow.removeFromLeft(88));
+    const auto performanceModeArea = perfRow.removeFromLeft(88);
+    performanceModeSelect.setBounds(performanceModeArea.withSizeKeepingCentre(performanceModeArea.getWidth(),
+                                                                              topControlHeight));
     perfRow.removeFromLeft(4);
     dualDetuneLabel.setBounds(perfRow.removeFromLeft(48));
     dualDetuneSlider.setBounds(perfRow);
@@ -2586,7 +2725,7 @@ void MainComponent::resized()
     constexpr int knobLabelHeight = 15;
     constexpr int knobCellWidth = 32;
     constexpr int knobCellHeight = 80;
-    top.removeFromLeft(panelGap);
+    top.removeFromLeft(topPanelGap);
     auto controlsPanel = top.reduced(panelPad, 0);
     const auto controlsPanelBounds = controlsPanel;
     constexpr int voicePanelWidth = 138;
@@ -2708,13 +2847,20 @@ void MainComponent::resized()
     auto modArea = middle.removeFromLeft(58).reduced(panelPad, panelPad);
     modWheelLabel.setBounds(modArea.removeFromBottom(14).translated(0, -2));
     modWheelSlider.setBounds(modArea.reduced(5, 2));
-    auto wheelControlColumn = middle.removeFromLeft(58).reduced(panelPad, panelPad).translated(0, 3);
+    auto wheelControlColumn = middle.removeFromLeft(50).reduced(panelPad, panelPad).translated(0, 3);
     auto rangeArea = wheelControlColumn.removeFromTop(wheelControlColumn.getHeight() / 2);
     pitchBendRangeLabel.setBounds(rangeArea.removeFromTop(10));
     pitchBendRangeSlider.setBounds(rangeArea.withSizeKeepingCentre(48, 52).translated(0, -3));
     auto portamentoArea = wheelControlColumn;
     portamentoLabel.setBounds(portamentoArea.removeFromTop(10).translated(0, -3));
     portamentoSlider.setBounds(portamentoArea.withSizeKeepingCentre(48, 52).translated(0, -6));
+    auto modRangeColumn = middle.removeFromLeft(50).reduced(panelPad, panelPad).translated(0, 3);
+    auto modPitchArea = modRangeColumn.removeFromTop(modRangeColumn.getHeight() / 2);
+    modWheelPitchRangeLabel.setBounds(modPitchArea.removeFromTop(10));
+    modWheelPitchRangeSlider.setBounds(modPitchArea.withSizeKeepingCentre(48, 52).translated(0, -3));
+    auto modAmpArea = modRangeColumn;
+    modWheelAmpRangeLabel.setBounds(modAmpArea.removeFromTop(10).translated(0, -3));
+    modWheelAmpRangeSlider.setBounds(modAmpArea.withSizeKeepingCentre(48, 52).translated(0, -6));
     middle.removeFromLeft(panelGap);
     keyboard.setBounds(middle.reduced(2));
 
@@ -2733,7 +2879,7 @@ void MainComponent::resized()
 
 void MainComponent::mouseDown(const juce::MouseEvent&)
 {
-    if (hostMode != HostMode::PluginEditor)
+    if (hostMode != HostMode::PluginEditor || pluginPcKeyboardAllowed)
         grabKeyboardFocus();
 }
 
@@ -3038,6 +3184,10 @@ void MainComponent::applySelectedVoice(const int selectedId)
     voiceSelect.setSelectedId(id, juce::dontSendNotification);
     currentPatch = factoryVoices[static_cast<std::size_t>(index)].patch;
     currentVoiceName = juce::String(factoryVoices[static_cast<std::size_t>(index)].name).substring(0, 10);
+    modWheelPitchRange = juce::jlimit(0, 99, currentPatch.lfo.pitchDepth);
+    modWheelAmpRange = juce::jlimit(0, 99, currentPatch.lfo.ampDepth);
+    modWheelPitchRangeSlider.setValue(modWheelPitchRange, juce::dontSendNotification);
+    modWheelAmpRangeSlider.setValue(modWheelAmpRange, juce::dontSendNotification);
     refreshCurrentVoiceNameDisplay();
 
     syncUiFromPatch();
@@ -3123,9 +3273,9 @@ void MainComponent::refreshCurrentVoiceNameDisplay()
         return;
 
     const int index = juce::jlimit(0, static_cast<int>(factoryVoices.size()) - 1, performanceState.voiceAIndex);
-    const auto number = juce::String(index + 1).paddedLeft('0', 2);
+    const auto number = juce::String(index + 1);
     const auto name = currentVoiceName.isNotEmpty() ? currentVoiceName.substring(0, 10) : juce::String("INIT VOICE");
-    const auto displayText = "A" + number + " " + name;
+    const auto displayText = number + " " + name;
     voiceSelect.changeItemText(index + 1, displayText);
     voiceSelect.setSelectedId(0, juce::dontSendNotification);
     voiceSelect.setSelectedId(index + 1, juce::dontSendNotification);
@@ -3137,22 +3287,20 @@ juce::String MainComponent::currentVoiceText() const
 {
     const int safeIndex = factoryVoices.empty() ? 0
                                                 : juce::jlimit(0, static_cast<int>(factoryVoices.size()) - 1, performanceState.voiceAIndex);
-    const auto bank = safeIndex < 16 ? "A" : "B";
-    const auto number = juce::String(safeIndex % 16 + 1).paddedLeft('0', 2);
+    const auto number = juce::String(safeIndex + 1);
     const auto name = currentVoiceName.isNotEmpty() ? currentVoiceName.substring(0, 12) : juce::String("INIT VOICE");
-    return bank + number + " " + name;
+    return number + " " + name;
 }
 
 juce::String MainComponent::performanceVoiceText(const int index) const
 {
     if (factoryVoices.empty())
-        return "A01 INIT VOICE";
+        return "1 INIT VOICE";
 
     const int safeIndex = juce::jlimit(0, static_cast<int>(factoryVoices.size()) - 1, index);
-    const auto bank = safeIndex < 16 ? "A" : "B";
-    const auto number = juce::String(safeIndex % 16 + 1).paddedLeft('0', 2);
+    const auto number = juce::String(safeIndex + 1);
     const auto name = juce::String(factoryVoices[static_cast<std::size_t>(safeIndex)].name).substring(0, 12);
-    return bank + number + " " + name;
+    return number + " " + name;
 }
 
 void MainComponent::refreshLcd()
@@ -3191,9 +3339,27 @@ void MainComponent::refreshPerformanceControls()
     splitPointSlider.setValue(performanceState.splitPoint, juce::dontSendNotification);
     balanceSlider.setValue(performanceState.abBalance, juce::dontSendNotification);
     polyMonoAButton.setToggleState(performanceState.monoA, juce::dontSendNotification);
-    polyMonoAButton.setButtonText(performanceState.monoA ? "MONO" : "POLY");
+    polyMonoAButton.setButtonText("MONO");
     polyMonoBButton.setToggleState(performanceState.monoB, juce::dontSendNotification);
-    polyMonoBButton.setButtonText(performanceState.monoB ? "MONO" : "POLY");
+    polyMonoBButton.setButtonText("MONO");
+    if (!performanceState.monoA && performanceState.portamentoModeA == opalineapp::PortamentoMode::Finger)
+        performanceState.portamentoModeA = opalineapp::PortamentoMode::Full;
+    if (!performanceState.monoB && performanceState.portamentoModeB == opalineapp::PortamentoMode::Finger)
+        performanceState.portamentoModeB = opalineapp::PortamentoMode::Full;
+    const auto portaText = [](const opalineapp::PortamentoMode mode)
+    {
+        if (mode == opalineapp::PortamentoMode::Full)
+            return juce::String("FULL");
+        if (mode == opalineapp::PortamentoMode::Finger)
+            return juce::String("FINGER");
+        return juce::String("PORTA");
+    };
+    portamentoModeAButton.setButtonText(portaText(performanceState.portamentoModeA));
+    portamentoModeBButton.setButtonText(portaText(performanceState.portamentoModeB));
+    portamentoModeAButton.setToggleState(performanceState.portamentoModeA != opalineapp::PortamentoMode::Off,
+                                         juce::dontSendNotification);
+    portamentoModeBButton.setToggleState(performanceState.portamentoModeB != opalineapp::PortamentoMode::Off,
+                                         juce::dontSendNotification);
 
     const bool dual = performanceState.mode == PerformanceMode::Dual;
     const bool split = performanceState.mode == PerformanceMode::Split;
@@ -3204,6 +3370,7 @@ void MainComponent::refreshPerformanceControls()
     voiceBPreviousButton.setVisible(!single);
     voiceBNextButton.setVisible(!single);
     polyMonoBButton.setVisible(!single);
+    portamentoModeBButton.setVisible(!single);
     if (!single)
         voiceBSelect.setSelectedId(performanceState.voiceBIndex + 1, juce::dontSendNotification);
 
@@ -3240,6 +3407,9 @@ opalineapp::SynthState MainComponent::captureSynthState() const
     state.masterVolume = masterVolume;
     state.pitchBendRange = pitchBendRange;
     state.portamento = portamento;
+    state.modWheelPitchRange = modWheelPitchRange;
+    state.modWheelAmpRange = modWheelAmpRange;
+    state.effectsEnabled = effectsEnabled;
     state.renderModel = currentRenderModel();
     return state;
 }
@@ -3277,16 +3447,22 @@ void MainComponent::applySynthState(const opalineapp::SynthState& state, const b
     masterVolume = juce::jlimit(0.0f, 1.0f, state.masterVolume);
     pitchBendRange = juce::jlimit(0, 12, state.pitchBendRange);
     portamento = juce::jlimit(0, 99, state.portamento);
+    modWheelPitchRange = juce::jlimit(0, 99, state.modWheelPitchRange);
+    modWheelAmpRange = juce::jlimit(0, 99, state.modWheelAmpRange);
+    effectsEnabled = state.effectsEnabled;
     chipRenderModel = state.renderModel == opaline::OpalineRenderModel::TypeB;
 
     syncingUi = true;
     volumeSlider.setValue(masterVolume, juce::dontSendNotification);
     pitchBendRangeSlider.setValue(pitchBendRange, juce::dontSendNotification);
     portamentoSlider.setValue(portamento, juce::dontSendNotification);
+    modWheelPitchRangeSlider.setValue(modWheelPitchRange, juce::dontSendNotification);
+    modWheelAmpRangeSlider.setValue(modWheelAmpRange, juce::dontSendNotification);
+    effectsEnableButton.setToggleState(effectsEnabled, juce::dontSendNotification);
     polyMonoAButton.setToggleState(performanceState.monoA, juce::dontSendNotification);
-    polyMonoAButton.setButtonText(performanceState.monoA ? "MONO" : "POLY");
+    polyMonoAButton.setButtonText("MONO");
     polyMonoBButton.setToggleState(performanceState.monoB, juce::dontSendNotification);
-    polyMonoBButton.setButtonText(performanceState.monoB ? "MONO" : "POLY");
+    polyMonoBButton.setButtonText("MONO");
     syncUiFromPatch();
     refreshPerformanceControls();
     refreshEngineModelButton();
@@ -3316,12 +3492,18 @@ void MainComponent::applyPatchToEngine(const bool updateUi, const bool notifySta
         engine.setPitchBend(currentPitchBend);
         engine.setPitchBendRange(pitchBendRange);
         engine.setPortamento(portamento);
+        engine.setModWheelRanges(modWheelPitchRange, modWheelAmpRange);
+        engine.setEffectsEnabled(effectsEnabled);
         engine.setMonoMode(performanceState.monoA);
+        engine.setPortamentoMode(static_cast<int>(performanceState.portamentoModeA));
         engine.setModWheel(currentModWheel);
         performanceEngineB.setPitchBend(juce::jlimit(-1.0, 1.0, currentPitchBend + static_cast<double>(performanceState.dualDetune) / 64.0));
         performanceEngineB.setPitchBendRange(pitchBendRange);
         performanceEngineB.setPortamento(portamento);
+        performanceEngineB.setModWheelRanges(modWheelPitchRange, modWheelAmpRange);
+        performanceEngineB.setEffectsEnabled(effectsEnabled);
         performanceEngineB.setMonoMode(performanceState.monoB);
+        performanceEngineB.setPortamentoMode(static_cast<int>(performanceState.portamentoModeB));
         performanceEngineB.setModWheel(currentModWheel);
     }
     if (updateUi)
@@ -3824,9 +4006,10 @@ void MainComponent::stopWavRecordingAndChooseFile()
         }
     }
 
+    const auto wavDirectory = rememberedFileChooserDirectory(
+        juce::File::getSpecialLocation(juce::File::userMusicDirectory));
     fileChooser = std::make_unique<juce::FileChooser>("Save WAV recording",
-                                                       juce::File::getSpecialLocation(juce::File::userMusicDirectory)
-                                                           .getChildFile("Opaline FM.wav"),
+                                                       wavDirectory.getChildFile("Opaline FM.wav"),
                                                        "*.wav");
     fileChooser->launchAsync(juce::FileBrowserComponent::saveMode
                                  | juce::FileBrowserComponent::canSelectFiles
@@ -3842,6 +4025,7 @@ void MainComponent::stopWavRecordingAndChooseFile()
 
                                  if (!file.hasFileExtension("wav"))
                                      file = file.withFileExtension("wav");
+                                 rememberFileChooserDirectory(file);
                                  writeWavRecordingToFile(file);
                              });
 }
@@ -4036,7 +4220,7 @@ void MainComponent::repaintKeyboardAsync()
 
 bool MainComponent::pcKeyboardInputAllowed() const
 {
-    if (hostMode == HostMode::PluginEditor)
+    if (hostMode == HostMode::PluginEditor && !pluginPcKeyboardAllowed)
         return false;
 
     if (auto* peer = getPeer())
@@ -4121,6 +4305,18 @@ void MainComponent::setExternalScopeSamples(const std::array<float, 4096>& sampl
 void MainComponent::timerCallback()
 {
     syncPcKeyboardNotes();
+    const double now = juce::Time::getMillisecondCounterHiRes();
+    for (auto* slider : { &volumeSlider, &transposeSlider, &balanceSlider })
+    {
+        const double displayUntil = static_cast<double>(slider->getProperties().getWithDefault("valueDisplayUntil", 0.0));
+        if (slider->isMouseButtonDown() || now < displayUntil)
+            slider->repaint();
+        else if (displayUntil > 0.0)
+        {
+            slider->getProperties().set("valueDisplayUntil", 0.0);
+            slider->repaint();
+        }
+    }
     int triggerNote = -1;
     for (int note = 0; note < 128; ++note)
     {
@@ -4201,6 +4397,13 @@ void MainComponent::handleIncomingMidiMessage(juce::MidiInput*, const juce::Midi
         engine.setSustainPedal(pedalDown);
         performanceEngineB.setSustainPedal(pedalDown);
     }
+    else if (message.isController() && message.getControllerNumber() == 65)
+    {
+        const bool pedalDown = message.getControllerValue() >= 64;
+        std::lock_guard<std::mutex> lock(engineMutex);
+        engine.setPortamentoFootSwitch(pedalDown);
+        performanceEngineB.setPortamentoFootSwitch(pedalDown);
+    }
     else if (message.isAllNotesOff())
     {
         allNotesOff();
@@ -4212,6 +4415,9 @@ void MainComponent::comboBoxChanged(juce::ComboBox* comboBoxThatHasChanged)
     if (comboBoxThatHasChanged == &voiceSelect)
     {
         if (suppressVoiceSelectionCallback)
+            return;
+
+        if (voiceSelect.getSelectedId() <= 0)
             return;
 
         allNotesOff();
@@ -4281,8 +4487,32 @@ void MainComponent::buttonClicked(juce::Button* button)
     {
         performanceState.monoA = polyMonoAButton.getToggleState();
         performanceState.monoB = polyMonoBButton.getToggleState();
-        polyMonoAButton.setButtonText(performanceState.monoA ? "MONO" : "POLY");
-        polyMonoBButton.setButtonText(performanceState.monoB ? "MONO" : "POLY");
+        if (!performanceState.monoA && performanceState.portamentoModeA == opalineapp::PortamentoMode::Finger)
+            performanceState.portamentoModeA = opalineapp::PortamentoMode::Full;
+        if (!performanceState.monoB && performanceState.portamentoModeB == opalineapp::PortamentoMode::Finger)
+            performanceState.portamentoModeB = opalineapp::PortamentoMode::Full;
+        polyMonoAButton.setButtonText("MONO");
+        polyMonoBButton.setButtonText("MONO");
+        refreshPerformanceControls();
+        allNotesOff();
+        applyPatchToEngine(true, true);
+        saveVoiceLibraryState();
+    }
+    else if (button == &portamentoModeAButton || button == &portamentoModeBButton)
+    {
+        auto cycleMode = [](const opalineapp::PortamentoMode mode, const bool mono)
+        {
+            if (mode == opalineapp::PortamentoMode::Off)
+                return opalineapp::PortamentoMode::Full;
+            if (mode == opalineapp::PortamentoMode::Full && mono)
+                return opalineapp::PortamentoMode::Finger;
+            return opalineapp::PortamentoMode::Off;
+        };
+        if (button == &portamentoModeAButton)
+            performanceState.portamentoModeA = cycleMode(performanceState.portamentoModeA, performanceState.monoA);
+        else
+            performanceState.portamentoModeB = cycleMode(performanceState.portamentoModeB, performanceState.monoB);
+        refreshPerformanceControls();
         allNotesOff();
         applyPatchToEngine(true, true);
         saveVoiceLibraryState();
@@ -4311,6 +4541,12 @@ void MainComponent::buttonClicked(juce::Button* button)
         else
             startWavRecording();
     }
+    else if (button == &effectsEnableButton)
+    {
+        effectsEnabled = effectsEnableButton.getToggleState();
+        applyPatchToEngine(false, true);
+        statusLabel.setText(effectsEnabled ? "Effects on" : "Effects off", juce::dontSendNotification);
+    }
     else if (button == &engineModelButton)
     {
         chipRenderModel = engineModelButton.getToggleState();
@@ -4326,15 +4562,20 @@ void MainComponent::buttonClicked(juce::Button* button)
     }
     else if (button == &loadVoiceBankButton)
     {
+        const auto initialDirectory = rememberedFileChooserDirectory(
+            juce::File::getSpecialLocation(juce::File::userDocumentsDirectory));
         fileChooser = std::make_unique<juce::FileChooser>("Load compatible voice bank or library",
-                                                          juce::File {},
+                                                          initialDirectory,
                                                           "*.syx;*.xml");
         fileChooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
                                  [this](const juce::FileChooser& chooser)
                                  {
                                      const auto file = chooser.getResult();
                                      if (file.existsAsFile())
+                                     {
+                                         rememberFileChooserDirectory(file);
                                          loadVoiceBankFromFile(file);
+                                     }
                                  });
     }
     else if (button == &saveVoiceBankButton)
@@ -4344,8 +4585,10 @@ void MainComponent::buttonClicked(juce::Button* button)
         const auto defaultName = (bankName.isEmpty() ? juce::String("OpalineFM_Bank_") + juce::String(currentVoiceBankIndex + 1)
                                                      : bankName)
             + ".syx";
+        const auto initialDirectory = rememberedFileChooserDirectory(
+            juce::File::getSpecialLocation(juce::File::userDocumentsDirectory));
         fileChooser = std::make_unique<juce::FileChooser>("Save current compatible voice bank",
-                                                          juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile(defaultName),
+                                                          initialDirectory.getChildFile(defaultName),
                                                           "*.syx");
         fileChooser->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
                                  [this](const juce::FileChooser& chooser)
@@ -4355,14 +4598,16 @@ void MainComponent::buttonClicked(juce::Button* button)
                                          return;
                                      if (!file.hasFileExtension(".syx"))
                                          file = file.withFileExtension(".syx");
+                                     rememberFileChooserDirectory(file);
                                      saveCurrentVoiceBankToFile(file);
                                  });
     }
     else if (button == &exportVoiceLibraryButton)
     {
+        const auto initialDirectory = rememberedFileChooserDirectory(
+            juce::File::getSpecialLocation(juce::File::userDocumentsDirectory));
         fileChooser = std::make_unique<juce::FileChooser>("Export all Opaline voice data",
-                                                          juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
-                                                              .getChildFile("OpalineFM_Voice_Library.opalinelibrary.xml"),
+                                                          initialDirectory.getChildFile("OpalineFM_Voice_Library.opalinelibrary.xml"),
                                                           "*.xml");
         fileChooser->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
                                  [this](const juce::FileChooser& chooser)
@@ -4372,20 +4617,26 @@ void MainComponent::buttonClicked(juce::Button* button)
                                          return;
                                      if (!file.hasFileExtension(".xml"))
                                          file = file.withFileExtension(".xml");
+                                     rememberFileChooserDirectory(file);
                                      exportVoiceLibraryToFile(file);
                                  });
     }
     else if (button == &loadSingleVoiceButton)
     {
+        const auto initialDirectory = rememberedFileChooserDirectory(
+            juce::File::getSpecialLocation(juce::File::userDocumentsDirectory));
         fileChooser = std::make_unique<juce::FileChooser>("Load single Opaline voice",
-                                                          juce::File {},
+                                                          initialDirectory,
                                                           "*.opalinevoice");
         fileChooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
                                  [this](const juce::FileChooser& chooser)
                                  {
                                      const auto file = chooser.getResult();
                                      if (file.existsAsFile())
+                                     {
+                                         rememberFileChooserDirectory(file);
                                          loadSingleVoiceFromFile(file);
+                                     }
                                  });
     }
     else if (button == &saveSingleVoiceButton)
@@ -4395,9 +4646,10 @@ void MainComponent::buttonClicked(juce::Button* button)
         if (name.isEmpty())
             name = "OpalineVoice";
 
+        const auto initialDirectory = rememberedFileChooserDirectory(
+            juce::File::getSpecialLocation(juce::File::userDocumentsDirectory));
         fileChooser = std::make_unique<juce::FileChooser>("Save single Opaline voice",
-                                                          juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
-                                                              .getChildFile(name + ".opalinevoice"),
+                                                          initialDirectory.getChildFile(name + ".opalinevoice"),
                                                           "*.opalinevoice");
         fileChooser->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
                                  [this](const juce::FileChooser& chooser)
@@ -4407,6 +4659,7 @@ void MainComponent::buttonClicked(juce::Button* button)
                                          return;
                                      if (!file.hasFileExtension(".opalinevoice"))
                                          file = file.withFileExtension(".opalinevoice");
+                                     rememberFileChooserDirectory(file);
                                      saveSingleVoiceToFile(file);
                                  });
     }
@@ -4456,10 +4709,22 @@ void MainComponent::buttonClicked(juce::Button* button)
     }
     else if (button == &storeVoiceButton)
     {
+        const int voiceNumber = juce::jlimit(1, opaline::kOpalineVoiceBankSize,
+                                             performanceState.voiceAIndex + 1);
+        auto editedName = voiceSelect.getText().trim();
+        const auto displayedPrefix = juce::String(voiceNumber) + " ";
+        if (editedName.startsWith(displayedPrefix))
+            editedName = editedName.substring(displayedPrefix.length()).trim();
+        editedName = editedName.retainCharacters(
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_ ").trim().substring(0, 10);
+        if (editedName.isNotEmpty())
+            currentVoiceName = editedName;
+
         storeCurrentPatchToSelectedVoice();
         refreshVoiceLists();
         refreshPerformanceControls();
-        statusLabel.setText("Voice stored", juce::dontSendNotification);
+        refreshCurrentVoiceNameDisplay();
+        statusLabel.setText("Voice stored: " + currentVoiceName, juce::dontSendNotification);
         refreshStatus();
         saveVoiceLibraryState();
     }
@@ -4467,6 +4732,12 @@ void MainComponent::buttonClicked(juce::Button* button)
 
 void MainComponent::sliderValueChanged(juce::Slider* slider)
 {
+    if (slider == &volumeSlider || slider == &transposeSlider || slider == &balanceSlider)
+    {
+        slider->getProperties().set("valueDisplayUntil", juce::Time::getMillisecondCounterHiRes() + 1200.0);
+        slider->repaint();
+    }
+
     const bool dragging = slider != nullptr && slider->isMouseButtonDown();
     const bool notifyState = hostMode == HostMode::PluginEditor || !dragging;
 
@@ -4485,16 +4756,21 @@ void MainComponent::sliderValueChanged(juce::Slider* slider)
                 refreshStatus();
         }
     }
-    else if (slider == &pitchBendRangeSlider || slider == &portamentoSlider)
+    else if (slider == &pitchBendRangeSlider || slider == &portamentoSlider
+             || slider == &modWheelPitchRangeSlider || slider == &modWheelAmpRangeSlider)
     {
         pitchBendRange = static_cast<int>(pitchBendRangeSlider.getValue());
         portamento = static_cast<int>(portamentoSlider.getValue());
+        modWheelPitchRange = static_cast<int>(modWheelPitchRangeSlider.getValue());
+        modWheelAmpRange = static_cast<int>(modWheelAmpRangeSlider.getValue());
         {
             std::lock_guard<std::mutex> lock(engineMutex);
             engine.setPitchBendRange(pitchBendRange);
             performanceEngineB.setPitchBendRange(pitchBendRange);
             engine.setPortamento(portamento);
             performanceEngineB.setPortamento(portamento);
+            engine.setModWheelRanges(modWheelPitchRange, modWheelAmpRange);
+            performanceEngineB.setModWheelRanges(modWheelPitchRange, modWheelAmpRange);
         }
         emitSynthStateChanged();
     }

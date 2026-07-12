@@ -11,11 +11,20 @@ enum class PerformanceMode
     Split
 };
 
+enum class PortamentoMode
+{
+    Off = 0,
+    Full,
+    Finger
+};
+
 struct PerformanceState
 {
     PerformanceMode mode = PerformanceMode::Single;
     bool monoA = false;
     bool monoB = false;
+    PortamentoMode portamentoModeA = PortamentoMode::Off;
+    PortamentoMode portamentoModeB = PortamentoMode::Off;
     int voiceAIndex = 0;
     int voiceBIndex = 16;
     int dualDetune = 0;
@@ -30,6 +39,9 @@ struct SynthState
     float masterVolume = 0.65f;
     int pitchBendRange = 2;
     int portamento = 0;
+    int modWheelPitchRange = 99;
+    int modWheelAmpRange = 0;
+    bool effectsEnabled = true;
     opaline::OpalineRenderModel renderModel = opaline::OpalineRenderModel::TypeB;
 };
 } // namespace opalineapp

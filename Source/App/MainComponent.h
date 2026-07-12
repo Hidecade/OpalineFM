@@ -42,7 +42,8 @@ public:
     using WavRecordingStopCallback = std::function<void()>;
     using WavRecordingSaveCallback = std::function<bool(const juce::File&)>;
 
-    explicit MainComponent(HostMode mode = HostMode::StandaloneApp);
+    explicit MainComponent(HostMode mode = HostMode::StandaloneApp,
+                           bool allowPluginPcKeyboard = false);
     ~MainComponent() override;
 
     opalineapp::SynthState captureSynthState() const;
@@ -380,13 +381,16 @@ private:
     juce::TextButton voiceANextButton { ">" };
     juce::TextButton voiceBPreviousButton { "<" };
     juce::TextButton voiceBNextButton { ">" };
-    juce::TextButton polyMonoAButton { "POLY" };
-    juce::TextButton polyMonoBButton { "POLY" };
+    juce::TextButton polyMonoAButton { "MONO" };
+    juce::TextButton polyMonoBButton { "MONO" };
+    juce::TextButton portamentoModeAButton { "PORTA" };
+    juce::TextButton portamentoModeBButton { "PORTA" };
     juce::ComboBox audioOutputSelect;
     juce::ComboBox midiInputSelect;
     juce::ComboBox lfoWaveSelect;
     juce::TextButton powerButton { "OFF" };
     juce::TextButton wavRecordButton { "WAV" };
+    juce::TextButton effectsEnableButton { "EFFECT" };
     juce::TextButton loadVoiceBankButton { "Load" };
     juce::TextButton saveVoiceBankButton { "Save" };
     juce::TextButton exportVoiceLibraryButton { "Export" };
@@ -425,6 +429,8 @@ private:
     juce::Slider modWheelSlider;
     StepWheelSlider pitchBendRangeSlider;
     StepWheelSlider portamentoSlider;
+    StepWheelSlider modWheelPitchRangeSlider;
+    StepWheelSlider modWheelAmpRangeSlider;
     UnitWheelSlider dualDetuneSlider;
     SplitPointSlider splitPointSlider;
     juce::Label volumeLabel;
@@ -461,6 +467,8 @@ private:
     juce::Label modWheelLabel;
     juce::Label pitchBendRangeLabel;
     juce::Label portamentoLabel;
+    juce::Label modWheelPitchRangeLabel;
+    juce::Label modWheelAmpRangeLabel;
     VoiceBadgeLabel voiceALabel;
     VoiceBadgeLabel voiceBLabel;
     juce::Label dualDetuneLabel;
@@ -508,6 +516,9 @@ private:
     double currentModWheel = 0.0;
     int pitchBendRange = 2;
     int portamento = 0;
+    int modWheelPitchRange = 99;
+    int modWheelAmpRange = 0;
+    bool effectsEnabled = true;
     bool powerOn = false;
     bool audioStarted = false;
     bool chipRenderModel = true;
@@ -516,6 +527,7 @@ private:
     bool suppressVoiceSelectionCallback = false;
     bool hasCopiedPatch = false;
     HostMode hostMode = HostMode::StandaloneApp;
+    bool pluginPcKeyboardAllowed = false;
     StateChangedCallback onStateChanged;
     RenderModelChangedCallback onRenderModelChanged;
     NoteOnCallback onNoteOn;

@@ -21,9 +21,13 @@ public:
     void setPitchBend(double value);
     void setPitchBendRange(int semitones);
     void setPortamento(int value);
+    void setPortamentoMode(int mode);
+    void setPortamentoFootSwitch(bool down);
+    void setEffectsEnabled(bool enabled);
     void setMonoMode(bool enabled);
     void setSustainPedal(bool down);
     void setModWheel(double value);
+    void setModWheelRanges(int pitchRange, int ampRange);
     void setRenderModel(OpalineRenderModel model) { renderModel = model; }
     void panic();
 
@@ -53,11 +57,17 @@ private:
     double pitchBend = 0.0;
     int pitchBendRange = 2;
     int portamento = 0;
+    int portamentoMode = 0;
+    bool portamentoFootSwitchDown = true;
+    bool effectsEnabled = true;
     bool monoMode = false;
     bool sustainPedalDown = false;
     std::array<bool, 128> sustainedNotes {};
+    std::array<bool, 128> keyDownNotes {};
     int lastPlayedNote = -1;
     double modWheel = 0.0;
+    int modWheelPitchRange = 99;
+    int modWheelAmpRange = 0;
     OpalineRenderModel renderModel = OpalineRenderModel::TypeB;
     double globalLfoAge = 0.0;
     double chorusPhase = 0.0;

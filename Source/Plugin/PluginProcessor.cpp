@@ -12,6 +12,9 @@ namespace param_ids
 constexpr const char* masterVolume = "masterVolume";
 constexpr const char* pitchBendRange = "pitchBendRange";
 constexpr const char* portamento = "portamento";
+constexpr const char* modWheelPitchRange = "modWheelPitchRange";
+constexpr const char* modWheelAmpRange = "modWheelAmpRange";
+constexpr const char* effectsEnabled = "effectsEnabled";
 constexpr const char* renderModel = "renderModel";
 constexpr const char* algorithm = "algorithm";
 constexpr const char* feedback = "feedback";
@@ -131,6 +134,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout OpalineAudioProcessor::creat
     params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::masterVolume, "Volume", juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f), 0.65f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::pitchBendRange, "Pitch Bend Range", intRange(0.0f, 12.0f), 2.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::portamento, "Portamento", intRange(0.0f, 99.0f), 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::modWheelPitchRange, "Mod Wheel Pitch", intRange(0.0f, 99.0f), 99.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::modWheelAmpRange, "Mod Wheel Amplitude", intRange(0.0f, 99.0f), 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(param_ids::effectsEnabled, "Effects", true));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(param_ids::renderModel, "Engine", juce::StringArray { "TYPE A", "TYPE B" }, 1));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::algorithm, "Algorithm", intRange(1.0f, 8.0f), 1.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::feedback, "Feedback", intRange(0.0f, 7.0f), 2.0f));
@@ -506,6 +512,14 @@ void OpalineAudioProcessor::handleMidiMessage(const juce::MidiMessage& message)
         const bool pedalDown = message.getControllerValue() >= 64;
         engine.setSustainPedal(pedalDown);
         performanceEngineB.setSustainPedal(pedalDown);
+        return;
+    }
+
+    if (message.isController() && message.getControllerNumber() == 65)
+    {
+        const bool pedalDown = message.getControllerValue() >= 64;
+        engine.setPortamentoFootSwitch(pedalDown);
+        performanceEngineB.setPortamentoFootSwitch(pedalDown);
     }
 }
 
@@ -515,6 +529,8 @@ void OpalineAudioProcessor::applyStateToEngine()
     state.masterVolume = juce::jlimit(0.0f, 1.0f, state.masterVolume);
     state.pitchBendRange = juce::jlimit(0, 12, state.pitchBendRange);
     state.portamento = juce::jlimit(0, 99, state.portamento);
+    state.modWheelPitchRange = juce::jlimit(0, 99, state.modWheelPitchRange);
+    state.modWheelAmpRange = juce::jlimit(0, 99, state.modWheelAmpRange);
     renderModel = state.renderModel;
     if (preparedPerformanceMode != state.performance.mode)
     {
@@ -530,8 +546,14 @@ void OpalineAudioProcessor::applyStateToEngine()
     performanceEngineB.setPitchBendRange(state.pitchBendRange);
     engine.setPortamento(state.portamento);
     performanceEngineB.setPortamento(state.portamento);
+    engine.setModWheelRanges(state.modWheelPitchRange, state.modWheelAmpRange);
+    performanceEngineB.setModWheelRanges(state.modWheelPitchRange, state.modWheelAmpRange);
+    engine.setEffectsEnabled(state.effectsEnabled);
+    performanceEngineB.setEffectsEnabled(state.effectsEnabled);
     engine.setMonoMode(state.performance.monoA);
     performanceEngineB.setMonoMode(state.performance.monoB);
+    engine.setPortamentoMode(static_cast<int>(state.performance.portamentoModeA));
+    performanceEngineB.setPortamentoMode(static_cast<int>(state.performance.portamentoModeB));
     setPitchBendOnEngines();
     setModWheelOnEngines();
 }
@@ -598,6 +620,9 @@ void OpalineAudioProcessor::applyParametersToState()
     state.masterVolume = juce::jlimit(0.0f, 1.0f, parameterFloat(parameters, param_ids::masterVolume, state.masterVolume));
     state.pitchBendRange = juce::jlimit(0, 12, parameterInt(parameters, param_ids::pitchBendRange, state.pitchBendRange));
     state.portamento = juce::jlimit(0, 99, parameterInt(parameters, param_ids::portamento, state.portamento));
+    state.modWheelPitchRange = juce::jlimit(0, 99, parameterInt(parameters, param_ids::modWheelPitchRange, state.modWheelPitchRange));
+    state.modWheelAmpRange = juce::jlimit(0, 99, parameterInt(parameters, param_ids::modWheelAmpRange, state.modWheelAmpRange));
+    state.effectsEnabled = parameterBool(parameters, param_ids::effectsEnabled, state.effectsEnabled);
     state.renderModel = parameterInt(parameters, param_ids::renderModel, static_cast<int>(state.renderModel)) == 0
         ? opaline::OpalineRenderModel::TypeA
         : opaline::OpalineRenderModel::TypeB;
@@ -654,6 +679,9 @@ void OpalineAudioProcessor::syncParametersFromState()
     setApvtsParameter(parameters, param_ids::masterVolume, state.masterVolume);
     setApvtsParameter(parameters, param_ids::pitchBendRange, static_cast<float>(state.pitchBendRange));
     setApvtsParameter(parameters, param_ids::portamento, static_cast<float>(state.portamento));
+    setApvtsParameter(parameters, param_ids::modWheelPitchRange, static_cast<float>(state.modWheelPitchRange));
+    setApvtsParameter(parameters, param_ids::modWheelAmpRange, static_cast<float>(state.modWheelAmpRange));
+    setApvtsParameter(parameters, param_ids::effectsEnabled, state.effectsEnabled ? 1.0f : 0.0f);
     setApvtsParameter(parameters, param_ids::renderModel, state.renderModel == opaline::OpalineRenderModel::TypeB ? 1.0f : 0.0f);
     setApvtsParameter(parameters, param_ids::algorithm, static_cast<float>(state.patch.algorithm));
     setApvtsParameter(parameters, param_ids::feedback, static_cast<float>(state.patch.feedback));

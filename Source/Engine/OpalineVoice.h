@@ -27,6 +27,7 @@ public:
     void start(const OpalinePatch& patch, int midiNote, int velocity, double sampleRate,
                OpalineRenderModel renderModel, int portamentoFromNote = -1,
                double portamentoSeconds = 0.0);
+    void retargetPitch(int midiNote, double portamentoSeconds);
     void release();
     bool isActive() const;
     int note() const { return midiNote; }
@@ -34,6 +35,8 @@ public:
                   double pitchBend,
                   int pitchBendRange,
                   double modWheel,
+                  int modWheelPitchRange,
+                  int modWheelAmpRange,
                   double globalLfoAge,
                   OpalineRenderModel renderModel);
 

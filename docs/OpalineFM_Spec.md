@@ -4,6 +4,8 @@ Opaline FM is a 4-operator FM synthesizer implemented in C++/JUCE. It is inspire
 
 Detailed research notes are kept outside the repository in a private documentation folder. This file is the repository-facing summary for development, release notes, and public documentation.
 
+For installation and operation, see the [English README](../README.md) or [Japanese README](../README_ja.md). This document defines engine behavior, parameter ownership, file compatibility, and implementation constraints for developers and maintainers.
+
 ## Goals
 
 - Provide a standalone app, VST3 instrument, plugin standalone build, and macOS AU build path.
@@ -52,9 +54,50 @@ Main concepts:
 - `OpalinePatch` stores voice parameters in compatible ranges.
 - `OpalineEngine` manages voices, MIDI note state, pitch bend, mod wheel, and sample rendering.
 - `OpalineVoice` renders the operator graph, envelopes, LFO, pitch envelope, feedback, and output quantization/model differences.
-- The engine currently has an OLD/current model and a NEW/chip-hybrid model.
+- Type A retains the established compatible Opaline signal path.
+- Type B uses the chip-oriented operator, attenuation, feedback, and output path.
 
 The internal names still use `opaline` because they describe compatibility-level data structures and SysEx semantics.
+
+## Four-Operator FM Architecture
+
+Each voice contains four sine-wave operators. An operator produces audio at `baseFrequency * ratio + detune`. The algorithm table determines whether that output is sent to the final carrier mixer or used as phase modulation for another operator.
+
+- A **carrier** contributes directly to audible output.
+- A **modulator** changes the phase of a downstream operator and therefore changes harmonic content.
+- Operator LEVEL controls carrier amplitude or modulator index according to the operator's role.
+- Operator 4 owns the feedback loop. FB selects the feedback amount.
+- Algorithms 1-4 mainly use serial modulation chains; algorithms 5-8 introduce parallel branches and additional carriers.
+- Parallel carriers are summed before voice output processing. Type B applies a mild carrier-count compensation described below.
+
+Per-operator signal order:
+
+```text
+note + transpose + bend + PEG + pitch LFO + portamento
+    -> ratio/detune oscillator
+    -> phase modulation and OP4 feedback
+    -> amplitude EG
+    -> LEVEL / LevelSc / velocity
+    -> AM (when enabled)
+    -> carrier output or downstream modulation bus
+```
+
+Voice outputs are mixed, limited/declicked, and then passed through chorus, delay, reverb, wet-mix, and tone processing.
+
+## Parameter Ownership
+
+Voice parameters are stored in `OpalinePatch` and travel with compatible voice data where the source format supports them. These include operator settings, algorithm, feedback, Pitch EG, LFO, transpose, and effects.
+
+Performance parameters are stored in application/plugin state rather than in a SysEx voice:
+
+- SINGLE/DUAL/SPLIT mode and A/B voice selection
+- A/B POLY or MONO mode
+- DUAL detune, SPLIT point, and A/B balance
+- Pitch Bend RANGE and PORTA
+- MOD PITCH and MOD AMP wheel ranges
+- Master volume and render model
+
+Selecting voice A initializes MOD PITCH and MOD AMP from its PMD and AMD. Subsequent wheel-range edits remain performance state until another A voice is selected.
 
 ## UI and Hosts
 
@@ -161,12 +204,49 @@ PMS 6: 4.0 semitones
 PMS 7: 8.0 semitones
 ```
 
+### Modulation wheel ranges
+
+- `MOD PITCH` is `0-99` and scales modulation-wheel pitch depth before PMS is applied.
+- `MOD AMP` is `0-99` and scales modulation-wheel amplitude depth before AMS is applied.
+- Amplitude modulation only affects operators whose AM switch is enabled.
+- Direct LFO PMD/AMD and modulation-wheel ranges are independent; their effective depths are added and clamped to `99`.
+- Selecting voice A initializes `MOD PITCH` from that voice's PMD and `MOD AMP` from its AMD. The ranges can then be edited independently.
+- Selecting voice B does not overwrite these shared modulation-wheel ranges.
+
+### Portamento mode
+
+- Each A/B engine stores an independent OFF/FULL/FINGER portamento mode.
+- `POLY` exposes OFF/FULL. `MONO` exposes OFF/FULL/FINGER.
+- FULL glides from the last played note. FINGER glides only when the next note is pressed while another key is still held.
+- Sustain-pedal-held notes do not count as physically held keys for Fingered Portamento.
+- MIDI `CC65` controls the Portamento Foot Switch in `POLY` mode: values `64-127` enable Full Time Portamento and `0-63` disable it.
+- MIDI `CC65` does not gate portamento in `MONO` mode because Fingered Portamento is controlled by overlapping held keys.
+
+### Parallel carrier level compensation
+
+- Type B applies a mild `carrierCount^-0.18` gain after the chip-style carrier mixer.
+- Approximate trims are `0 dB` for one carrier, `-1.1 dB` for two, `-1.7 dB` for three, and `-2.2 dB` for four.
+- Type A retains its existing RMS-style carrier normalization.
+
 ## Performance Controls
 
 - Pitch Bend Range is `0..12` semitones and defaults to `2`. A range of `12` bends up or down by one octave at the wheel limits.
-- Portamento is `0..99` and defaults to `0`. Zero disables glide completely.
+- Portamento is `0..99`; zero is the shortest glide time and does not disable the effect.
 - Portamento values `1..99` use a nonlinear time curve from approximately 10 ms to 2 seconds. A newly triggered voice starts at the previous played note and glides to its target note.
-- Both controls are global performance settings, not voice parameters, and are stored in standalone/plugin state.
+- RANGE, PORTA time, and the per-engine portamento modes are performance settings, not voice parameters, and are stored in standalone/plugin state.
+
+## MIDI Control
+
+| MIDI message | Engine behavior |
+| --- | --- |
+| Note On/Off | Starts or releases notes according to SINGLE/DUAL/SPLIT and POLY/MONO state |
+| Pitch Bend | Bipolar bend using the global `0..12` RANGE |
+| CC1 | Modulation wheel; drives MOD PITCH and MOD AMP paths |
+| CC64 | Sustain pedal; Note Off is deferred while the pedal is down |
+| CC65 | Portamento foot switch in POLY mode; ignored as a gate in MONO/Fingered mode |
+| All Notes Off / All Sound Off | Clears active voices and controller-held notes |
+
+The plugin-standalone wrapper accepts PC-keyboard note input only while its window has focus. The VST3 editor does not map PC typing keys to notes, preserving DAW keyboard shortcuts. Both wrappers accept host/MIDI notes and on-screen keyboard input.
 
 ## Plugin State
 

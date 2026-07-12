@@ -1,5 +1,5 @@
 param(
-    [string] $Version = "0.4.0",
+    [string] $Version = "0.3.1",
     [string] $Configuration = "Release",
     [string] $BuildDirectory = "",
     [string] $Generator = "Visual Studio 18 2026",

@@ -16,9 +16,7 @@ constexpr double kMaxChorusSeconds = 0.04;
 
 double portamentoSecondsForValue(const int value)
 {
-    if (value <= 0)
-        return 0.0;
-    const double normalized = static_cast<double>(clampInt(value, 1, 99)) / 99.0;
+    const double normalized = static_cast<double>(clampInt(value, 0, 99)) / 99.0;
     return 0.01 + 1.99 * normalized * normalized;
 }
 
@@ -66,7 +64,19 @@ void OpalineEngine::setPatch(const OpalinePatch& newPatch)
 void OpalineEngine::noteOn(const int note, const int velocity)
 {
     const int safeNote = clampInt(note, 0, 127);
+    const bool hasHeldKey = std::any_of(keyDownNotes.begin(), keyDownNotes.end(), [](const bool down) { return down; });
+    keyDownNotes[static_cast<std::size_t>(safeNote)] = true;
     sustainedNotes[static_cast<std::size_t>(safeNote)] = false;
+    const bool fullPortamento = portamentoMode == 1 && portamentoFootSwitchDown;
+    const bool fingeredPortamento = portamentoMode == 2 && hasHeldKey;
+
+    if (monoMode && fingeredPortamento && !voices.empty())
+    {
+        voices.back().retargetPitch(safeNote, portamentoSecondsForValue(portamento));
+        lastPlayedNote = safeNote;
+        return;
+    }
+
     if (monoMode)
         voices.clear();
     voices.erase(std::remove_if(voices.begin(),
@@ -75,7 +85,8 @@ void OpalineEngine::noteOn(const int note, const int velocity)
                  voices.end());
 
     OpalineVoice voice;
-    const int fromNote = portamento > 0 ? lastPlayedNote : -1;
+    const bool usePortamento = fullPortamento || fingeredPortamento;
+    const int fromNote = usePortamento ? lastPlayedNote : -1;
     voice.start(patch, safeNote, clampInt(velocity, 0, 127), currentSampleRate, renderModel,
                 fromNote, portamentoSecondsForValue(portamento));
     lastPlayedNote = safeNote;
@@ -91,6 +102,7 @@ void OpalineEngine::noteOn(const int note, const int velocity)
 void OpalineEngine::noteOff(const int note)
 {
     const int safeNote = clampInt(note, 0, 127);
+    keyDownNotes[static_cast<std::size_t>(safeNote)] = false;
     if (sustainPedalDown)
     {
         sustainedNotes[static_cast<std::size_t>(safeNote)] = true;
@@ -119,6 +131,25 @@ void OpalineEngine::setPortamento(const int value)
     portamento = clampInt(value, 0, 99);
 }
 
+void OpalineEngine::setPortamentoMode(const int mode)
+{
+    portamentoMode = clampInt(mode, 0, 2);
+}
+
+void OpalineEngine::setPortamentoFootSwitch(const bool down)
+{
+    portamentoFootSwitchDown = down;
+}
+
+void OpalineEngine::setEffectsEnabled(const bool enabled)
+{
+    if (effectsEnabled == enabled)
+        return;
+
+    effectsEnabled = enabled;
+    if (!effectsEnabled)
+        resetEffects();
+}
 void OpalineEngine::setMonoMode(const bool enabled)
 {
     monoMode = enabled;
@@ -147,11 +178,18 @@ void OpalineEngine::setModWheel(const double value)
     modWheel = clampDouble(value, 0.0, 1.0);
 }
 
+void OpalineEngine::setModWheelRanges(const int pitchRange, const int ampRange)
+{
+    modWheelPitchRange = clampInt(pitchRange, 0, 99);
+    modWheelAmpRange = clampInt(ampRange, 0, 99);
+}
+
 void OpalineEngine::panic()
 {
     voices.clear();
     sustainPedalDown = false;
     sustainedNotes.fill(false);
+    keyDownNotes.fill(false);
     lastPlayedNote = -1;
     globalLfoAge = 0.0;
     lastOutput = 0.0;
@@ -206,6 +244,9 @@ double OpalineEngine::readDelay(const std::vector<double>& buffer, const int wri
 
 StereoSample OpalineEngine::processEffects(const double input)
 {
+    if (!effectsEnabled)
+        return { static_cast<float>(input), static_cast<float>(input) };
+
     const auto& fx = patch.effects;
     const double reverb = static_cast<double>(fx.reverb) / 99.0;
     const double reverbMix = static_cast<double>(fx.mix) / 99.0;
@@ -251,10 +292,11 @@ StereoSample OpalineEngine::processEffects(const double input)
     const double wetInRight = input + reverbOutRight * 0.35;
     const double delayedLeft = delaySamples > 1.0 ? readDelay(delayBufferLeft, delayWriteIndex, delaySamples) : 0.0;
     const double delayedRight = delaySamples > 1.0 ? readDelay(delayBufferRight, delayWriteIndex, delaySamples) : 0.0;
+    const double delayFeedback = delaySamples > 1.0 ? 0.10 + delay * 0.50 : 0.0;
     if (!delayBufferLeft.empty())
     {
-        delayBufferLeft[static_cast<std::size_t>(delayWriteIndex)] = wetInLeft;
-        delayBufferRight[static_cast<std::size_t>(delayWriteIndex)] = wetInRight;
+        delayBufferLeft[static_cast<std::size_t>(delayWriteIndex)] = wetInLeft + toneRight * delayFeedback;
+        delayBufferRight[static_cast<std::size_t>(delayWriteIndex)] = wetInRight + toneLeft * delayFeedback;
         delayWriteIndex = (delayWriteIndex + 1) % static_cast<int>(delayBufferLeft.size());
     }
 
@@ -298,7 +340,7 @@ StereoSample OpalineEngine::renderSample()
     double mixed = 0.0;
 
     for (auto& voice : voices)
-        mixed += voice.render(patch, pitchBend, pitchBendRange, modWheel, globalLfoAge, renderModel);
+        mixed += voice.render(patch, pitchBend, pitchBendRange, modWheel, modWheelPitchRange, modWheelAmpRange, globalLfoAge, renderModel);
 
     voices.erase(std::remove_if(voices.begin(),
                                 voices.end(),

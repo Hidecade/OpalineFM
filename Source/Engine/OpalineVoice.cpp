@@ -45,6 +45,7 @@ constexpr double kOppTlRampSeconds = 0.012;
 constexpr double kOppTlSubsteps = 8.0;
 constexpr double kOppTlMax = 127.0;
 constexpr double kCarrierMixGain = 0.86;
+constexpr double kChipCarrierCountCompensationExponent = 0.18;
 constexpr std::array<double, 8> kOpalinePitchSensitivitySemitones {
     2.0,    // PMS=0 uses the compatible vibrato oscillator path; measured like PMS=5.
     0.125,
@@ -548,9 +549,9 @@ double pitchModDepthForModel(const int depth, const int sensitivity, const int w
     return opmStylePitchModDepth(depth, sensitivity);
 }
 
-double modWheelPitchDepthForModel(const int sensitivity, const int wave, const OpalineRenderModel renderModel)
+double modWheelPitchDepthForModel(const int range, const int sensitivity, const int wave, const OpalineRenderModel renderModel)
 {
-    return pitchModDepthForModel(99, sensitivity, wave, renderModel);
+    return pitchModDepthForModel(range, sensitivity, wave, renderModel);
 }
 
 double opmStyleAmpModDepth(const int depth, const int sensitivity)
@@ -674,6 +675,20 @@ void OpalineVoice::start(const OpalinePatch& patch, const int newMidiNote, const
                                                           patch.operators[static_cast<std::size_t>(i)].rateScale,
                                                           midiNote);
     }
+}
+
+void OpalineVoice::retargetPitch(const int newMidiNote, const double portamentoSeconds)
+{
+    const double currentNote = static_cast<double>(midiNote) + portamentoOffsetSemitones;
+    midiNote = clampInt(newMidiNote, 0, 127);
+    portamentoOffsetSemitones = currentNote - static_cast<double>(midiNote);
+
+    const double portamentoSamples = portamentoSeconds > 0.0
+        ? portamentoSeconds * currentSampleRate
+        : 0.0;
+    portamentoStepPerSample = portamentoSamples > 0.0
+        ? std::abs(portamentoOffsetSemitones) / portamentoSamples
+        : 0.0;
 }
 
 void OpalineVoice::release()
@@ -919,6 +934,8 @@ double OpalineVoice::render(const OpalinePatch& patch,
                          const double pitchBend,
                          const int pitchBendRange,
                          const double modWheel,
+                         const int modWheelPitchRange,
+                         const int modWheelAmpRange,
                          const double globalLfoAge,
                          const OpalineRenderModel renderModel)
 {
@@ -936,10 +953,13 @@ double OpalineVoice::render(const OpalinePatch& patch,
     const double delay = lfoDelayFactor(patch.lfo.delay, ageSeconds);
     const double directPitchLfo = pitchModDepthForModel(patch.lfo.pitchDepth, patch.lfo.pitchSensitivity, patch.lfo.wave, renderModel)
         * delay * pitchLfoShape.second;
-    const double modWheelPitchLfo = modWheelPitchDepthForModel(patch.lfo.pitchSensitivity, patch.lfo.wave, renderModel)
-        * clampDouble(modWheel, 0.0, 1.0) * pitchLfoShape.second;
+    const double safeModWheel = clampDouble(modWheel, 0.0, 1.0);
+    const double modWheelPitchLfo = modWheelPitchDepthForModel(modWheelPitchRange, patch.lfo.pitchSensitivity, patch.lfo.wave, renderModel)
+        * safeModWheel * pitchLfoShape.second;
     const double pitchLfo = directPitchLfo + modWheelPitchLfo;
-    const double ampDepth = opmStyleAmpModDepth(patch.lfo.ampDepth, patch.lfo.ampSensitivity);
+    const int combinedAmpDepth = clampInt(patch.lfo.ampDepth
+        + static_cast<int>(std::round(static_cast<double>(clampInt(modWheelAmpRange, 0, 99)) * safeModWheel)), 0, 99);
+    const double ampDepth = opmStyleAmpModDepth(combinedAmpDepth, patch.lfo.ampSensitivity);
     const double appliedPitchLfo = nextPitchModulation(pitchLfo);
     const double pitchEnvelopeSemitones = pitchEnvelope.nextSemitones();
     if (portamentoOffsetSemitones > 0.0)
@@ -985,7 +1005,9 @@ double OpalineVoice::render(const OpalinePatch& patch,
     double mixed = 0.0;
     if (usesChipOperatorPath(renderModel))
     {
-        mixed = chipMixerOutputFromBus(sum * kOpmOperatorBusPeak);
+        const double carrierCountGain = std::pow(static_cast<double>(algorithm.carrierCount),
+                                                 -kChipCarrierCountCompensationExponent);
+        mixed = chipMixerOutputFromBus(sum * kOpmOperatorBusPeak) * carrierCountGain;
     }
     else
     {

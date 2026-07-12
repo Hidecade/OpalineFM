@@ -1,6 +1,10 @@
 build/
 dist/
 audio/
+assets/*.syx
+!assets/factory.syx
+assets/*.opalinevoice
+assets/opaline_collection.md
 *.user
 *.suo
 *.VC.db

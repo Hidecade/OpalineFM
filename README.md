@@ -1,141 +1,222 @@
-﻿# Opaline FM
+# Opaline FM
 
-Opaline FM is a free 4-operator FM synthesizer built with C++ and JUCE.
+[日本語](README_ja.md) | [Technical specification](docs/OpalineFM_Spec.md)
 
-It is inspired by classic 1980s digital FM instruments and supports compatible 32-voice SysEx banks. The project provides a shared FM engine with standalone, VST3, plugin standalone, and macOS AU build paths.
+Opaline FM is a free 4-operator FM synthesizer built with C++ and JUCE. It is inspired by classic 1980s digital FM instruments and can load and save compatible 32-voice SysEx banks.
 
-Opaline FM is an independent project and is not affiliated with Yamaha.
+Opaline FM is an independent project and is not affiliated with Yamaha Corporation.
 
 ![Opaline FM user interface](docs/images/opalinefm-ui.png)
 
 ## Features
 
-- 4-operator FM engine
-- OLD and NEW/chip-hybrid render models
-- compatible 32-voice SysEx bank loading and saving
-- Pitch Envelope Generator with measured timing/level behavior
-- LFO pitch and amplitude modulation
-- MIDI note input, pitch bend, and mod wheel support
-- Reused standalone-style editor in the plugin build
-- VST3 instrument build for Windows-compatible DAWs
-- AU build path for Logic Pro on macOS
+- Four-operator FM synthesis with eight algorithms and operator feedback
+- Type A and Type B rendering engines
+- Compatible 32-voice SysEx bank import and export
+- SINGLE, DUAL, and SPLIT performance modes
+- Pitch EG, amplitude EG, LFO, keyboard scaling, velocity, and operator AM
+- Pitch bend, modulation wheel, sustain pedal, and portamento control
+- Per-voice editing, initialization, copy/paste, load, save, and store operations
+- Built-in effects: reverb, delay, chorus, wet mixes, and tone
+- WAV recording in the standalone application
+- Windows standalone and VST3 builds, plus a macOS Audio Unit build path
 
-## Build Requirements
+## Quick Start
+
+1. Launch the standalone application, or insert Opaline FM as an instrument in a DAW.
+2. In the standalone application, select an audio output and MIDI input from the header.
+3. Select a voice bank, then choose voice A.
+4. Play from a MIDI keyboard, the on-screen keyboard, or the PC keyboard in the plugin-standalone application.
+5. Adjust the operator and global controls. Use **STORE** to write edits back to the selected library slot.
+
+The VST3 editor intentionally does not turn PC typing keys into notes, so DAW shortcuts remain available. MIDI and the on-screen keyboard continue to work.
+
+## Voice Selection and Libraries
+
+The bank selector chooses one of the loaded 32-voice banks. The A and B selectors choose voices from the current bank; the adjacent arrow buttons step backward or forward through the list.
+
+Top-row library commands:
+
+- **Load**: load a compatible `.syx` bank or an Opaline library XML file.
+- **Save**: save the current 32-voice bank as `.syx`.
+- **Export**: export the complete multi-bank voice library as XML.
+
+Single-voice commands shown in SINGLE mode:
+
+- **LOAD / SAVE**: read or write one `.opalinevoice` file.
+- **COPY / PASTE**: copy the current voice, including its name, and paste it into the edit buffer.
+- **INIT**: initialize the edit buffer.
+- **STORE**: write the edited voice and name into the currently selected library slot.
+
+Selecting another voice without using **STORE** discards edits and reloads the stored voice.
+
+## Performance Modes
+
+- **SINGLE** plays voice A only. Single-voice editing and file commands are available in this mode.
+- **DUAL** layers voices A and B. **Detune** offsets the B engine and **Balance** sets the A/B level balance.
+- **SPLIT** assigns the lower keyboard region to one voice and the upper region to the other. **Split** selects the boundary note.
+
+Each A/B voice can independently use **POLY** or **MONO** operation.
+
+- **POLY** allows multiple simultaneous notes and uses Full Time Portamento.
+- **MONO** restricts the engine to one active note and uses Fingered Portamento, which glides only between overlapping key presses.
+
+## Editing a Voice
+
+Opaline FM uses four sine-wave operators. An operator can be heard directly as a **carrier**, or can change another operator's timbre as a **modulator**. The selected algorithm determines these connections.
+
+Global voice controls:
+
+- **ALG** selects one of eight four-operator routing algorithms.
+- **FB** controls feedback around operator 4.
+- **PITCH EG** uses PR1-PR3 for transition rates and PL1-PL3 for pitch levels.
+- **LFO Wave** selects saw up, square, triangle, or sample-and-hold.
+- **Sync** restarts the LFO phase at note-on.
+
+Each operator provides:
+
+- **AR, D1R, D1L, D2R, RR**: amplitude-envelope rates and level.
+- **Ratio**: oscillator frequency ratio.
+- **Detune**: fine frequency offset.
+- **Level**: carrier volume or modulator depth.
+- **RateSc**: keyboard-dependent envelope-rate scaling.
+- **LevelSc**: keyboard-dependent level scaling.
+- **Vel**: velocity sensitivity.
+- **AM**: enables LFO amplitude modulation for that operator.
+
+Carrier levels mainly change loudness. Modulator levels mainly change harmonic brightness and FM intensity.
+
+## LFO and Modulation
+
+- **Speed** sets the LFO rate.
+- **Delay** delays the direct LFO modulation after note-on.
+- **PMD / PMS** set direct pitch-modulation depth and sensitivity.
+- **AMD / AMS** set direct amplitude-modulation depth and sensitivity.
+- **Reverb / Delay / Chorus** set effect amounts.
+- **RevMix / DlyMix** set independent wet mixes.
+- **Tone** adjusts output tone.
+
+The modulation wheel is a separate modulation source:
+
+- **MOD PITCH** sets its pitch-modulation range and is interpreted through PMS.
+- **MOD AMP** sets its amplitude-modulation range and is interpreted through AMS and each operator's AM switch.
+- Selecting voice A initializes these two ranges from the voice's PMD and AMD values; they can then be edited independently.
+
+## Wheels, Portamento, and Pedals
+
+- **RANGE** sets pitch-bend range from 0 to 12 semitones. The default is 2.
+- **PORTA** sets glide time from 0 to 99. Zero is the shortest time; the mode button controls ON/OFF.
+- Each A/B row has an **OFF / FULL / FINGER** button. POLY offers OFF/FULL; MONO offers OFF/FULL/FINGER.
+- **FULL** applies portamento from the previous note and can be enabled or disabled with MIDI CC65.
+- **FINGER** applies portamento only to overlapping notes and is not gated by CC65.
+- MIDI CC64 controls sustain.
+
+Supported standard MIDI controls:
+
+| Control | Function |
+| --- | --- |
+| Pitch Bend | Pitch wheel, using the RANGE setting |
+| CC1 | Modulation wheel |
+| CC64 | Sustain pedal |
+| CC65 | Portamento foot switch in POLY mode |
+
+## Type A and Type B
+
+The engine button switches the rendering model.
+
+- **Type A** retains the established compatible Opaline rendering path.
+- **Type B** uses the more chip-oriented operator, feedback, attenuation, and output path.
+
+Both models use the same visible voice parameters. Type B is the main path for ongoing chip-behavior work, while Type A remains useful for comparison.
+
+## WAV Recording
+
+In the standalone application, press **WAV** to begin recording. The button changes to **STOP** while recording. After stopping, choose the output filename. Recording is written as stereo WAV.
+
+## Installing Release Builds
+
+### Windows Standalone
+
+Run the standalone installer and launch **Opaline FM** from the Start menu. No DAW is required.
+
+### Windows VST3
+
+Run the VST3 installer, or copy the complete `Opaline FM.vst3` bundle to:
+
+```text
+C:\Program Files\Common Files\VST3\
+```
+
+Rescan plugins in the DAW, create an instrument track, and insert Opaline FM.
+
+### macOS Audio Unit
+
+Copy `Opaline FM.component` to either:
+
+```text
+~/Library/Audio/Plug-Ins/Components/
+```
+
+or the system-wide location:
+
+```text
+/Library/Audio/Plug-Ins/Components/
+```
+
+Restart the DAW or rescan Audio Units. The current repository provides an AU build path; signed/notarized public packages may be distributed separately.
+
+## Building from Source
+
+Requirements:
 
 - CMake 3.22 or newer
-- C++17 compiler
-- JUCE checkout at `external/JUCE` or a path supplied with `OPALINE_JUCE_DIR`
+- A C++17 compiler
+- JUCE at `external/JUCE`, or `OPALINE_JUCE_DIR` pointing to another checkout
 - Visual Studio Build Tools on Windows
-- Xcode on macOS for AU builds
+- Xcode on macOS
 
-## Windows Build
-
-Configure and build the VST3:
+Windows debug builds:
 
 ```powershell
 cmake --preset standalone-vs-debug
+cmake --build --preset plugin-standalone-vs-debug
 cmake --build --preset plugin-vs-debug
 ```
 
-Build the plugin standalone app:
-
-```powershell
-cmake --build --preset plugin-standalone-vs-debug
-```
-
-Build the full standalone app:
-
-```powershell
-cmake --build --preset standalone-vs-debug
-```
-
-Expected debug outputs:
-
-```text
-build/standalone-vs-debug/OpalineFM_Plugin_artefacts/Debug/VST3/Opaline FM.vst3
-build/standalone-vs-debug/OpalineFM_Plugin_artefacts/Debug/Standalone/Opaline FM.exe
-build/standalone-vs-debug/OpalineFM_Standalone_artefacts/Debug/Opaline FM.exe
-```
-
-## macOS AU Build
+macOS AU build:
 
 ```bash
 cmake --preset macos-debug
 cmake --build --preset plugin-au-macos-debug
 ```
 
-Install the generated component into:
-
-```text
-~/Library/Audio/Plug-Ins/Components/
-```
-
-## VST3 Installation on Windows
-
-Copy the whole `.vst3` bundle folder:
-
-```text
-Opaline FM.vst3
-```
-
-to:
-
-```text
-C:\Program Files\Common Files\VST3\
-```
-
-Then rescan plugins in the DAW.
-
-## Windows Installers
-
-Install Inno Setup 6 or 7, then build the release binaries and both Windows installers:
+Windows installers require Inno Setup 6 or 7:
 
 ```powershell
-.\scripts\build-windows-installers.ps1 -Version 0.4.0
+.\scripts\build-windows-installers.ps1 -Version 0.3.1
 ```
 
-The generated standalone and VST3 installers are written to `dist/`.
+Generated installers are written to `dist/`.
 
-## Voice Files
+## File Formats
 
-Opaline FM can load compatible 32-voice bulk SysEx banks:
-
-```text
-.syx
-```
-
-It can also export its own voice library XML:
-
-```text
-.opalinelibrary.xml
-```
-
-Plugin standalone full-state files use:
-
-```text
-.opalinefmstate
-```
-
-Factory voice banks are not required for the engine to run. Public releases should avoid bundling third-party or copyrighted factory banks unless redistribution rights are confirmed.
+| Extension | Purpose |
+| --- | --- |
+| `.syx` | Compatible 32-voice SysEx bank |
+| `.opalinevoice` | One Opaline voice |
+| `.opalinelibrary.xml` | Multi-bank Opaline voice library |
+| `.opalinefmstate` | Plugin-standalone complete state |
 
 ## Documentation
 
-Repository summary:
+- [Technical specification](docs/OpalineFM_Spec.md)
+- [Japanese technical specification](docs/OpalineFM_Spec_ja.md)
+- [Japanese README](README_ja.md)
 
-```text
-docs/OpalineFM_Spec.md
-```
+## Legal and Project Status
 
-Detailed private/research notes can live outside the repository. Keep this repository focused on public-facing build, release, and compatibility documentation.
+Opaline FM is unofficial and is not affiliated with Yamaha Corporation. Product names are used only to describe file-format and synthesis compatibility.
 
-## Legal Notes
+Do not redistribute third-party factory banks unless their redistribution rights are confirmed. Binary distribution must comply with the selected JUCE license and include applicable VST3 SDK and third-party notices.
 
-Opaline FM is unofficial and not affiliated with Yamaha Corporation.
-
-Yamaha and compatible, where mentioned, are used only to describe compatibility with historical file formats and synthesis behavior.
-
-JUCE is dual-licensed under AGPLv3/commercial terms. Binary distribution must comply with the selected JUCE license. VST3 SDK and other third-party notices should be included with public releases.
-
-## Current Status
-
-The project is in an early public-name transition stage. The engine and plugin builds work, but release packaging, licensing notices, factory-bank policy, and RT-safety cleanup still need review before a polished public release.
+The project remains under active development. Audio-thread locking, exact hardware behavior, release signing, and packaging continue to be reviewed.

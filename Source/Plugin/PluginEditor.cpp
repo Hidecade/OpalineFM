@@ -4,7 +4,9 @@
 
 OpalineAudioProcessorEditor::OpalineAudioProcessorEditor(OpalineAudioProcessor& processor)
     : AudioProcessorEditor(processor),
-      audioProcessor(processor)
+      audioProcessor(processor),
+      mainComponent(MainComponent::HostMode::PluginEditor,
+                    processor.wrapperType == juce::AudioProcessor::wrapperType_Standalone)
 {
     mainComponent.setStateChangedCallback([this](const opalineapp::SynthState& state)
     {
