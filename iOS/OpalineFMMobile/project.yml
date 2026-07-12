@@ -1,0 +1,49 @@
+name: OpalineFMMobile
+options:
+  bundleIdPrefix: jp.hidecade
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    CLANG_CXX_LANGUAGE_STANDARD: c++17
+    CLANG_CXX_LIBRARY: libc++
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+targets:
+  OpalineFMMobile:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+      - path: ../../Source/Engine
+        name: SharedEngine
+      - path: ../../assets/factory.syx
+        buildPhase: resources
+    dependencies:
+      - sdk: AVFoundation.framework
+      - sdk: AudioToolbox.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: jp.hidecade.opalinefm.mobile
+        PRODUCT_NAME: Opaline FM
+        INFOPLIST_FILE: Sources/Resources/Info.plist
+        SWIFT_OBJC_BRIDGING_HEADER: Sources/Native/OpalineFMMobile-Bridging-Header.h
+        HEADER_SEARCH_PATHS:
+          - ../../Source
+          - ../../build/generated
+    info:
+      path: Sources/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: Opaline FM
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIRequiredDeviceCapabilities:
+          - arm64
+        NSMicrophoneUsageDescription: Opaline FM uses audio output only. Microphone access is not required.
