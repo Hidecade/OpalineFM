@@ -54,8 +54,8 @@ Main concepts:
 - `OpalinePatch` stores voice parameters in compatible ranges.
 - `OpalineEngine` manages voices, MIDI note state, pitch bend, mod wheel, and sample rendering.
 - `OpalineVoice` renders the operator graph, envelopes, LFO, pitch envelope, feedback, and output quantization/model differences.
-- Type A retains the established compatible Opaline signal path.
-- Type B uses the chip-oriented operator, attenuation, feedback, and output path.
+- Type B is the public rendering path and uses the chip-oriented operator, attenuation, feedback, and output behavior.
+- Legacy Type A code may remain internally during transition, but the public UI does not expose Type A selection.
 
 The internal names still use `opaline` because they describe compatibility-level data structures and SysEx semantics.
 
@@ -179,7 +179,7 @@ LevelSc  36  48  60  72  84  96
      99   1   3   7  16  33  67
 ```
 
-One TL step corresponds to approximately `0.752575 dB`. The measured curve applies to both Type A and Type B. Type B subtracts the integer scaling amount from the operator's `0..99` LEVEL first, clamps the effective LEVEL to zero, and then converts it to TL. This ensures that strong scaling can fully silence a low-level operator at high notes. Type A converts the same scaling amount to its compatible LEVEL domain. The integer scaling value is rounded down only after the complete expression is evaluated.
+One TL step corresponds to approximately `0.752575 dB`. Type B subtracts the integer scaling amount from the operator's `0..99` LEVEL first, clamps the effective LEVEL to zero, and then converts it to TL. This ensures that strong scaling can fully silence a low-level operator at high notes. The integer scaling value is rounded down only after the complete expression is evaluated.
 
 ## LFO and Modulation
 
@@ -226,7 +226,6 @@ PMS 7: 8.0 semitones
 
 - Type B applies a mild `carrierCount^-0.18` gain after the chip-style carrier mixer.
 - Approximate trims are `0 dB` for one carrier, `-1.1 dB` for two, `-1.7 dB` for three, and `-2.2 dB` for four.
-- Type A retains its existing RMS-style carrier normalization.
 
 ## Performance Controls
 
@@ -266,7 +265,8 @@ Public release documentation should state:
 
 - Opaline FM is unofficial and not affiliated with Yamaha.
 - Yamaha and compatible names, if mentioned, are used only to describe compatibility.
-- Factory voice banks are not redistributed unless rights are confirmed.
+- `assets/factory.syx` is an original Opaline FM factory bank created for this project.
+- Third-party factory voice banks are not redistributed unless rights are confirmed.
 - JUCE licensing must be satisfied before binary distribution.
 - VST3 SDK notices and other third-party notices should be included.
 

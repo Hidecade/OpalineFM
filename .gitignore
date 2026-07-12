@@ -1,5 +1,6 @@
 build/
 dist/
+.codex/
 audio/
 assets/*.syx
 !assets/factory.syx

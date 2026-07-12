@@ -11,7 +11,7 @@ Opaline FM is an independent project and is not affiliated with Yamaha Corporati
 ## Features
 
 - Four-operator FM synthesis with eight algorithms and operator feedback
-- Type A and Type B rendering engines
+- Type B rendering engine
 - Compatible 32-voice SysEx bank import and export
 - SINGLE, DUAL, and SPLIT performance modes
 - Pitch EG, amplitude EG, LFO, keyboard scaling, velocity, and operator AM
@@ -19,7 +19,7 @@ Opaline FM is an independent project and is not affiliated with Yamaha Corporati
 - Per-voice editing, initialization, copy/paste, load, save, and store operations
 - Built-in effects: reverb, delay, chorus, wet mixes, and tone
 - WAV recording in the standalone application
-- Windows standalone and VST3 builds, plus a macOS Audio Unit build path
+- Windows standalone and VST3 builds, plus signed macOS standalone, VST3, and Audio Unit package paths
 
 ## Quick Start
 
@@ -120,14 +120,9 @@ Supported standard MIDI controls:
 | CC64 | Sustain pedal |
 | CC65 | Portamento foot switch in POLY mode |
 
-## Type A and Type B
+## Rendering Engine
 
-The engine button switches the rendering model.
-
-- **Type A** retains the established compatible Opaline rendering path.
-- **Type B** uses the more chip-oriented operator, feedback, attenuation, and output path.
-
-Both models use the same visible voice parameters. Type B is the main path for ongoing chip-behavior work, while Type A remains useful for comparison.
+Opaline FM uses the Type B rendering engine by default. Type B is the main chip-oriented path for operator level handling, feedback, attenuation, carrier mixing, and output behavior. The legacy Type A comparison control is hidden from the public UI.
 
 ## WAV Recording
 
@@ -149,21 +144,23 @@ C:\Program Files\Common Files\VST3\
 
 Rescan plugins in the DAW, create an instrument track, and insert Opaline FM.
 
-### macOS Audio Unit
+### macOS Standalone, VST3, and Audio Unit
 
-Copy `Opaline FM.component` to either:
+Run the signed and notarized macOS package for the build you want:
+
+- `OpalineFM-Standalone-0.3.2.0-macOS.pkg`
+- `OpalineFM-VST3-0.3.2.0-macOS.pkg`
+- `OpalineFM-AU-0.3.2.0-macOS.pkg`
+
+The packages install to the standard macOS application and plug-in locations:
 
 ```text
-~/Library/Audio/Plug-Ins/Components/
-```
-
-or the system-wide location:
-
-```text
+/Applications/
+/Library/Audio/Plug-Ins/VST3/
 /Library/Audio/Plug-Ins/Components/
 ```
 
-Restart the DAW or rescan Audio Units. The current repository provides an AU build path; signed/notarized public packages may be distributed separately.
+Restart the DAW or rescan plug-ins after installing VST3 or Audio Unit packages.
 
 ## Building from Source
 
@@ -193,7 +190,7 @@ cmake --build --preset plugin-au-macos-debug
 Windows installers require Inno Setup 6 or 7:
 
 ```powershell
-.\scripts\build-windows-installers.ps1 -Version 0.3.1
+.\scripts\build-windows-installers.ps1 -Version 0.3.2
 ```
 
 Generated installers are written to `dist/`.
@@ -219,4 +216,6 @@ Opaline FM is unofficial and is not affiliated with Yamaha Corporation. Product 
 
 Do not redistribute third-party factory banks unless their redistribution rights are confirmed. Binary distribution must comply with the selected JUCE license and include applicable VST3 SDK and third-party notices.
 
-The project remains under active development. Audio-thread locking, exact hardware behavior, release signing, and packaging continue to be reviewed.
+The bundled `assets/factory.syx` bank contains original Opaline FM factory patches created for this project. See [NOTICE.md](NOTICE.md) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) before redistributing source or binaries.
+
+The project remains under active development. Audio-thread locking, exact hardware behavior, release signing, notarization, and packaging continue to be reviewed.
