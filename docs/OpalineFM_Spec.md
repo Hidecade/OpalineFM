@@ -54,8 +54,7 @@ Main concepts:
 - `OpalinePatch` stores voice parameters in compatible ranges.
 - `OpalineEngine` manages voices, MIDI note state, pitch bend, mod wheel, and sample rendering.
 - `OpalineVoice` renders the operator graph, envelopes, LFO, pitch envelope, feedback, and output quantization/model differences.
-- Type B is the public rendering path and uses the chip-oriented operator, attenuation, feedback, and output behavior.
-- Legacy Type A code may remain internally during transition, but the public UI does not expose Type A selection.
+- The public rendering path handles operator level, attenuation, feedback, carrier mixing, and output behavior.
 
 The internal names still use `opaline` because they describe compatibility-level data structures and SysEx semantics.
 
@@ -68,7 +67,7 @@ Each voice contains four sine-wave operators. An operator produces audio at `bas
 - Operator LEVEL controls carrier amplitude or modulator index according to the operator's role.
 - Operator 4 owns the feedback loop. FB selects the feedback amount.
 - Algorithms 1-4 mainly use serial modulation chains; algorithms 5-8 introduce parallel branches and additional carriers.
-- Parallel carriers are summed before voice output processing. Type B applies a mild carrier-count compensation described below.
+- Parallel carriers are summed before voice output processing. A mild carrier-count compensation is applied as described below.
 
 Per-operator signal order:
 
@@ -83,6 +82,95 @@ note + transpose + bend + PEG + pitch LFO + portamento
 ```
 
 Voice outputs are mixed, limited/declicked, and then passed through chorus, delay, reverb, wet-mix, and tone processing.
+
+### Algorithm routing table
+
+The implementation stores operators as `0..3`, but this specification uses the user-facing `OP1..OP4` names. `>` means that the left operator phase-modulates the right operator, and `+` means parallel summing.
+
+| ALG | Routing | Carriers |
+| --- | --- | --- |
+| 1 | `OP4 > OP3 > OP2 > OP1` | OP1 |
+| 2 | `(OP4 + OP3) > OP2 > OP1` | OP1 |
+| 3 | `OP3 > OP2 > OP1` and `OP4 > OP1` | OP1 |
+| 4 | `OP2 > OP1` and `OP4 > OP3 > OP1` | OP1 |
+| 5 | `OP2 > OP1` and `OP4 > OP3` | OP1, OP3 |
+| 6 | `OP4 > (OP1 + OP2 + OP3)` | OP1, OP2, OP3 |
+| 7 | `OP4 > OP3`, `OP1`, `OP2` | OP1, OP2, OP3 |
+| 8 | `OP1 + OP2 + OP3 + OP4` | OP1, OP2, OP3, OP4 |
+
+### Phase-Modulation Math
+
+The renderer separates each operator result into an `audio` value and a `modulation bus` value used to phase-modulate downstream operators. The `modulation bus` is treated as an integer bus and is evaluated from deeper modulators toward carriers on every sample.
+
+Main constants:
+
+```text
+phaseSteps = 1048576
+sineIndexSteps = 1024
+operatorBusPeak = 8192
+tlSubsteps = 8
+tlMax = 127
+logAttenuationDbPerStep = 6.020599913279624 / 256
+```
+
+Operator frequency and phase advance:
+
+```text
+ratio = ratioTable[ratioIndex]
+frequency = baseFrequency * ratio + dt1Offset(baseFrequency, ratio, detune, midiNote)
+phaseIncrement = round(clamp(frequency, 0, sampleRate * 0.49) * phaseSteps / sampleRate)
+phase += clamp(phaseIncrement, 0, phaseSteps - 1) * 2*pi / phaseSteps
+basePhaseIndex = floor(fract(phase / (2*pi)) * sineIndexSteps) & 1023
+```
+
+The phase-modulation bus for an operator is the sum of upstream operators' `modulation bus` values, followed by an arithmetic-right-shift equivalent. Negative values use `-((abs(x) + 1) / 2)` to keep integer rounding deterministic.
+
+```text
+rawPmBus = sum(upstreamOperator.modulationBus)
+pmBus = round(arithmeticShiftRightOne(rawPmBus))
+pmBus = clamp(pmBus, -8192, 8191)
+pmIndex = round(pmBus)
+```
+
+Only OP4 has feedback. The previous two OP4 `modulation bus` samples are summed, halved with the same arithmetic shift, and converted to a phase-index offset according to FB.
+
+```text
+feedbackBus = arithmeticShiftRightOne(op4History[0] + op4History[1])
+
+if FB == 0:
+    feedbackIndex = 0
+else:
+    feedbackIndex = round(clamp(round(feedbackBus), -8192, 8191) / 2 ^ (9 - FB))
+```
+
+The final sine-table position wraps at 1024 steps.
+
+```text
+phaseIndex = (basePhaseIndex + pmIndex + feedbackIndex) & 1023
+```
+
+The renderer does not compute the operator waveform with a direct `sin()` call. It maps the 1024-step phase index to sign and log-sine attenuation, adds envelope, TL, velocity, and AM attenuation, then converts the total attenuation back to an audio value through the exponential table.
+
+```text
+scaledLevel = clamp(level - floor(LevelSc * 2 ^ (midiNote / 12) / 384), 0, 99)
+targetTl = scaledLevel <= 0 ? 127 : round(99 - scaledLevel)
+currentTl = smoothed(targetTl)
+
+velocityDb = -20 * log10(velocityFactor)
+ampModDb = AM ? -20 * log10(ampModFactor) : 0
+attenuationIndex = clamp(envelopeIndex
+                         + currentTl * tlSubsteps
+                         + (velocityDb + ampModDb) / logAttenuationDbPerStep,
+                         0, 1023)
+
+waveAttenuation = logSinRom(phaseIndex)
+egAttenuation = round(attenuationIndex) << 2
+attenuation = clamp(waveAttenuation + egAttenuation, 0, 4095)
+audio = sign(phaseIndex) * expRom(attenuation) / 8192
+modulationBus = clamp(round(audio * operatorBusPeak), -8192, 8191)
+```
+
+`targetTl` is not stepped instantly. It follows toward `currentTl` through an approximately `0.012 s` ramp to reduce clicks when LEVEL or LevelSc changes.
 
 ## Parameter Ownership
 
@@ -179,7 +267,7 @@ LevelSc  36  48  60  72  84  96
      99   1   3   7  16  33  67
 ```
 
-One TL step corresponds to approximately `0.752575 dB`. Type B subtracts the integer scaling amount from the operator's `0..99` LEVEL first, clamps the effective LEVEL to zero, and then converts it to TL. This ensures that strong scaling can fully silence a low-level operator at high notes. The integer scaling value is rounded down only after the complete expression is evaluated.
+One TL step corresponds to approximately `0.752575 dB`. The renderer subtracts the integer scaling amount from the operator's `0..99` LEVEL first, clamps the effective LEVEL to zero, and then converts it to TL. This ensures that strong scaling can fully silence a low-level operator at high notes. The integer scaling value is rounded down only after the complete expression is evaluated.
 
 ## LFO and Modulation
 
@@ -224,7 +312,7 @@ PMS 7: 8.0 semitones
 
 ### Parallel carrier level compensation
 
-- Type B applies a mild `carrierCount^-0.18` gain after the chip-style carrier mixer.
+- The carrier mixer applies a mild `carrierCount^-0.18` gain.
 - Approximate trims are `0 dB` for one carrier, `-1.1 dB` for two, `-1.7 dB` for three, and `-2.2 dB` for four.
 
 ## Performance Controls

@@ -11,7 +11,7 @@ Opaline FM is an independent project and is not affiliated with Yamaha Corporati
 ## Features
 
 - Four-operator FM synthesis with eight algorithms and operator feedback
-- Type B rendering engine
+- FM rendering engine
 - Compatible 32-voice SysEx bank import and export
 - SINGLE, DUAL, and SPLIT performance modes
 - Pitch EG, amplitude EG, LFO, keyboard scaling, velocity, and operator AM
@@ -86,6 +86,12 @@ Each operator provides:
 
 Carrier levels mainly change loudness. Modulator levels mainly change harmonic brightness and FM intensity.
 
+## Waveform Display
+
+The display above the voice controls shows the recent left-channel output waveform. While a note is held, the view uses that note as a trigger reference so the waveform stays visually stable instead of drifting across the screen.
+
+The display removes DC offset, chooses a short window around the current note period, and applies automatic gain so quiet and loud patches remain readable. It is intended as a sound-design aid for checking envelope shape, feedback, modulation depth, and the effect of algorithm changes; it is not a calibrated level meter.
+
 ## LFO and Modulation
 
 - **Speed** sets the LFO rate.
@@ -122,7 +128,7 @@ Supported standard MIDI controls:
 
 ## Rendering Engine
 
-Opaline FM uses the Type B rendering engine by default. Type B is the main chip-oriented path for operator level handling, feedback, attenuation, carrier mixing, and output behavior. The legacy Type A comparison control is hidden from the public UI.
+Opaline FM uses a single public rendering engine for operator level handling, feedback, attenuation, carrier mixing, and output behavior.
 
 ## WAV Recording
 

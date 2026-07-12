@@ -54,8 +54,7 @@ build/macos-debug/OpalineFM_Plugin_artefacts/Debug/AU/Opaline FM.component
 - `OpalinePatch`は、互換範囲の音色パラメーターを保持する。
 - `OpalineEngine`は、ボイス、MIDIノート状態、ピッチベンド、モジュレーションホイール、サンプル生成を管理する。
 - `OpalineVoice`は、オペレーター接続、エンベロープ、LFO、ピッチエンベロープ、フィードバック、出力量子化およびモデル差を処理する。
-- Type Bは公開UIで使用するレンダリング経路で、チップ寄りのオペレーター、アッテネーション、フィードバック、出力挙動を使用する。
-- 移行期間中は内部に旧Type Aコードが残る場合があるが、公開UIではType A選択を表示しない。
+- 公開レンダリング経路は、オペレーターのレベル処理、アッテネーション、フィードバック、キャリアミックス、出力挙動を扱う。
 
 内部名の`opaline`は、互換レベルのデータ構造とSysExの意味を表すため維持しています。
 
@@ -68,7 +67,7 @@ build/macos-debug/OpalineFM_Plugin_artefacts/Debug/AU/Opaline FM.component
 - オペレーターの役割に応じて、LEVELはキャリア振幅またはモジュレーション指数を制御する。
 - オペレーター4がフィードバックループを持ち、FBで量を設定する。
 - アルゴリズム1～4は主に直列変調、5～8は並列分岐と複数キャリアを使用する。
-- 並列キャリアはボイス出力処理前に加算する。Type Bでは後述の軽いキャリア数補正を適用する。
+- 並列キャリアはボイス出力処理前に加算する。後述の軽いキャリア数補正を適用する。
 
 オペレーターごとの信号順序:
 
@@ -83,6 +82,95 @@ note + transpose + bend + PEG + pitch LFO + portamento
 ```
 
 各ボイスをミックスしてリミット/デクリック処理を行い、その後コーラス、ディレイ、リバーブ、Wet Mix、Tone処理へ送ります。
+
+### アルゴリズム接続表
+
+内部のオペレーター番号は`0..3`ですが、仕様上はユーザー表示に合わせて`OP1..OP4`で表記します。`>`は右側のオペレーターを位相変調することを表し、`+`は並列の加算を表します。
+
+| ALG | 接続 | キャリア |
+| --- | --- | --- |
+| 1 | `OP4 > OP3 > OP2 > OP1` | OP1 |
+| 2 | `(OP4 + OP3) > OP2 > OP1` | OP1 |
+| 3 | `OP3 > OP2 > OP1` と `OP4 > OP1` | OP1 |
+| 4 | `OP2 > OP1` と `OP4 > OP3 > OP1` | OP1 |
+| 5 | `OP2 > OP1` と `OP4 > OP3` | OP1、OP3 |
+| 6 | `OP4 > (OP1 + OP2 + OP3)` | OP1、OP2、OP3 |
+| 7 | `OP4 > OP3`、`OP1`、`OP2` | OP1、OP2、OP3 |
+| 8 | `OP1 + OP2 + OP3 + OP4` | OP1、OP2、OP3、OP4 |
+
+### 位相変調計算
+
+レンダラーは、オペレーター出力を音声用の`audio`と、下流オペレーターの位相変調へ渡す`modulation bus`に分けて扱います。`modulation bus`は整数バスとして扱い、1サンプルごとに依存関係の深いモジュレーターから順に計算します。
+
+主な定数:
+
+```text
+phaseSteps = 1048576
+sineIndexSteps = 1024
+operatorBusPeak = 8192
+tlSubsteps = 8
+tlMax = 127
+logAttenuationDbPerStep = 6.020599913279624 / 256
+```
+
+各オペレーターの周波数と位相進行:
+
+```text
+ratio = ratioTable[ratioIndex]
+frequency = baseFrequency * ratio + dt1Offset(baseFrequency, ratio, detune, midiNote)
+phaseIncrement = round(clamp(frequency, 0, sampleRate * 0.49) * phaseSteps / sampleRate)
+phase += clamp(phaseIncrement, 0, phaseSteps - 1) * 2*pi / phaseSteps
+basePhaseIndex = floor(fract(phase / (2*pi)) * sineIndexSteps) & 1023
+```
+
+下流オペレーターへ入る位相変調バスは、接続元オペレーターの`modulation bus`を加算してから、算術右シフト相当で1/2にします。負数は整数丸めを一定にするため、`-((abs(x) + 1) / 2)`で丸めます。
+
+```text
+rawPmBus = sum(upstreamOperator.modulationBus)
+pmBus = round(arithmeticShiftRightOne(rawPmBus))
+pmBus = clamp(pmBus, -8192, 8191)
+pmIndex = round(pmBus)
+```
+
+OP4だけはフィードバックを持ちます。直前2サンプルのOP4 `modulation bus`を加算し、同じく算術右シフト相当で1/2にしてからFB量を位相インデックスへ変換します。
+
+```text
+feedbackBus = arithmeticShiftRightOne(op4History[0] + op4History[1])
+
+if FB == 0:
+    feedbackIndex = 0
+else:
+    feedbackIndex = round(clamp(round(feedbackBus), -8192, 8191) / 2 ^ (9 - FB))
+```
+
+最終的なサインテーブル位置は1024ステップでラップします。
+
+```text
+phaseIndex = (basePhaseIndex + pmIndex + feedbackIndex) & 1023
+```
+
+レンダラーは、サイン波を直接`sin()`で計算するのではなく、1024ステップの位相インデックスから符号とlog-sine減衰量を求め、エンベロープ、TL、ベロシティ、AMを加えた総減衰量を指数テーブルで音声値へ戻します。
+
+```text
+scaledLevel = clamp(level - floor(LevelSc * 2 ^ (midiNote / 12) / 384), 0, 99)
+targetTl = scaledLevel <= 0 ? 127 : round(99 - scaledLevel)
+currentTl = smoothed(targetTl)
+
+velocityDb = -20 * log10(velocityFactor)
+ampModDb = AM ? -20 * log10(ampModFactor) : 0
+attenuationIndex = clamp(envelopeIndex
+                         + currentTl * tlSubsteps
+                         + (velocityDb + ampModDb) / logAttenuationDbPerStep,
+                         0, 1023)
+
+waveAttenuation = logSinRom(phaseIndex)
+egAttenuation = round(attenuationIndex) << 2
+attenuation = clamp(waveAttenuation + egAttenuation, 0, 4095)
+audio = sign(phaseIndex) * expRom(attenuation) / 8192
+modulationBus = clamp(round(audio * operatorBusPeak), -8192, 8191)
+```
+
+`targetTl`は急に飛ばさず、約`0.012 s`のランプで`currentTl`へ追従します。これにより、LEVELやLevelScの変化でクリックが出にくくなります。
 
 ## パラメーターの所有範囲
 
@@ -179,7 +267,7 @@ LevelSc  36  48  60  72  84  96
      99   1   3   7  16  33  67
 ```
 
-TL 1ステップは約`0.752575 dB`です。Type Bでは、オペレーターの`0..99` LEVELから整数スケーリング量を先に減算し、実効LEVELをゼロ以上へ制限してからTLへ変換します。これにより、高音域で強いスケーリングを掛けた低LEVELオペレーターを完全に無音化できます。整数スケーリング値の切り捨ては、式全体の計算後にのみ行います。
+TL 1ステップは約`0.752575 dB`です。レンダラーは、オペレーターの`0..99` LEVELから整数スケーリング量を先に減算し、実効LEVELをゼロ以上へ制限してからTLへ変換します。これにより、高音域で強いスケーリングを掛けた低LEVELオペレーターを完全に無音化できます。整数スケーリング値の切り捨ては、式全体の計算後にのみ行います。
 
 ## LFOとモジュレーション
 
@@ -224,7 +312,7 @@ PMS 7: 8.0半音
 
 ### 並列キャリアの音量補正
 
-- Type Bでは、チップ形式のキャリアミキサー後に軽い`carrierCount^-0.18`ゲインを適用する。
+- キャリアミキサー後に軽い`carrierCount^-0.18`ゲインを適用する。
 - 補正量の目安は、1キャリアで`0 dB`、2キャリアで`-1.1 dB`、3キャリアで`-1.7 dB`、4キャリアで`-2.2 dB`。
 
 ## パフォーマンスコントロール
