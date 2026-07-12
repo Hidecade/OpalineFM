@@ -1,6 +1,6 @@
 ﻿# Opaline FM Specification
 
-Opaline FM is a 4-operator FM synthesizer implemented in C++/JUCE. It is inspired by classic 1980s 4-op digital FM instruments and focuses on practical compatible voice-bank handling without presenting itself as an official Yamaha product.
+Opaline FM is a 4-operator FM synthesizer implemented in C++/JUCE. It is inspired by classic 1980s 4-op digital FM instruments and focuses on practical compatible voice-bank handling. It uses FM synthesis, but it is not a chip emulator and does not attempt to perfectly reproduce any specific FM hardware instrument.
 
 Detailed research notes are kept outside the repository in a private documentation folder. This file is the repository-facing summary for development, release notes, and public documentation.
 
@@ -351,8 +351,8 @@ The desired state suffix is `.opalinefmstate`.
 
 Public release documentation should state:
 
-- Opaline FM is unofficial and not affiliated with Yamaha.
-- Yamaha and compatible names, if mentioned, are used only to describe compatibility.
+- Opaline FM uses FM synthesis, but it is not a chip emulator and does not attempt to perfectly reproduce any specific FM hardware instrument.
+- Compatible product names, if mentioned, are used only to describe compatibility.
 - `assets/factory.syx` is an original Opaline FM factory bank created for this project.
 - Third-party factory voice banks are not redistributed unless rights are confirmed.
 - JUCE licensing must be satisfied before binary distribution.

@@ -2,9 +2,9 @@
 
 Opaline FM source code, documentation, project-specific scripts, images, and bundled factory voice data are original project materials unless a file or directory states otherwise.
 
-`assets/factory.syx` contains original Opaline FM factory patches created for this project. It is not a redistributed Yamaha factory bank or any other third-party factory bank.
+`assets/factory.syx` contains original Opaline FM factory patches created for this project. It is not a redistributed third-party factory bank.
 
-Opaline FM is an independent project and is not affiliated with Yamaha Corporation. Product and company names are used only to describe file-format or synthesis compatibility.
+Opaline FM uses FM synthesis, but it is not a chip emulator and does not attempt to perfectly reproduce any specific FM hardware instrument. Product and company names are used only to describe file-format or synthesis compatibility.
 
 Release binaries are currently free to download and use.
 
