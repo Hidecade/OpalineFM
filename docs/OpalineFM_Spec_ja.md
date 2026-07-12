@@ -349,6 +349,14 @@ DAWはJUCE `ValueTree`を使用する`getStateInformation()` / `setStateInformat
 
 ## リリースおよび法的注意事項
 
+v0.3.2公開リリースでは、次のインストーラーを配布します。
+
+- Windows x64スタンドアロン: `OpalineFM-Standalone-v0.3.2-Windows-x64.exe`
+- Windows x64 VST3: `OpalineFM-VST3-v0.3.2-Windows-x64.exe`
+- 署名・公証済みmacOS Standalone、VST3、Audio Unitパッケージ
+
+Windows VST3版は`C:\Program Files\Common Files\VST3\Opaline FM.vst3`へインストールします。Windows版は現在未署名で、macOS版は署名・公証済みです。公開インストーラーは[公式GitHub Release](https://github.com/Hidecade/OpalineFM/releases/tag/v0.3.2)から取得します。
+
 公開リリース文書には次を記載します。
 
 - Opaline FMはFM音源方式を採用しているが、チップエミュレーションではなく、実際のFM音源機器を完全再現するものではない。

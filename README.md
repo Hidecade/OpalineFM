@@ -19,21 +19,24 @@ Opaline FM uses FM synthesis, but it is not a chip emulator and does not attempt
 - Per-voice editing, initialization, copy/paste, load, save, and store operations
 - Built-in effects: reverb, delay, chorus, wet mixes, and tone
 - WAV recording in the standalone application
+- Windows x64 standalone and VST3 installers
 - Signed and notarized macOS standalone, VST3, and Audio Unit installer packages
 
 ## Downloads
 
-The current public release is macOS only. Download signed and notarized packages from the [GitHub Releases page](https://github.com/Hidecade/OpalineFM/releases).
+The current public release is **v0.3.2**. Download Windows and macOS installers from the [v0.3.2 release page](https://github.com/Hidecade/OpalineFM/releases/tag/v0.3.2).
 
 Choose the package for the format you need:
 
 - `OpalineFM-Standalone-0.3.2.0-macOS.pkg`: standalone app. Use this if you want to play Opaline FM without a DAW.
 - `OpalineFM-AU-0.3.2.0-macOS.pkg`: Audio Unit instrument for Logic Pro, GarageBand, and AU hosts.
 - `OpalineFM-VST3-0.3.2.0-macOS.pkg`: VST3 instrument for VST3-compatible DAWs.
+- `OpalineFM-Standalone-v0.3.2-Windows-x64.exe`: standalone application for 64-bit Windows.
+- `OpalineFM-VST3-v0.3.2-Windows-x64.exe`: VST3 instrument installer for 64-bit Windows.
 
-Windows installers are not included in the current public release. Windows build scripts remain in the repository for development and testing.
+The macOS packages are signed and notarized. The Windows installers are currently unsigned, so Windows may display a publisher warning during installation.
 
-The `Source code` archives shown by GitHub Releases are generated automatically by GitHub. Most users should download one of the `.pkg` installers above.
+The `Source code` archives shown by GitHub Releases are generated automatically by GitHub. Most users should download the installer for their operating system and desired format.
 
 ## Quick Start
 
@@ -150,6 +153,21 @@ In the standalone application, press **WAV** to begin recording. The button chan
 
 ## Installing Release Builds
 
+### Windows Standalone and VST3
+
+Run the installer for the format you need:
+
+- `OpalineFM-Standalone-v0.3.2-Windows-x64.exe`
+- `OpalineFM-VST3-v0.3.2-Windows-x64.exe`
+
+The standalone installer adds the Opaline FM application. The VST3 installer places the plug-in in the standard system VST3 directory:
+
+```text
+C:\Program Files\Common Files\VST3\Opaline FM.vst3
+```
+
+Restart the DAW or rescan VST3 plug-ins after installation. The Windows installers are currently unsigned, so confirm the publisher warning only when the installer was downloaded from the official Opaline FM GitHub Release.
+
 ### macOS Standalone, VST3, and Audio Unit
 
 Run the signed and notarized macOS package for the build you want:
@@ -169,8 +187,6 @@ The packages install to the standard macOS application and plug-in locations:
 Restart the DAW or rescan plug-ins after installing VST3 or Audio Unit packages.
 
 In Logic Pro, insert Opaline FM from a software instrument track's **Instrument** slot, not from an Audio FX slot: **AU Instruments > Hidecade > Opaline FM > Stereo**. If it does not appear, open **Logic Pro > Settings > Plug-In Manager** and run **Reset & Rescan Selection** or **Full Audio Unit Reset**, then restart Logic Pro.
-
-The current release does not ship Windows installers. Windows builds can be created from source by developers, but they are not part of the signed public release assets.
 
 ## Building from Source
 
