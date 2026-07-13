@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		175B6D48558618C496169FBF /* OpalineEngine.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0EB99C4C1E83AE9B2A63540E /* OpalineEngine.cpp */; };
 		1EC617C2A3FF67EC3217930B /* OpalineVoiceLibrary.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 605AAB7B4CDAA4FFC14D9CB8 /* OpalineVoiceLibrary.cpp */; };
+		2262DD86CE7064694A0ADD89 /* MobileMIDIInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 088E23054CBB93FC18B638A4 /* MobileMIDIInput.swift */; };
 		35CB42BBC89B5FB53BA4F22E /* OpalineChipEnvelope.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 581B9A7850E0096FBB5982FD /* OpalineChipEnvelope.cpp */; };
 		45429113737211FA2F93D09E /* factory.syx in Resources */ = {isa = PBXBuildFile; fileRef = A4647795E760C788EE7EF213 /* factory.syx */; };
 		59084B436EDEF35A292DB8D0 /* OpalineVoice.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 93C895CAEEDDAB3FF02D6303 /* OpalineVoice.cpp */; };
@@ -16,10 +17,13 @@
 		64A7473462D1E457492789AE /* AudioToolbox.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 41F290240303986096852C06 /* AudioToolbox.framework */; };
 		6ED943AD800CE3C6389667DA /* OpalinePitchEnvelope.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 5073DCED654AFC64F89F938E /* OpalinePitchEnvelope.cpp */; };
 		8290B56CE065917C9A4298BA /* OpalineFMMobileApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C8705BF28C84A7914FA897C /* OpalineFMMobileApp.swift */; };
+		88676B19F9B3C065889526EA /* AVKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D632045ACEFFDFA587F2FEE9 /* AVKit.framework */; };
+		94E75EA59E32C26FEA2936B1 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 29DB6E302B4B6D247DC49AC1 /* Assets.xcassets */; };
 		9BB8E70345309F1BDBA6C888 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D971ABEDC862C720D6EDCFE7 /* RootView.swift */; };
 		9F2E83A3F7EA31C1FF3F98DE /* PlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F670FC57C7794B0423685848 /* PlayView.swift */; };
 		A172A983B9F3D4A01A0B29D2 /* EditView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C88456B185E2B2CA53BC6F24 /* EditView.swift */; };
 		A9DF9E5012CDF0BE5532843C /* OpalineTypes.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 5DD9BEFE15EB1358A897B82E /* OpalineTypes.cpp */; };
+		AB005EF51B0C31E4FCFE22ED /* CoreMIDI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EE497AD32EDD286B537D16CD /* CoreMIDI.framework */; };
 		AC9284F0EC0C36C70F0527E5 /* OpalineTables.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 6AAC3A04FC98D0FB3273740F /* OpalineTables.cpp */; };
 		AD2F2DEB303A9C3A5EE34954 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 29D413579DCA147031527C6D /* AVFoundation.framework */; };
 		D0110150938D2648D93235FB /* MobileAudioEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 344CE756044F076EFAD7100C /* MobileAudioEngine.swift */; };
@@ -32,9 +36,11 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		088E23054CBB93FC18B638A4 /* MobileMIDIInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileMIDIInput.swift; sourceTree = "<group>"; };
 		0B5C7D9F3241AC96C261F17D /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
 		0EB99C4C1E83AE9B2A63540E /* OpalineEngine.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = OpalineEngine.cpp; sourceTree = "<group>"; };
 		29D413579DCA147031527C6D /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
+		29DB6E302B4B6D247DC49AC1 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		344CE756044F076EFAD7100C /* MobileAudioEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileAudioEngine.swift; sourceTree = "<group>"; };
 		41F290240303986096852C06 /* AudioToolbox.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AudioToolbox.framework; path = System/Library/Frameworks/AudioToolbox.framework; sourceTree = SDKROOT; };
 		463C8A29B241388C03D98654 /* OpalineSysex.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = OpalineSysex.cpp; sourceTree = "<group>"; };
@@ -63,7 +69,9 @@
 		BE2F47FD0E232F6E2A873D0F /* OpalineVoiceLibrary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OpalineVoiceLibrary.h; sourceTree = "<group>"; };
 		C55663D1203017641BABDD6F /* OpalineFMMobile.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = OpalineFMMobile.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C88456B185E2B2CA53BC6F24 /* EditView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditView.swift; sourceTree = "<group>"; };
+		D632045ACEFFDFA587F2FEE9 /* AVKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVKit.framework; path = System/Library/Frameworks/AVKit.framework; sourceTree = SDKROOT; };
 		D971ABEDC862C720D6EDCFE7 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		EE497AD32EDD286B537D16CD /* CoreMIDI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreMIDI.framework; path = System/Library/Frameworks/CoreMIDI.framework; sourceTree = SDKROOT; };
 		F2B47AFBF3369C4836A28258 /* MobileSynthModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSynthModel.swift; sourceTree = "<group>"; };
 		F670FC57C7794B0423685848 /* PlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayView.swift; sourceTree = "<group>"; };
 		F8BAE4F325291F1110D9EC69 /* OpalineSysex.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OpalineSysex.h; sourceTree = "<group>"; };
@@ -75,7 +83,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				AD2F2DEB303A9C3A5EE34954 /* AVFoundation.framework in Frameworks */,
+				88676B19F9B3C065889526EA /* AVKit.framework in Frameworks */,
 				64A7473462D1E457492789AE /* AudioToolbox.framework in Frameworks */,
+				AB005EF51B0C31E4FCFE22ED /* CoreMIDI.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -139,6 +149,7 @@
 			isa = PBXGroup;
 			children = (
 				344CE756044F076EFAD7100C /* MobileAudioEngine.swift */,
+				088E23054CBB93FC18B638A4 /* MobileMIDIInput.swift */,
 				F2B47AFBF3369C4836A28258 /* MobileSynthModel.swift */,
 				8C8705BF28C84A7914FA897C /* OpalineFMMobileApp.swift */,
 			);
@@ -195,6 +206,7 @@
 		E194B51D4F758BA4DCF0D5DD /* Resources */ = {
 			isa = PBXGroup;
 			children = (
+				29DB6E302B4B6D247DC49AC1 /* Assets.xcassets */,
 				55E21F5BA54FE6724A6A626F /* Info.plist */,
 			);
 			path = Resources;
@@ -217,6 +229,8 @@
 			children = (
 				41F290240303986096852C06 /* AudioToolbox.framework */,
 				29D413579DCA147031527C6D /* AVFoundation.framework */,
+				D632045ACEFFDFA587F2FEE9 /* AVKit.framework */,
+				EE497AD32EDD286B537D16CD /* CoreMIDI.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -252,6 +266,10 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
+					2187546CCE027F2CBE3C0C51 = {
+						DevelopmentTeam = 8H7SC722UJ;
+						ProvisioningStyle = Automatic;
+					};
 				};
 			};
 			buildConfigurationList = 41DF22772833D119C0A31C35 /* Build configuration list for PBXProject "OpalineFMMobile" */;
@@ -278,6 +296,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				94E75EA59E32C26FEA2936B1 /* Assets.xcassets in Resources */,
 				45429113737211FA2F93D09E /* factory.syx in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -293,6 +312,7 @@
 				5AB572F11FB47C7FAC4F5641 /* LibraryView.swift in Sources */,
 				D0110150938D2648D93235FB /* MobileAudioEngine.swift in Sources */,
 				F91D9197D74FE7BFB128F663 /* MobileKeyboardView.swift in Sources */,
+				2262DD86CE7064694A0ADD89 /* MobileMIDIInput.swift in Sources */,
 				D3DD2AE3A292C9E7F205DCA9 /* MobileSynthModel.swift in Sources */,
 				35CB42BBC89B5FB53BA4F22E /* OpalineChipEnvelope.cpp in Sources */,
 				175B6D48558618C496169FBF /* OpalineEngine.cpp in Sources */,
@@ -319,6 +339,8 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 8H7SC722UJ;
 				HEADER_SEARCH_PATHS = (
 					../../Source,
 					../../build/generated,
@@ -404,6 +426,8 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 8H7SC722UJ;
 				HEADER_SEARCH_PATHS = (
 					../../Source,
 					../../build/generated,

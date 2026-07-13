@@ -22,11 +22,16 @@ targets:
         buildPhase: resources
     dependencies:
       - sdk: AVFoundation.framework
+      - sdk: AVKit.framework
       - sdk: AudioToolbox.framework
+      - sdk: CoreMIDI.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: jp.hidecade.opalinefm.mobile
         PRODUCT_NAME: Opaline FM
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: 8H7SC722UJ
         INFOPLIST_FILE: Sources/Resources/Info.plist
         SWIFT_OBJC_BRIDGING_HEADER: Sources/Native/OpalineFMMobile-Bridging-Header.h
         HEADER_SEARCH_PATHS:
@@ -38,10 +43,12 @@ targets:
         CFBundleDisplayName: Opaline FM
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
+        UIRequiresFullScreen: true
+        UILaunchScreen: {}
         UISupportedInterfaceOrientations:
-          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
         UISupportedInterfaceOrientations~ipad:
-          - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         UIRequiredDeviceCapabilities:

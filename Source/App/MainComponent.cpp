@@ -3291,7 +3291,7 @@ juce::String MainComponent::currentVoiceText() const
 {
     const int safeIndex = factoryVoices.empty() ? 0
                                                 : juce::jlimit(0, static_cast<int>(factoryVoices.size()) - 1, performanceState.voiceAIndex);
-    const auto number = juce::String(safeIndex + 1);
+    const auto number = juce::String(safeIndex + 1).paddedLeft(' ', 2);
     const auto name = currentVoiceName.isNotEmpty() ? currentVoiceName.substring(0, 12) : juce::String("INIT VOICE");
     return number + " " + name;
 }
@@ -3299,10 +3299,10 @@ juce::String MainComponent::currentVoiceText() const
 juce::String MainComponent::performanceVoiceText(const int index) const
 {
     if (factoryVoices.empty())
-        return "1 INIT VOICE";
+        return " 1 INIT VOICE";
 
     const int safeIndex = juce::jlimit(0, static_cast<int>(factoryVoices.size()) - 1, index);
-    const auto number = juce::String(safeIndex + 1);
+    const auto number = juce::String(safeIndex + 1).paddedLeft(' ', 2);
     const auto name = juce::String(factoryVoices[static_cast<std::size_t>(safeIndex)].name).substring(0, 12);
     return number + " " + name;
 }

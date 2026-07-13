@@ -11,5 +11,8 @@ assets/opaline_collection.md
 *.VC.db
 *.VC.VC.opendb
 .DS_Store
+.vscode/
+xcuserdata/
+*.xcuserstate
 $null
 asan_*.txt

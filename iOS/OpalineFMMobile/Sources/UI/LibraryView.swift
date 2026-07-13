@@ -20,6 +20,13 @@ struct LibraryView: View {
                 }
             }
             .navigationTitle("Library")
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Play") {
+                        synth.screen = .play
+                    }
+                }
+            }
         }
     }
 }
