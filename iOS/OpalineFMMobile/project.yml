@@ -27,7 +27,7 @@ targets:
       - sdk: CoreMIDI.framework
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: jp.hidecade.opalinefm.mobile
+        PRODUCT_BUNDLE_IDENTIFIER: com.hidekikonishi.opalinefm.mobile
         PRODUCT_NAME: Opaline FM
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_STYLE: Automatic

@@ -62,12 +62,12 @@
 		9933609E0AAE8DF705479287 /* OpalinePitchEnvelope.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OpalinePitchEnvelope.h; sourceTree = "<group>"; };
 		9A301DBDF513B739A555CBFB /* OpalineFMMobile-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "OpalineFMMobile-Bridging-Header.h"; sourceTree = "<group>"; };
 		9FF60955BCDE164EE9967081 /* OpalineChipEnvelope.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OpalineChipEnvelope.h; sourceTree = "<group>"; };
-		A4647795E760C788EE7EF213 /* factory.syx */ = {isa = PBXFileReference; path = factory.syx; sourceTree = "<group>"; };
+		A4647795E760C788EE7EF213 /* factory.syx */ = {isa = PBXFileReference; lastKnownFileType = file; path = factory.syx; sourceTree = "<group>"; };
 		A8F33CA59D16CF182C68F2B2 /* OpalineEngine.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OpalineEngine.h; sourceTree = "<group>"; };
 		ADE6AB320540E5A84C65FC7F /* OpalineTables.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OpalineTables.h; sourceTree = "<group>"; };
 		B96BF3AF11BB0F51C67F5C28 /* OpalineVoice.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OpalineVoice.h; sourceTree = "<group>"; };
 		BE2F47FD0E232F6E2A873D0F /* OpalineVoiceLibrary.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OpalineVoiceLibrary.h; sourceTree = "<group>"; };
-		C55663D1203017641BABDD6F /* OpalineFMMobile.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = OpalineFMMobile.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C55663D1203017641BABDD6F /* Opaline FM.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Opaline FM.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		C88456B185E2B2CA53BC6F24 /* EditView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditView.swift; sourceTree = "<group>"; };
 		D632045ACEFFDFA587F2FEE9 /* AVKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVKit.framework; path = System/Library/Frameworks/AVKit.framework; sourceTree = SDKROOT; };
 		D971ABEDC862C720D6EDCFE7 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
@@ -140,7 +140,7 @@
 		98CA1706E41F49D307F18101 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				C55663D1203017641BABDD6F /* OpalineFMMobile.app */,
+				C55663D1203017641BABDD6F /* Opaline FM.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -254,7 +254,7 @@
 			packageProductDependencies = (
 			);
 			productName = OpalineFMMobile;
-			productReference = C55663D1203017641BABDD6F /* OpalineFMMobile.app */;
+			productReference = C55663D1203017641BABDD6F /* Opaline FM.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -346,11 +346,14 @@
 					../../build/generated,
 				);
 				INFOPLIST_FILE = Sources/Resources/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = OpalineFM.mobile;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = jp.hidecade.opalinefm.mobile;
+				MARKETING_VERSION = 0.4.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hidekikonishi.opalinefm.mobile;
 				PRODUCT_NAME = "Opaline FM";
 				SDKROOT = iphoneos;
 				SWIFT_OBJC_BRIDGING_HEADER = "Sources/Native/OpalineFMMobile-Bridging-Header.h";
@@ -433,11 +436,14 @@
 					../../build/generated,
 				);
 				INFOPLIST_FILE = Sources/Resources/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = OpalineFM.mobile;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = jp.hidecade.opalinefm.mobile;
+				MARKETING_VERSION = 0.4.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hidekikonishi.opalinefm.mobile;
 				PRODUCT_NAME = "Opaline FM";
 				SDKROOT = iphoneos;
 				SWIFT_OBJC_BRIDGING_HEADER = "Sources/Native/OpalineFMMobile-Bridging-Header.h";

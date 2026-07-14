@@ -70,7 +70,7 @@ Use this checklist when preparing Opaline FM Mobile for TestFlight or App Store 
 
 1. Confirm the Apple Developer Program membership is active.
 2. In Xcode, select the `OpalineFMMobile` target, open **Signing & Capabilities**, enable **Automatically manage signing**, and select the paid developer team.
-3. Confirm the bundle identifier is stable, for example `jp.hidecade.opalinefm.mobile`. Do not change it after creating the App Store Connect record unless you intentionally want a separate app.
+3. Confirm the bundle identifier is stable, for example `com.hidekikonishi.opalinefm.mobile`. Do not change it after creating the App Store Connect record unless you intentionally want a separate app.
 4. Increment the marketing version and build number in Xcode before each upload.
 5. Build and test on a real iPhone, including audio output, MIDI input, file import/export, background interruption behavior, and landscape layout.
 6. Create an app record in App Store Connect with the same bundle identifier.

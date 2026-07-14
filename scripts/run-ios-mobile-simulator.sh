@@ -6,7 +6,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_DIR="${ROOT_DIR}/iOS/OpalineFMMobile"
 DERIVED_DATA="${ROOT_DIR}/build/ios-mobile"
 APP_BUNDLE="${DERIVED_DATA}/Build/Products/Debug-iphonesimulator/Opaline FM.app"
-BUNDLE_ID="jp.hidecade.opalinefm.mobile"
+BUNDLE_ID="com.hidekikonishi.opalinefm.mobile"
 
 cd "${APP_DIR}"
 
