@@ -7,6 +7,7 @@ struct RootView: View {
         switch synth.screen {
         case .play:
             PlayView()
+                .ignoresSafeArea(.container, edges: .horizontal)
         case .edit:
             EditView()
         case .library:

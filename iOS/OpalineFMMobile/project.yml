@@ -29,6 +29,10 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hidekikonishi.opalinefm.mobile
         PRODUCT_NAME: Opaline FM
+        INFOPLIST_KEY_CFBundleDisplayName: Opaline FM
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: 3
+        TARGETED_DEVICE_FAMILY: 1
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: 8H7SC722UJ
@@ -44,11 +48,10 @@ targets:
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         UIRequiresFullScreen: true
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
-          - UIInterfaceOrientationLandscapeLeft
-          - UIInterfaceOrientationLandscapeRight
-        UISupportedInterfaceOrientations~ipad:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         UIRequiredDeviceCapabilities:

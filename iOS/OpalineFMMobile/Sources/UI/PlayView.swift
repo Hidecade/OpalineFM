@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 struct PlayView: View {
@@ -6,21 +7,25 @@ struct PlayView: View {
     @State private var importTarget: ImportTarget?
     @State private var importingFile = false
     @State private var exportingData = false
-    @State private var exportDocument = OpalineDataDocument()
-    @State private var exportFilename = "OpalineFM_Bank.syx"
-    @State private var exportContentType: UTType = .opalineSysexBank
-    @State private var keyboardBaseNote = 48
+    @State private var exportFileURL: URL?
+    @State private var keyboardBaseNote = 53
     @State private var activeVoicePicker: VoicePickerTarget?
     @State private var showingBankPicker = false
     @State private var showingModePicker = false
+    @State private var screenSafeAreaInsets = UIEdgeInsets.zero
 
     var body: some View {
         GeometryReader { proxy in
             let horizontalInset: CGFloat = 6
             let verticalInset: CGFloat = 6
             let panelGap: CGFloat = 2
-            let contentWidth = max(1, proxy.size.width - horizontalInset * 2)
+            let safeWidth = proxy.size.width
+                - screenSafeAreaInsets.left
+                - screenSafeAreaInsets.right
+            let contentWidth = max(1, safeWidth - horizontalInset * 2)
             let contentHeight = max(1, proxy.size.height - verticalInset * 2)
+            let keyboardWidth = proxy.size.width
+            let safeAreaOffsetX = (screenSafeAreaInsets.left - screenSafeAreaInsets.right) / 2
             let lowerHeight = max(118, contentHeight * 0.5 - 8)
             let topHeight = max(1, contentHeight - lowerHeight - panelGap)
 
@@ -28,12 +33,16 @@ struct PlayView: View {
                 VStack(spacing: panelGap) {
                     mainPanel
                         .frame(width: contentWidth, height: topHeight)
+                        .offset(x: safeAreaOffsetX)
 
-                    keyboardPanel(width: contentWidth, height: lowerHeight)
+                    keyboardPanel(width: keyboardWidth, height: lowerHeight)
+                        .ignoresSafeArea(.container, edges: .horizontal)
                 }
-                .padding(.horizontal, horizontalInset)
                 .padding(.vertical, verticalInset)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+
+                octaveCornerControls(size: proxy.size, height: lowerHeight)
+                    .zIndex(5)
 
                 if let activeVoicePicker {
                     voicePickerOverlay(target: activeVoicePicker, size: proxy.size)
@@ -51,15 +60,43 @@ struct PlayView: View {
             .background(MacSkin.appBackground)
         }
         .background(MacSkin.appBackground)
-        .fileImporter(isPresented: $importingFile, allowedContentTypes: importContentTypes) { result in
-            handleImport(result)
+        .onAppear {
+            _ = opalineDocumentsDirectory
+            DispatchQueue.main.async {
+                screenSafeAreaInsets = currentWindowSafeAreaInsets
+            }
         }
-        .fileExporter(
-            isPresented: $exportingData,
-            document: exportDocument,
-            contentType: exportContentType,
-            defaultFilename: exportFilename
-        ) { _ in }
+        .sheet(isPresented: $importingFile) {
+            OpalineDocumentPicker(
+                mode: .importing(importContentTypes),
+                initialDirectoryURL: opalineDocumentsDirectory
+            ) { url in
+                if let url {
+                    handleImport(.success(url))
+                } else {
+                    importTarget = nil
+                    importingFile = false
+                }
+            }
+        }
+        .sheet(isPresented: $exportingData) {
+            if let exportFileURL {
+                OpalineDocumentPicker(
+                    mode: .exporting(exportFileURL),
+                    initialDirectoryURL: opalineDocumentsDirectory
+                ) { savedURL in
+                    finishExport(savedURL: savedURL)
+                }
+            }
+        }
+    }
+
+    private var currentWindowSafeAreaInsets: UIEdgeInsets {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow)?
+            .safeAreaInsets ?? .zero
     }
 
     private var mainPanel: some View {
@@ -67,13 +104,14 @@ struct PlayView: View {
             VStack(spacing: 6) {
                 playEditSwitch
                     .frame(height: 28)
+                    .offset(y: 2)
 
                 wheelPanel
                     .frame(maxHeight: .infinity)
+                    .offset(y: 4)
             }
                 .frame(width: 190)
                 .frame(maxHeight: .infinity)
-                .offset(y: 4)
 
             rightPanel
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -94,7 +132,7 @@ struct PlayView: View {
             let buttonHeight: CGFloat = rowHeight - 4
             let buttonInset: CGFloat = 2
             let topControlHeight: CGFloat = buttonHeight
-            let rowGap: CGFloat = 4
+            let rowGap: CGFloat = 2
             let lcdHeight = min(CGFloat(64), max(52, proxy.size.height - rowHeight * 3 - rowGap * 4 - 30))
             let bankY: CGFloat = 0
             let lcdY = bankY + rowHeight + rowGap
@@ -128,7 +166,7 @@ struct PlayView: View {
                     .position(x: cellMidX(width, 5, 1), y: bankY + rowHeight / 2)
 
                 LcdDisplay(line1: lcdLine1, line2: lcdLine2, scopeSamples: synth.scopeSamples)
-                    .frame(width: width, height: lcdHeight)
+                    .frame(width: width - buttonInset * 2, height: lcdHeight)
                     .position(x: width / 2, y: lcdY + lcdHeight / 2)
 
                 voiceSelectorCell
@@ -176,7 +214,7 @@ struct PlayView: View {
                     ModeDropdownBox(text: synth.performanceMode.title) {
                         showingModePicker = true
                     }
-                        .frame(width: min(120, width / 3), height: 24)
+                        .frame(width: min(120, width / 3), height: topControlHeight)
 
                     if synth.performanceMode == .dual {
                         PerformanceParameterControl(
@@ -196,8 +234,12 @@ struct PlayView: View {
 
                     Spacer()
                 }
-                .frame(width: width, height: 24)
-                .position(x: width / 2, y: perfY + 12)
+                .frame(
+                    width: width - buttonInset * 2,
+                    height: topControlHeight,
+                    alignment: .leading
+                )
+                .position(x: width / 2, y: perfY + rowHeight / 2)
             }
         }
     }
@@ -339,7 +381,7 @@ struct PlayView: View {
         }
         .padding(.horizontal, 7)
         .padding(.vertical, 6)
-        .frame(maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(MetalPanel())
     }
 
@@ -392,7 +434,7 @@ struct PlayView: View {
     private func keyboardPanel(width: CGFloat, height: CGFloat) -> some View {
         MobileKeyboardView(
             baseNote: $keyboardBaseNote,
-            noteCount: 25
+            noteCount: keyboardBaseNote == 82 ? 27 : 28
         )
             .environmentObject(synth)
             .frame(width: width, height: height)
@@ -401,9 +443,57 @@ struct PlayView: View {
         .layoutPriority(1)
     }
 
+    private func octaveCornerControls(size: CGSize, height: CGFloat) -> some View {
+        let leftWidth = max(44, min(64, screenSafeAreaInsets.left - 8))
+        let rightWidth = max(44, min(64, screenSafeAreaInsets.right - 8))
+        let buttonHeight = max(88, height * 0.5)
+        let cornerClearance: CGFloat = 44
+
+        return HStack(alignment: .top, spacing: 0) {
+            CornerOctaveButton(
+                title: "OCT-",
+                disabled: keyboardBaseNote <= 21,
+                action: { shiftKeyboardOctave(-1) }
+            )
+            .frame(width: leftWidth, height: buttonHeight)
+
+            Spacer(minLength: 0)
+
+            CornerOctaveButton(
+                title: "OCT+",
+                disabled: keyboardBaseNote >= 82,
+                action: { shiftKeyboardOctave(1) }
+            )
+            .frame(width: rightWidth, height: buttonHeight)
+        }
+        .frame(width: size.width, height: size.height, alignment: .top)
+        .offset(y: cornerClearance)
+        .ignoresSafeArea()
+        .allowsHitTesting(true)
+    }
+
+    private func shiftKeyboardOctave(_ delta: Int) {
+        if delta > 0 {
+            if keyboardBaseNote >= 77 {
+                keyboardBaseNote = 82
+            } else if keyboardBaseNote == 21 {
+                keyboardBaseNote = 29
+            } else {
+                keyboardBaseNote = min(77, keyboardBaseNote + 12)
+            }
+        } else if delta < 0 {
+            if keyboardBaseNote == 82 {
+                keyboardBaseNote = 77
+            } else if keyboardBaseNote <= 29 {
+                keyboardBaseNote = 21
+            } else {
+                keyboardBaseNote = max(29, keyboardBaseNote - 12)
+            }
+        }
+    }
+
     private var currentVoiceText: String {
-        let name = synth.voiceName.uppercased()
-        return "\(synth.voiceIndex + 1) \(name)"
+        "\(synth.voiceIndex + 1) \(synth.voiceName)"
     }
 
     private var currentLcdVoiceText: String {
@@ -411,8 +501,7 @@ struct PlayView: View {
     }
 
     private var currentVoiceBText: String {
-        let name = synth.voiceBName.uppercased()
-        return "\(synth.voiceBIndex + 1) \(name)"
+        "\(synth.voiceBIndex + 1) \(synth.voiceBName)"
     }
 
     private var currentLcdVoiceBText: String {
@@ -442,7 +531,7 @@ struct PlayView: View {
     }
 
     private func lcdVoiceText(index: Int, name: String) -> String {
-        String(format: "%2d %@", index + 1, name.uppercased())
+        String(format: "%2d %@", index + 1, name)
     }
 
     private var importContentTypes: [UTType] {
@@ -453,6 +542,26 @@ struct PlayView: View {
             return [.opalineVoice, .xml, .data]
         case nil:
             return [.data]
+        }
+    }
+
+    private var opalineDocumentsDirectory: URL? {
+        guard let documentsURL = FileManager.default.urls(
+            for: .documentDirectory,
+            in: .userDomainMask
+        ).first else {
+            return nil
+        }
+
+        let directoryURL = documentsURL.appendingPathComponent("OpalineFM", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(
+                at: directoryURL,
+                withIntermediateDirectories: true
+            )
+            return directoryURL
+        } catch {
+            return nil
         }
     }
 
@@ -508,28 +617,58 @@ struct PlayView: View {
     }
 
     private func exportSingleVoice() {
-        exportDocument = OpalineDataDocument(data: synth.currentSingleVoiceXMLData())
         let name = sanitizedFilenamePart(synth.voiceName)
-        exportFilename = name.isEmpty ? "OpalineFM_Voice.opalinevoice" : "\(name).opalinevoice"
-        exportContentType = .opalineVoice
-        exportingData = true
+        let filename = name.isEmpty ? "OpalineFM_Voice.opalinevoice" : "\(name).opalinevoice"
+        prepareExport(data: synth.currentSingleVoiceXMLData(), filename: filename)
     }
 
     private func exportCurrentBank() {
-        exportDocument = OpalineDataDocument(data: synth.currentVoiceBankSysexData())
         let bankName = sanitizedFilenamePart(synth.bankName)
-        exportFilename = bankName.isEmpty
+        let filename = bankName.isEmpty
             ? "OpalineFM_Bank_\(synth.bankIndex + 1).syx"
             : "\(bankName).syx"
-        exportContentType = .opalineSysexBank
-        exportingData = true
+        prepareExport(data: synth.currentVoiceBankSysexData(), filename: filename)
     }
 
     private func exportVoiceLibrary() {
-        exportDocument = OpalineDataDocument(data: synth.voiceLibraryXMLData())
-        exportFilename = "OpalineFM_Voice_Library.opalinelibrary.xml"
-        exportContentType = .opalineVoiceLibrary
-        exportingData = true
+        prepareExport(
+            data: synth.voiceLibraryXMLData(),
+            filename: "OpalineFM_Voice_Library.opalinelibrary.xml"
+        )
+    }
+
+    private func prepareExport(data: Data, filename: String) {
+        guard opalineDocumentsDirectory != nil else {
+            synth.audioStatus = "OpalineFM folder creation failed"
+            return
+        }
+
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OpalineFMExports", isDirectory: true)
+        let fileURL = temporaryDirectory.appendingPathComponent(filename)
+
+        do {
+            try FileManager.default.createDirectory(
+                at: temporaryDirectory,
+                withIntermediateDirectories: true
+            )
+            try data.write(to: fileURL, options: .atomic)
+            exportFileURL = fileURL
+            exportingData = true
+        } catch {
+            synth.audioStatus = "File save failed"
+        }
+    }
+
+    private func finishExport(savedURL: URL?) {
+        if let exportFileURL {
+            try? FileManager.default.removeItem(at: exportFileURL)
+        }
+        exportFileURL = nil
+        exportingData = false
+        if savedURL != nil {
+            synth.audioStatus = "File saved"
+        }
     }
 
     private func sanitizedFilenamePart(_ name: String) -> String {
@@ -648,21 +787,62 @@ private enum ImportTarget {
     case singleVoice
 }
 
-private struct OpalineDataDocument: FileDocument {
-    static var readableContentTypes: [UTType] { [.opalineSysexBank, .opalineVoice, .opalineVoiceLibrary, .data] }
-
-    var data: Data = Data()
-
-    init(data: Data = Data()) {
-        self.data = data
+private struct OpalineDocumentPicker: UIViewControllerRepresentable {
+    enum Mode {
+        case importing([UTType])
+        case exporting(URL)
     }
 
-    init(configuration: ReadConfiguration) throws {
-        data = configuration.file.regularFileContents ?? Data()
+    let mode: Mode
+    let initialDirectoryURL: URL?
+    let completion: (URL?) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(completion: completion)
     }
 
-    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
-        FileWrapper(regularFileWithContents: data)
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker: UIDocumentPickerViewController
+        switch mode {
+        case let .importing(contentTypes):
+            picker = UIDocumentPickerViewController(
+                forOpeningContentTypes: contentTypes,
+                asCopy: true
+            )
+        case let .exporting(fileURL):
+            picker = UIDocumentPickerViewController(
+                forExporting: [fileURL],
+                asCopy: true
+            )
+        }
+        picker.delegate = context.coordinator
+        picker.allowsMultipleSelection = false
+        picker.directoryURL = initialDirectoryURL
+        return picker
+    }
+
+    func updateUIViewController(
+        _ uiViewController: UIDocumentPickerViewController,
+        context: Context
+    ) {}
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let completion: (URL?) -> Void
+
+        init(completion: @escaping (URL?) -> Void) {
+            self.completion = completion
+        }
+
+        func documentPicker(
+            _ controller: UIDocumentPickerViewController,
+            didPickDocumentsAt urls: [URL]
+        ) {
+            completion(urls.first)
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            completion(nil)
+        }
     }
 }
 
@@ -692,6 +872,38 @@ private extension Color {
             green: Double((hex >> 8) & 0xff) / 255.0,
             blue: Double(hex & 0xff) / 255.0
         )
+    }
+}
+
+private struct CornerOctaveButton: View {
+    let title: String
+    let disabled: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 13, weight: .heavy, design: .monospaced))
+                .foregroundStyle(MacSkin.textPrimary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(LinearGradient(
+                            colors: [Color(hex: 0x34352f), Color(hex: 0x191a15)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 3)
+                        .stroke(Color.black.opacity(0.75), lineWidth: 1.2)
+                )
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .opacity(disabled ? 0.45 : 1)
     }
 }
 
@@ -1015,7 +1227,7 @@ private struct VoicePickerPanel: View {
 
     private func voiceName(index: Int) -> String {
         let name = index < names.count ? names[index] : "Voice"
-        return name.uppercased()
+        return name
     }
 }
 
@@ -1420,7 +1632,7 @@ private struct LcdTextWindow: View {
     }
 
     private func drawLine(_ text: String, context: inout GraphicsContext, rect: CGRect) {
-        let characters = Array(text.uppercased().prefix(16))
+        let characters = Array(text.prefix(16))
         let cellColumns = max(1, characters.count * 6 - 1)
         let dotPitchX = rect.width / CGFloat(cellColumns)
         let dotPitchY = rect.height / 8
@@ -1498,7 +1710,33 @@ private enum LcdCharacterFont {
         "W": [0b10001, 0b10001, 0b10001, 0b10101, 0b10101, 0b10101, 0b01010, 0b00000],
         "X": [0b10001, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001, 0b00000],
         "Y": [0b10001, 0b10001, 0b01010, 0b00100, 0b00100, 0b00100, 0b00100, 0b00000],
-        "Z": [0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0b11111, 0b00000]
+        "Z": [0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0b11111, 0b00000],
+        "a": [0b00000, 0b00000, 0b01110, 0b00001, 0b01111, 0b10001, 0b01111, 0b00000],
+        "b": [0b10000, 0b10000, 0b10110, 0b11001, 0b10001, 0b10001, 0b11110, 0b00000],
+        "c": [0b00000, 0b00000, 0b01110, 0b10001, 0b10000, 0b10001, 0b01110, 0b00000],
+        "d": [0b00001, 0b00001, 0b01101, 0b10011, 0b10001, 0b10001, 0b01111, 0b00000],
+        "e": [0b00000, 0b00000, 0b01110, 0b10001, 0b11111, 0b10000, 0b01110, 0b00000],
+        "f": [0b00110, 0b01001, 0b01000, 0b11100, 0b01000, 0b01000, 0b01000, 0b00000],
+        "g": [0b00000, 0b00000, 0b01111, 0b10001, 0b01111, 0b00001, 0b01110, 0b00000],
+        "h": [0b10000, 0b10000, 0b10110, 0b11001, 0b10001, 0b10001, 0b10001, 0b00000],
+        "i": [0b00100, 0b00000, 0b01100, 0b00100, 0b00100, 0b00100, 0b01110, 0b00000],
+        "j": [0b00010, 0b00000, 0b00110, 0b00010, 0b00010, 0b10010, 0b01100, 0b00000],
+        "k": [0b10000, 0b10000, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b00000],
+        "l": [0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110, 0b00000],
+        "m": [0b00000, 0b00000, 0b11010, 0b10101, 0b10101, 0b10101, 0b10101, 0b00000],
+        "n": [0b00000, 0b00000, 0b10110, 0b11001, 0b10001, 0b10001, 0b10001, 0b00000],
+        "o": [0b00000, 0b00000, 0b01110, 0b10001, 0b10001, 0b10001, 0b01110, 0b00000],
+        "p": [0b00000, 0b00000, 0b11110, 0b10001, 0b11110, 0b10000, 0b10000, 0b00000],
+        "q": [0b00000, 0b00000, 0b01111, 0b10001, 0b01111, 0b00001, 0b00001, 0b00000],
+        "r": [0b00000, 0b00000, 0b10110, 0b11001, 0b10000, 0b10000, 0b10000, 0b00000],
+        "s": [0b00000, 0b00000, 0b01111, 0b10000, 0b01110, 0b00001, 0b11110, 0b00000],
+        "t": [0b01000, 0b01000, 0b11100, 0b01000, 0b01000, 0b01001, 0b00110, 0b00000],
+        "u": [0b00000, 0b00000, 0b10001, 0b10001, 0b10001, 0b10011, 0b01101, 0b00000],
+        "v": [0b00000, 0b00000, 0b10001, 0b10001, 0b10001, 0b01010, 0b00100, 0b00000],
+        "w": [0b00000, 0b00000, 0b10001, 0b10101, 0b10101, 0b10101, 0b01010, 0b00000],
+        "x": [0b00000, 0b00000, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b00000],
+        "y": [0b00000, 0b00000, 0b10001, 0b10001, 0b01111, 0b00001, 0b01110, 0b00000],
+        "z": [0b00000, 0b00000, 0b11111, 0b00010, 0b00100, 0b01000, 0b11111, 0b00000]
     ]
 }
 

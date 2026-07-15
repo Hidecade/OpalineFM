@@ -67,7 +67,7 @@ struct EditView: View {
 
             Spacer(minLength: 0)
 
-            Text(String(format: "%2d %@", synth.voiceIndex + 1, synth.voiceName.uppercased()))
+            Text(String(format: "%2d %@", synth.voiceIndex + 1, synth.voiceName))
                 .font(.system(size: 13, weight: .bold, design: .monospaced))
                 .foregroundStyle(EditSkin.lcdOn)
                 .lineLimit(1)

@@ -634,6 +634,28 @@ void testOptionalAssetSysex()
 
     const auto decoded = opaline::decodeCompatibleVmemVoice(presets[0].vmem);
     expect(decoded.hasVmem, "assets/factory.syx first voice keeps VMEM backing");
+
+    int checksumTotal = 0;
+    for (int i = 0; i < opaline::kOpalineBulkVoiceDataSize; ++i)
+        checksumTotal += bytes[static_cast<std::size_t>(opaline::kOpalineBulkVoiceDataOffset + i)];
+    checksumTotal += bytes[static_cast<std::size_t>(opaline::kOpalineBulkVoiceDataOffset
+        + opaline::kOpalineBulkVoiceDataSize)];
+    expect((checksumTotal & 0x7f) == 0, "assets/factory.syx has a valid compatible checksum");
+
+    for (const auto& preset : presets)
+    {
+        const auto voice = opaline::decodeCompatibleVmemVoice(preset.vmem);
+        bool hasActiveOperator = false;
+        for (const auto& op : voice.patch.operators)
+        {
+            if (op.level <= 0)
+                continue;
+
+            hasActiveOperator = true;
+            expect(op.velocity > 0, "every active factory operator responds to key velocity");
+        }
+        expect(hasActiveOperator, "every factory voice has an active operator");
+    }
 #endif
 }
 

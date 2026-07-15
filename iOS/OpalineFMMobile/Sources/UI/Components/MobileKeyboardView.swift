@@ -9,48 +9,19 @@ struct MobileKeyboardView: View {
     let noteCount: Int
 
     var body: some View {
-        HStack(spacing: 6) {
-            octaveButtons
-                .frame(width: 54)
-
-            GeometryReader { _ in
-                ZStack {
-                    Canvas { context, size in
-                        drawKeyboard(context: &context, size: size)
-                    }
-
-                    KeyboardTouchSurface(
-                        synth: synth,
-                        baseNote: baseNote,
-                        activeNotes: $activeNotes,
-                        noteCount: noteCount
-                    )
-                }
+        ZStack {
+            Canvas { context, size in
+                drawKeyboard(context: &context, size: size)
             }
+
+            KeyboardTouchSurface(
+                synth: synth,
+                baseNote: baseNote,
+                activeNotes: $activeNotes,
+                noteCount: noteCount
+            )
         }
         .accessibilityLabel("Mobile keyboard")
-    }
-
-    private var octaveButtons: some View {
-        VStack(spacing: 6) {
-            Button("+") {
-                shiftOctave(1)
-            }
-            .buttonStyle(KeyboardOctaveButtonStyle())
-            .disabled(baseNote >= maxBaseNote || !activeNotes.isEmpty)
-
-            Button("-") {
-                shiftOctave(-1)
-            }
-            .buttonStyle(KeyboardOctaveButtonStyle())
-            .disabled(baseNote <= minBaseNote || !activeNotes.isEmpty)
-        }
-        .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 3)
-                .fill(LinearGradient(colors: [Color(hex: 0x1b1a16), Color(hex: 0x050505)], startPoint: .top, endPoint: .bottom))
-        )
-        .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.black.opacity(0.76), lineWidth: 2))
     }
 
     private var displayedActiveNotes: [Int: Int] {
@@ -70,9 +41,9 @@ struct MobileKeyboardView: View {
         ))
 
         let keyArea = CGRect(
-            x: baseArea.minX + 6,
+            x: baseArea.minX,
             y: baseArea.minY,
-            width: max(1, baseArea.width - 12),
+            width: max(1, baseArea.width),
             height: max(1, baseArea.height - 3)
         )
         let whiteOffsets = whiteNotes
@@ -115,7 +86,7 @@ struct MobileKeyboardView: View {
             let note = baseNote + offset
             let noteVelocity = displayedActiveNotes[note] ?? 0
             let held = noteVelocity > 0
-            let x = max(keyArea.minX, min(keyArea.maxX - blackWidth, keyArea.minX + CGFloat(whiteBefore) * whiteWidth - blackWidth * 0.5))
+            let x = keyArea.minX + CGFloat(whiteBefore) * whiteWidth - blackWidth * 0.5
             let rect = CGRect(x: x, y: keyArea.minY - 1, width: blackWidth, height: blackHeight).insetBy(dx: 1.2, dy: 0)
             let path = Path(roundedRect: rect, cornerRadius: 1)
 
@@ -181,14 +152,6 @@ struct MobileKeyboardView: View {
         )
     }
 
-    private func shiftOctave(_ delta: Int) {
-        activeNotes.removeAll()
-        baseNote = max(minBaseNote, min(maxBaseNote, baseNote + delta * 12))
-    }
-
-    private var minBaseNote: Int { 21 }
-    private var maxBaseNote: Int { 108 - max(0, noteCount - 1) }
-
     private var whiteNotes: [Int] {
         (0..<noteCount).filter { !isBlack(note: baseNote + $0) }
     }
@@ -227,8 +190,8 @@ private struct KeyboardTouchSurface: UIViewRepresentable {
 
 private final class KeyboardTouchSurfaceView: UIView {
     weak var synth: MobileSynthModel?
-    var baseNote = 48
-    var noteCount = 25
+    var baseNote = 53
+    var noteCount = 28
     var onActiveNotesChanged: (([Int: Int]) -> Void)?
 
     private let touchAttackSampleDelay: TimeInterval = 0.024
@@ -397,7 +360,7 @@ private final class KeyboardTouchSurfaceView: UIView {
 
     private func note(at location: CGPoint) -> Int? {
         guard bounds.width > 0, bounds.height > 0 else { return nil }
-        let keyArea = CGRect(x: 6, y: 0, width: max(1, bounds.width - 12), height: max(1, bounds.height - 3))
+        let keyArea = CGRect(x: 0, y: 0, width: max(1, bounds.width), height: max(1, bounds.height - 3))
         guard keyArea.contains(location) else { return nil }
 
         let whiteOffsets = whiteNotes
@@ -408,7 +371,7 @@ private final class KeyboardTouchSurfaceView: UIView {
         if location.y <= keyArea.minY + blackHeight {
             for offset in blackNotes {
                 let whiteBefore = whiteOffsets.filter { $0 < offset }.count
-                let x = max(keyArea.minX, min(keyArea.maxX - blackWidth, keyArea.minX + CGFloat(whiteBefore) * whiteWidth - blackWidth * 0.5))
+                let x = keyArea.minX + CGFloat(whiteBefore) * whiteWidth - blackWidth * 0.5
                 if CGRect(x: x, y: keyArea.minY, width: blackWidth, height: blackHeight).contains(location) {
                     return baseNote + offset
                 }
@@ -421,7 +384,7 @@ private final class KeyboardTouchSurfaceView: UIView {
 
     private func velocity(at location: CGPoint, note: Int?) -> Int {
         guard bounds.height > 0 else { return 104 }
-        let keyArea = CGRect(x: 6, y: 0, width: max(1, bounds.width - 12), height: max(1, bounds.height - 3))
+        let keyArea = CGRect(x: 0, y: 0, width: max(1, bounds.width), height: max(1, bounds.height - 3))
         let playableHeight = note.map(isBlack(note:)) == true ? keyArea.height * 0.62 : keyArea.height
         let normalized = min(max((location.y - keyArea.minY) / max(1, playableHeight), 0), 1)
         return max(1, min(127, Int((normalized * 126).rounded()) + 1))
@@ -448,24 +411,6 @@ private struct KeyboardTouchState {
     var startTimestamp: TimeInterval
     var started = false
     var pendingStart: DispatchWorkItem?
-}
-
-private struct KeyboardOctaveButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 22, weight: .heavy, design: .monospaced))
-            .foregroundStyle(Color(hex: 0xf4eee1))
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(
-                RoundedRectangle(cornerRadius: 3)
-                    .fill(configuration.isPressed ? Color(hex: 0x168e78) : Color(hex: 0x2b2c27))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 3)
-                    .stroke(configuration.isPressed ? Color(hex: 0x27e3c4) : Color.black.opacity(0.72), lineWidth: 1.2)
-            )
-            .opacity(configuration.isPressed ? 0.92 : 1.0)
-    }
 }
 
 private extension CGRect {

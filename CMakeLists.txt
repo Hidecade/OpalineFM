@@ -61,6 +61,12 @@ add_executable(opaline_console_render
 
 target_link_libraries(opaline_console_render PRIVATE opaline_engine)
 
+add_executable(opaline_tune_factory_bank
+    Source/Tools/TuneFactoryBank.cpp
+)
+
+target_link_libraries(opaline_tune_factory_bank PRIVATE opaline_engine)
+
 add_executable(opaline_engine_tests
     Source/Tests/EngineTests.cpp
 )
