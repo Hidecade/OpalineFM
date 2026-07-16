@@ -1,6 +1,8 @@
 #include "PluginProcessor.h"
 
 #include "App/OpalineStateSerialization.h"
+#include "App/OpalineVoiceLibraryXml.h"
+#include "OpalineBinaryData.h"
 #include "PluginEditor.h"
 
 #include <juce_core/juce_core.h>
@@ -93,6 +95,7 @@ OpalineAudioProcessor::OpalineAudioProcessor()
     {
         state.performance.voiceAIndex = 0;
         state.patch = factoryPrograms.front().patch;
+        state.effectsEnabled = factoryPrograms.front().effectsEnabled;
         currentProgramName = factoryProgramName(0);
     }
 
@@ -265,7 +268,9 @@ void OpalineAudioProcessor::setCurrentProgram(const int index)
 
     const int safeIndex = juce::jlimit(0, static_cast<int>(factoryPrograms.size()) - 1, index);
     state.performance.voiceAIndex = safeIndex;
-    state.patch = opaline::normalizePatch(factoryPrograms[static_cast<std::size_t>(safeIndex)].patch);
+    const auto& selectedProgram = factoryPrograms[static_cast<std::size_t>(safeIndex)];
+    state.patch = opaline::normalizePatch(selectedProgram.patch);
+    state.effectsEnabled = selectedProgram.effectsEnabled;
     currentProgramName = factoryProgramName(safeIndex);
     applyStateToEngine();
     syncParametersFromState();
@@ -729,28 +734,28 @@ void OpalineAudioProcessor::syncParametersFromState()
 void OpalineAudioProcessor::loadFactoryPrograms()
 {
     factoryPrograms.clear();
-    auto bank = opaline::makeInitVoiceBank("Factory");
-
-#ifdef OPALINE_ASSET_DIR
-    const auto syxFile = juce::File(juce::String(OPALINE_ASSET_DIR)).getChildFile("factory.syx");
-    juce::MemoryBlock data;
-    if (syxFile.existsAsFile() && syxFile.loadFileAsData(data))
+    auto library = opaline::makeInitVoiceLibrary();
+    const auto factoryXml = juce::parseXML(juce::String::fromUTF8(
+        OpalineBinaryData::factory_opalinelibrary_xml,
+        OpalineBinaryData::factory_opalinelibrary_xmlSize));
+    const bool loadedFactoryLibrary = factoryXml != nullptr
+        && opalineapp::voiceLibraryFromXml(*factoryXml, library);
+    if (!loadedFactoryLibrary)
     {
-        const auto* begin = static_cast<const std::uint8_t*>(data.getData());
-        const std::vector<std::uint8_t> bytes(begin, begin + data.getSize());
         try
         {
-            bank = opaline::voiceBankFromSysex(bytes, "Factory");
+            const auto* begin = reinterpret_cast<const std::uint8_t*>(OpalineBinaryData::factory_syx);
+            const std::vector<std::uint8_t> bytes(begin, begin + OpalineBinaryData::factory_syxSize);
+            library.banks[0] = opaline::voiceBankFromSysex(bytes, "Factory");
         }
         catch (const std::exception&)
         {
-            bank = opaline::makeInitVoiceBank("Factory");
+            library.banks[0] = opaline::makeInitVoiceBank("Factory");
         }
     }
-#endif
 
     factoryPrograms.reserve(opaline::kOpalineVoiceBankSize);
-    for (const auto& voice : bank.voices)
+    for (const auto& voice : library.banks[0].voices)
         factoryPrograms.push_back(voice);
 }
 

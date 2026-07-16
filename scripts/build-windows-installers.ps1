@@ -1,5 +1,5 @@
 param(
-    [string] $Version = "0.3.1",
+    [string] $Version = "",
     [string] $Configuration = "Release",
     [string] $BuildDirectory = "",
     [string] $Generator = "Visual Studio 18 2026",
@@ -10,11 +10,6 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-if ([string]::IsNullOrWhiteSpace($BuildDirectory)) {
-    $BuildDirectory = "build\release-$Version"
-}
-$buildRoot = Join-Path $repoRoot $BuildDirectory
-$artifactRoot = Join-Path $buildRoot "OpalineFM_Plugin_artefacts\$Configuration"
 $versionFile = Join-Path $repoRoot "cmake\OpalineVersion.cmake"
 $versionText = Get-Content $versionFile -Raw
 
@@ -22,9 +17,17 @@ $major = [regex]::Match($versionText, 'OPALINE_VERSION_MAJOR\s+([0-9]+)').Groups
 $minor = [regex]::Match($versionText, 'OPALINE_VERSION_MINOR\s+([0-9]+)').Groups[1].Value
 $patch = [regex]::Match($versionText, 'OPALINE_VERSION_PATCH\s+([0-9]+)').Groups[1].Value
 $sourceVersion = "$major.$minor.$patch"
+if ([string]::IsNullOrWhiteSpace($Version)) {
+    $Version = $sourceVersion
+}
 if ($sourceVersion -ne $Version) {
     throw "Requested installer version $Version does not match source version $sourceVersion."
 }
+if ([string]::IsNullOrWhiteSpace($BuildDirectory)) {
+    $BuildDirectory = "build\release-$Version"
+}
+$buildRoot = Join-Path $repoRoot $BuildDirectory
+$artifactRoot = Join-Path $buildRoot "OpalineFM_Plugin_artefacts\$Configuration"
 
 if (-not $SkipBuild) {
     $configureArguments = @("-S", $repoRoot, "-B", $buildRoot, "-DOPALINE_AUTO_INCREMENT_VERSION=OFF")

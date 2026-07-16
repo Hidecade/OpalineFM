@@ -27,6 +27,7 @@ struct OpalinePatchWithMetadata
     // patchは編集用、vmemは元SysExを保つためのバックアップ。
     OpalinePatch patch;
     std::string name;
+    bool effectsEnabled = true;
     bool hasVmem = false;
     std::array<std::uint8_t, kOpalineVmemVoiceSize> vmem {};
 };

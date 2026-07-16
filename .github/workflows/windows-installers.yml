@@ -1,0 +1,29 @@
+name: Windows Installers
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Inno Setup
+        shell: powershell
+        run: choco install innosetup --yes --no-progress
+
+      - name: Build installers
+        shell: powershell
+        run: ./scripts/build-windows-installers.ps1 -Generator "Visual Studio 17 2022"
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpalineFM-Windows-installers
+          path: dist/*.exe
+          if-no-files-found: error

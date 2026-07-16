@@ -1,7 +1,9 @@
 #include "MainComponent.h"
 
 #include "App/OpalineStateSerialization.h"
+#include "App/OpalineVoiceLibraryXml.h"
 #include "Engine/OpalineTables.h"
+#include "OpalineBinaryData.h"
 
 #include <algorithm>
 #include <cstring>
@@ -62,91 +64,6 @@ bool writeBinaryFile(const juce::File& file, const std::vector<std::uint8_t>& by
         return false;
 
     return output.write(bytes.data(), static_cast<int>(bytes.size()));
-}
-
-juce::ValueTree voiceToValueTree(const opaline::OpalinePatchWithMetadata& voice, const int index)
-{
-    juce::ValueTree tree { "Voice" };
-    tree.setProperty("index", index, nullptr);
-    tree.setProperty("name", juce::String(voice.name), nullptr);
-
-    const auto vmem = opaline::encodeCompatibleVmemVoice(voice);
-    juce::MemoryBlock block(vmem.data(), vmem.size());
-    tree.setProperty("vmem", block.toBase64Encoding(), nullptr);
-    return tree;
-}
-
-juce::ValueTree bankToValueTree(const opaline::OpalineVoiceBank& bank, const int index)
-{
-    juce::ValueTree tree { "Bank" };
-    tree.setProperty("index", index, nullptr);
-    tree.setProperty("name", juce::String(bank.name), nullptr);
-
-    for (int i = 0; i < opaline::kOpalineVoiceBankSize; ++i)
-        tree.addChild(voiceToValueTree(bank.voices[static_cast<std::size_t>(i)], i), -1, nullptr);
-
-    return tree;
-}
-
-std::unique_ptr<juce::XmlElement> voiceLibraryToXml(const opaline::OpalineVoiceLibrary& library)
-{
-    juce::ValueTree tree { "compatibleVoiceLibrary" };
-    tree.setProperty("version", 1, nullptr);
-    for (int i = 0; i < opaline::kOpalineVoiceBankCount; ++i)
-        tree.addChild(bankToValueTree(library.banks[static_cast<std::size_t>(i)], i), -1, nullptr);
-
-    return tree.createXml();
-}
-
-bool voiceLibraryFromXml(const juce::XmlElement& xml, opaline::OpalineVoiceLibrary& library)
-{
-    const auto tree = juce::ValueTree::fromXml(xml);
-    if (!tree.hasType("compatibleVoiceLibrary"))
-        return false;
-
-    auto restored = opaline::makeInitVoiceLibrary();
-    for (int childIndex = 0; childIndex < tree.getNumChildren(); ++childIndex)
-    {
-        const auto bankTree = tree.getChild(childIndex);
-        if (!bankTree.hasType("Bank"))
-            continue;
-
-        const int bankIndex = juce::jlimit(0,
-                                           opaline::kOpalineVoiceBankCount - 1,
-                                           static_cast<int>(bankTree.getProperty("index", childIndex)));
-        auto& bank = restored.banks[static_cast<std::size_t>(bankIndex)];
-        const auto bankName = bankTree.getProperty("name").toString();
-        if (bankName.isNotEmpty())
-            bank.name = bankName.toStdString();
-
-        for (int voiceChild = 0; voiceChild < bankTree.getNumChildren(); ++voiceChild)
-        {
-            const auto voiceTree = bankTree.getChild(voiceChild);
-            if (!voiceTree.hasType("Voice"))
-                continue;
-
-            const int voiceIndex = juce::jlimit(0,
-                                                opaline::kOpalineVoiceBankSize - 1,
-                                                static_cast<int>(voiceTree.getProperty("index", voiceChild)));
-            juce::MemoryBlock block;
-            if (!block.fromBase64Encoding(voiceTree.getProperty("vmem").toString())
-                || block.getSize() != static_cast<std::size_t>(opaline::kOpalineVmemVoiceSize))
-            {
-                continue;
-            }
-
-            std::array<std::uint8_t, opaline::kOpalineVmemVoiceSize> vmem {};
-            std::memcpy(vmem.data(), block.getData(), vmem.size());
-            auto voice = opaline::decodeCompatibleVmemVoice(vmem);
-            const auto name = voiceTree.getProperty("name").toString();
-            if (name.isNotEmpty())
-                voice.name = name.toStdString();
-            bank.voices[static_cast<std::size_t>(voiceIndex)] = voice;
-        }
-    }
-
-    library = std::move(restored);
-    return true;
 }
 
 std::unique_ptr<juce::XmlElement> singleVoiceToXml(const opaline::OpalinePatch& patch, const juce::String& name)
@@ -2891,13 +2808,17 @@ void MainComponent::loadFactoryVoices()
 {
     voiceLibrary = opaline::makeInitVoiceLibrary();
 
-#ifdef OPALINE_ASSET_DIR
-    const auto syxFile = juce::File(juce::String(OPALINE_ASSET_DIR)).getChildFile("factory.syx");
-    const auto bytes = readBinaryFile(syxFile);
-    if (!bytes.empty())
+    const auto factoryXml = juce::parseXML(juce::String::fromUTF8(
+        OpalineBinaryData::factory_opalinelibrary_xml,
+        OpalineBinaryData::factory_opalinelibrary_xmlSize));
+    const bool loadedFactoryLibrary = factoryXml != nullptr
+        && opalineapp::voiceLibraryFromXml(*factoryXml, voiceLibrary);
+    if (!loadedFactoryLibrary)
     {
         try
         {
+            const auto* begin = reinterpret_cast<const std::uint8_t*>(OpalineBinaryData::factory_syx);
+            const std::vector<std::uint8_t> bytes(begin, begin + OpalineBinaryData::factory_syxSize);
             voiceLibrary.banks[0] = opaline::voiceBankFromSysex(bytes, "Factory");
         }
         catch (const std::exception&)
@@ -2905,7 +2826,6 @@ void MainComponent::loadFactoryVoices()
             voiceLibrary.banks[0] = opaline::makeInitVoiceBank("Factory");
         }
     }
-#endif
 
     currentVoiceBankIndex = 0;
     restoreSavedVoiceLibraryState();
@@ -2970,6 +2890,7 @@ void MainComponent::storeCurrentPatchToSelectedVoice()
     const int voiceIndex = juce::jlimit(0, opaline::kOpalineVoiceBankSize - 1, performanceState.voiceAIndex);
     auto& voice = voiceLibrary.banks[static_cast<std::size_t>(currentVoiceBankIndex)].voices[static_cast<std::size_t>(voiceIndex)];
     voice.patch = opaline::normalizePatch(currentPatch);
+    voice.effectsEnabled = effectsEnabled;
     voice.name = currentVoiceName.trim().substring(0, 10).toStdString();
     if (voice.name.empty())
         voice.name = "VOICE " + std::to_string(voiceIndex + 1);
@@ -3016,7 +2937,7 @@ void MainComponent::loadVoiceLibraryFromFile(const juce::File& file)
     {
         const auto xml = juce::parseXML(file.loadFileAsString());
         opaline::OpalineVoiceLibrary imported;
-        if (xml == nullptr || !voiceLibraryFromXml(*xml, imported))
+        if (xml == nullptr || !opalineapp::voiceLibraryFromXml(*xml, imported))
         {
             statusLabel.setText("Library load failed: invalid file", juce::dontSendNotification);
             return;
@@ -3094,7 +3015,7 @@ void MainComponent::exportVoiceLibraryToFile(const juce::File& file)
 {
     try
     {
-        const auto xml = voiceLibraryToXml(voiceLibrary);
+        const auto xml = opalineapp::voiceLibraryToXml(voiceLibrary);
         if (xml == nullptr || !xml->writeTo(file))
         {
             statusLabel.setText("Library export failed", juce::dontSendNotification);
@@ -3119,7 +3040,7 @@ bool MainComponent::restoreSavedVoiceLibraryState()
     if (stateFile.existsAsFile())
     {
         const auto xml = juce::parseXML(stateFile.loadFileAsString());
-        restoredLibrary = xml != nullptr && voiceLibraryFromXml(*xml, voiceLibrary);
+        restoredLibrary = xml != nullptr && opalineapp::voiceLibraryFromXml(*xml, voiceLibrary);
     }
 
     if (!restoredLibrary)
@@ -3129,7 +3050,7 @@ bool MainComponent::restoreSavedVoiceLibraryState()
             return false;
 
         const auto xml = juce::parseXML(xmlText);
-        if (xml == nullptr || !voiceLibraryFromXml(*xml, voiceLibrary))
+        if (xml == nullptr || !opalineapp::voiceLibraryFromXml(*xml, voiceLibrary))
             return false;
     }
 
@@ -3150,7 +3071,7 @@ bool MainComponent::restoreSavedVoiceLibraryState()
 void MainComponent::saveVoiceLibraryState()
 {
     juce::PropertiesFile settings(settingsOptions());
-    const auto xml = voiceLibraryToXml(voiceLibrary);
+    const auto xml = opalineapp::voiceLibraryToXml(voiceLibrary);
     if (xml != nullptr)
     {
         const auto stateFile = voiceLibraryStateFile();
@@ -3186,8 +3107,11 @@ void MainComponent::applySelectedVoice(const int selectedId)
     voiceSelect.changeItemText(previousIndex + 1, displayNameForVoice(previousIndex, factoryVoices[static_cast<std::size_t>(previousIndex)]));
     performanceState.voiceAIndex = index;
     voiceSelect.setSelectedId(id, juce::dontSendNotification);
-    currentPatch = factoryVoices[static_cast<std::size_t>(index)].patch;
-    currentVoiceName = juce::String(factoryVoices[static_cast<std::size_t>(index)].name).substring(0, 10);
+    const auto& selectedVoice = factoryVoices[static_cast<std::size_t>(index)];
+    currentPatch = selectedVoice.patch;
+    currentVoiceName = juce::String(selectedVoice.name).substring(0, 10);
+    effectsEnabled = selectedVoice.effectsEnabled;
+    effectsEnableButton.setToggleState(effectsEnabled, juce::dontSendNotification);
     modWheelPitchRange = juce::jlimit(0, 99, currentPatch.lfo.pitchDepth);
     modWheelAmpRange = juce::jlimit(0, 99, currentPatch.lfo.ampDepth);
     modWheelPitchRangeSlider.setValue(modWheelPitchRange, juce::dontSendNotification);

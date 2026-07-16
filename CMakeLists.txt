@@ -97,6 +97,14 @@ endif()
 if (OPALINE_RESOLVED_JUCE_DIR)
     add_subdirectory("${OPALINE_RESOLVED_JUCE_DIR}" "${CMAKE_BINARY_DIR}/JUCE")
 
+    juce_add_binary_data(OpalineFM_Assets
+        NAMESPACE OpalineBinaryData
+        HEADER_NAME OpalineBinaryData.h
+        SOURCES
+            assets/factory.opalinelibrary.xml
+            assets/factory.syx
+    )
+
     if (OPALINE_BUILD_STANDALONE)
     juce_add_gui_app(OpalineFM_Standalone
         PRODUCT_NAME "Opaline FM"
@@ -112,6 +120,8 @@ if (OPALINE_RESOLVED_JUCE_DIR)
             Source/App/Main.cpp
             Source/App/OpalineAppState.h
             Source/App/OpalineStateSerialization.h
+            Source/App/OpalineVoiceLibraryXml.cpp
+            Source/App/OpalineVoiceLibraryXml.h
             Source/App/MainComponent.cpp
             Source/App/MainComponent.h
     )
@@ -122,12 +132,12 @@ if (OPALINE_RESOLVED_JUCE_DIR)
             JUCE_USE_CURL=0
             JUCE_ASIO=1
             JUCE_ASIO_USE_EXTERNAL_SDK=0
-            OPALINE_ASSET_DIR="${CMAKE_CURRENT_SOURCE_DIR}/assets"
     )
 
     target_link_libraries(OpalineFM_Standalone
         PRIVATE
             opaline_engine
+            OpalineFM_Assets
             juce::juce_audio_utils
             juce::juce_gui_extra
         PUBLIC
@@ -166,6 +176,8 @@ if (OPALINE_RESOLVED_JUCE_DIR)
         PRIVATE
             Source/App/OpalineAppState.h
             Source/App/OpalineStateSerialization.h
+            Source/App/OpalineVoiceLibraryXml.cpp
+            Source/App/OpalineVoiceLibraryXml.h
             Source/App/MainComponent.cpp
             Source/App/MainComponent.h
             Source/Plugin/PluginEditor.cpp
@@ -182,7 +194,6 @@ if (OPALINE_RESOLVED_JUCE_DIR)
             JUCE_ASIO_USE_EXTERNAL_SDK=0
             JUCE_VST3_CAN_REPLACE_VST2=0
             JUCE_STANDALONE_STATE_FILE_SUFFIX=".opalinefmstate"
-            OPALINE_ASSET_DIR="${CMAKE_CURRENT_SOURCE_DIR}/assets"
     )
 
     if (MSVC)
@@ -192,6 +203,7 @@ if (OPALINE_RESOLVED_JUCE_DIR)
     target_link_libraries(OpalineFM_Plugin
         PRIVATE
             opaline_engine
+            OpalineFM_Assets
             juce::juce_audio_devices
             juce::juce_audio_processors
             juce::juce_audio_utils
