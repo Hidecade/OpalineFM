@@ -8,24 +8,21 @@ struct PlayView: View {
     @State private var importingFile = false
     @State private var exportingData = false
     @State private var exportFileURL: URL?
-    @State private var keyboardBaseNote = 53
+    @State private var keyboardBaseNote = 48
+    @State private var keyboardScrollWhiteIndex: CGFloat = 16
     @State private var activeVoicePicker: VoicePickerTarget?
     @State private var showingBankPicker = false
     @State private var showingModePicker = false
     @State private var screenSafeAreaInsets = UIEdgeInsets.zero
+    private let keyboardVisibleWhiteKeyCount = 17
 
     var body: some View {
         GeometryReader { proxy in
-            let horizontalInset: CGFloat = 6
             let verticalInset: CGFloat = 6
             let panelGap: CGFloat = 2
-            let safeWidth = proxy.size.width
-                - screenSafeAreaInsets.left
-                - screenSafeAreaInsets.right
-            let contentWidth = max(1, safeWidth - horizontalInset * 2)
+            let contentWidth = max(1, proxy.size.width)
             let contentHeight = max(1, proxy.size.height - verticalInset * 2)
             let keyboardWidth = proxy.size.width
-            let safeAreaOffsetX = (screenSafeAreaInsets.left - screenSafeAreaInsets.right) / 2
             let lowerHeight = max(118, contentHeight * 0.5 - 8)
             let topHeight = max(1, contentHeight - lowerHeight - panelGap)
 
@@ -33,16 +30,13 @@ struct PlayView: View {
                 VStack(spacing: panelGap) {
                     mainPanel
                         .frame(width: contentWidth, height: topHeight)
-                        .offset(x: safeAreaOffsetX)
+                        .ignoresSafeArea(.container, edges: .horizontal)
 
                     keyboardPanel(width: keyboardWidth, height: lowerHeight)
                         .ignoresSafeArea(.container, edges: .horizontal)
                 }
                 .padding(.vertical, verticalInset)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-
-                octaveCornerControls(size: proxy.size, height: lowerHeight)
-                    .zIndex(5)
 
                 if let activeVoicePicker {
                     voicePickerOverlay(target: activeVoicePicker, size: proxy.size)
@@ -101,6 +95,10 @@ struct PlayView: View {
 
     private var mainPanel: some View {
         HStack(alignment: .top, spacing: 12) {
+            keyboardShiftControls(direction: .down)
+                .frame(width: 58)
+                .frame(maxHeight: .infinity)
+
             VStack(spacing: 6) {
                 playEditSwitch
                     .frame(height: 28)
@@ -119,10 +117,61 @@ struct PlayView: View {
             knobPanel
                 .frame(width: 124)
                 .frame(maxHeight: .infinity, alignment: .top)
+
+            keyboardShiftControls(direction: .up)
+                .frame(width: 58)
+                .frame(maxHeight: .infinity)
         }
         .padding(8)
         .background(MetalPanel())
         .clipped()
+    }
+
+    private func keyboardShiftControls(direction: KeyboardShiftDirection) -> some View {
+        VStack(spacing: 4) {
+            switch direction {
+            case .down:
+                PanelButton(
+                    "-1",
+                    color: .dark,
+                    disabled: previousWhiteKeyboardBaseNote(from: keyboardBaseNote) == keyboardBaseNote
+                ) {
+                    shiftKeyboardByWhiteKey(-1)
+                }
+                .frame(height: 48)
+
+                PanelButton(
+                    "OCT-",
+                    color: .dark,
+                    disabled: keyboardBaseNote <= 21
+                ) {
+                    shiftKeyboardOctave(-1)
+                }
+                .frame(height: 48)
+            case .up:
+                PanelButton(
+                    "+1",
+                    color: .dark,
+                    disabled: nextWhiteKeyboardBaseNote(from: keyboardBaseNote) == keyboardBaseNote
+                ) {
+                    shiftKeyboardByWhiteKey(1)
+                }
+                .frame(height: 48)
+
+                PanelButton(
+                    "OCT+",
+                    color: .dark,
+                    disabled: keyboardBaseNote >= 82
+                ) {
+                    shiftKeyboardOctave(1)
+                }
+                .frame(height: 48)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.top, 6)
+        .frame(maxHeight: .infinity, alignment: .top)
     }
 
     private var rightPanel: some View {
@@ -161,7 +210,7 @@ struct PlayView: View {
                     .frame(width: cellWidth(width, 4, 1) - buttonInset * 2, height: buttonHeight)
                     .position(x: cellMidX(width, 4, 1), y: bankY + rowHeight / 2)
 
-                PanelButton("EXPORT", color: .blue) { exportVoiceLibrary() }
+                PanelButton("INIT", color: .red) { initializeCurrentBankFromFactory() }
                     .frame(width: cellWidth(width, 5, 1) - buttonInset * 2, height: buttonHeight)
                     .position(x: cellMidX(width, 5, 1), y: bankY + rowHeight / 2)
 
@@ -173,7 +222,10 @@ struct PlayView: View {
                     .frame(width: cellWidth(width, 0, 3) - buttonInset * 2, height: topControlHeight)
                     .position(x: cellMidX(width, 0, 3), y: voiceY + rowHeight / 2)
 
-                voiceNavigation(previous: { synth.previousVoice() }, next: { synth.nextVoice() })
+                voiceNavigation(
+                    previous: { changeVoice { synth.previousVoice() } },
+                    next: { changeVoice { synth.nextVoice() } }
+                )
                 .frame(width: navigationWidth(width), height: buttonHeight)
                 .position(x: cellMidX(width, 3, 1), y: voiceY + rowHeight / 2)
 
@@ -195,7 +247,10 @@ struct PlayView: View {
                         .frame(width: cellWidth(width, 0, 3) - buttonInset * 2, height: topControlHeight)
                         .position(x: cellMidX(width, 0, 3), y: actionY + rowHeight / 2)
 
-                    voiceNavigation(previous: { synth.previousVoiceB() }, next: { synth.nextVoiceB() })
+                    voiceNavigation(
+                        previous: { changeVoice { synth.previousVoiceB() } },
+                        next: { changeVoice { synth.nextVoiceB() } }
+                    )
                     .frame(width: navigationWidth(width), height: buttonHeight)
                     .position(x: cellMidX(width, 3, 1), y: actionY + rowHeight / 2)
 
@@ -434,13 +489,13 @@ struct PlayView: View {
     private func keyboardPanel(width: CGFloat, height: CGFloat) -> some View {
         MobileKeyboardView(
             baseNote: $keyboardBaseNote,
-            noteCount: keyboardBaseNote == 82 ? 27 : 28
+            visibleWhiteKeyCount: keyboardVisibleWhiteKeyCount,
+            scrollWhiteIndex: keyboardScrollWhiteIndex
         )
             .environmentObject(synth)
             .frame(width: width, height: height)
-        .frame(width: width, height: height)
-        .clipped()
-        .layoutPriority(1)
+            .clipped()
+            .layoutPriority(1)
     }
 
     private func octaveCornerControls(size: CGSize, height: CGFloat) -> some View {
@@ -450,20 +505,36 @@ struct PlayView: View {
         let cornerClearance: CGFloat = 44
 
         return HStack(alignment: .top, spacing: 0) {
-            CornerOctaveButton(
-                title: "OCT-",
-                disabled: keyboardBaseNote <= 21,
-                action: { shiftKeyboardOctave(-1) }
-            )
+            VStack(spacing: 4) {
+                CornerOctaveButton(
+                    title: "-1",
+                    disabled: previousWhiteKeyboardBaseNote(from: keyboardBaseNote) == keyboardBaseNote,
+                    action: { shiftKeyboardByWhiteKey(-1) }
+                )
+
+                CornerOctaveButton(
+                    title: "OCT-",
+                    disabled: keyboardBaseNote <= 21,
+                    action: { shiftKeyboardOctave(-1) }
+                )
+            }
             .frame(width: leftWidth, height: buttonHeight)
 
             Spacer(minLength: 0)
 
-            CornerOctaveButton(
-                title: "OCT+",
-                disabled: keyboardBaseNote >= 82,
-                action: { shiftKeyboardOctave(1) }
-            )
+            VStack(spacing: 4) {
+                CornerOctaveButton(
+                    title: "+1",
+                    disabled: nextWhiteKeyboardBaseNote(from: keyboardBaseNote) == keyboardBaseNote,
+                    action: { shiftKeyboardByWhiteKey(1) }
+                )
+
+                CornerOctaveButton(
+                    title: "OCT+",
+                    disabled: keyboardBaseNote >= 82,
+                    action: { shiftKeyboardOctave(1) }
+                )
+            }
             .frame(width: rightWidth, height: buttonHeight)
         }
         .frame(width: size.width, height: size.height, alignment: .top)
@@ -472,24 +543,92 @@ struct PlayView: View {
         .allowsHitTesting(true)
     }
 
+    private func shiftKeyboardByWhiteKey(_ delta: Int) {
+        let nextBaseNote = delta > 0
+            ? nextWhiteKeyboardBaseNote(from: keyboardBaseNote)
+            : previousWhiteKeyboardBaseNote(from: keyboardBaseNote)
+        setKeyboardBaseNote(nextBaseNote, duration: 0.28)
+    }
+
     private func shiftKeyboardOctave(_ delta: Int) {
+        let nextBaseNote: Int
         if delta > 0 {
             if keyboardBaseNote >= 77 {
-                keyboardBaseNote = 82
+                nextBaseNote = 82
             } else if keyboardBaseNote == 21 {
-                keyboardBaseNote = 29
+                nextBaseNote = 29
             } else {
-                keyboardBaseNote = min(77, keyboardBaseNote + 12)
+                nextBaseNote = min(77, keyboardBaseNote + 12)
             }
         } else if delta < 0 {
             if keyboardBaseNote == 82 {
-                keyboardBaseNote = 77
+                nextBaseNote = 77
             } else if keyboardBaseNote <= 29 {
-                keyboardBaseNote = 21
+                nextBaseNote = 21
             } else {
-                keyboardBaseNote = max(29, keyboardBaseNote - 12)
+                nextBaseNote = max(29, keyboardBaseNote - 12)
             }
+        } else {
+            nextBaseNote = keyboardBaseNote
         }
+        setKeyboardBaseNote(nextBaseNote, duration: 0.16)
+    }
+
+    private func setKeyboardBaseNote(_ note: Int, duration: Double) {
+        guard note != keyboardBaseNote else { return }
+        withAnimation(.easeInOut(duration: duration)) {
+            keyboardBaseNote = note
+            keyboardScrollWhiteIndex = CGFloat(clampedWhiteKeyIndexFromKeyboardStart(note))
+        }
+    }
+
+    private func changeVoice(_ action: () -> Void) {
+        action()
+        resetKeyboardToHome()
+    }
+
+    private func resetKeyboardToHome() {
+        let homeNote = 48
+        let homeWhiteIndex = CGFloat(clampedWhiteKeyIndexFromKeyboardStart(homeNote))
+        guard keyboardBaseNote != homeNote || keyboardScrollWhiteIndex != homeWhiteIndex else { return }
+        withAnimation(.easeInOut(duration: 0.18)) {
+            keyboardBaseNote = homeNote
+            keyboardScrollWhiteIndex = homeWhiteIndex
+        }
+    }
+
+    private func clampedWhiteKeyIndexFromKeyboardStart(_ note: Int) -> Int {
+        let index = (21..<note).filter { isWhiteKey($0) }.count
+        let whiteKeyTotal = (21...108).filter { isWhiteKey($0) }.count
+        return min(max(0, index), max(0, whiteKeyTotal - keyboardVisibleWhiteKeyCount))
+    }
+
+    private func nextWhiteKeyboardBaseNote(from note: Int) -> Int {
+        guard note < 82 else { return note }
+        var candidate = note + 1
+        while candidate <= 82 {
+            if isWhiteKey(candidate) {
+                return candidate
+            }
+            candidate += 1
+        }
+        return note
+    }
+
+    private func previousWhiteKeyboardBaseNote(from note: Int) -> Int {
+        guard note > 21 else { return note }
+        var candidate = note - 1
+        while candidate >= 21 {
+            if isWhiteKey(candidate) {
+                return candidate
+            }
+            candidate -= 1
+        }
+        return note
+    }
+
+    private func isWhiteKey(_ note: Int) -> Bool {
+        ![1, 3, 6, 8, 10].contains(note % 12)
     }
 
     private var currentVoiceText: String {
@@ -559,10 +698,27 @@ struct PlayView: View {
                 at: directoryURL,
                 withIntermediateDirectories: true
             )
+            installFactoryBankIfNeeded(in: directoryURL)
             return directoryURL
         } catch {
             return nil
         }
+    }
+
+    private func installFactoryBankIfNeeded(in directoryURL: URL) {
+        let factoryURL = directoryURL.appendingPathComponent("factory.syx")
+        let fileManager = FileManager.default
+
+        if !fileManager.fileExists(atPath: factoryURL.path),
+           let bundledFactoryURL = Bundle.main.url(forResource: "factory", withExtension: "syx") {
+            try? fileManager.copyItem(at: bundledFactoryURL, to: factoryURL)
+        }
+
+        guard fileManager.fileExists(atPath: factoryURL.path) else { return }
+        try? fileManager.setAttributes(
+            [.posixPermissions: NSNumber(value: Int16(0o444))],
+            ofItemAtPath: factoryURL.path
+        )
     }
 
     private func handleImport(_ result: Result<URL, Error>) {
@@ -592,10 +748,41 @@ struct PlayView: View {
         do {
             let data = try Data(contentsOf: url)
             let loaded = synth.loadVoiceBank(data: data, fileName: url.deletingPathExtension().lastPathComponent)
+            if loaded {
+                resetKeyboardToHome()
+            }
             synth.audioStatus = loaded ? "Bank loaded" : "Bank load failed"
         } catch {
             synth.audioStatus = "Bank load failed"
         }
+    }
+
+    private func initializeCurrentBankFromFactory() {
+        guard let factoryURL = factoryBankURL() else {
+            synth.audioStatus = "Factory bank not found"
+            return
+        }
+
+        do {
+            let data = try Data(contentsOf: factoryURL)
+            let loaded = synth.loadVoiceBank(data: data, fileName: "Factory")
+            if loaded {
+                resetKeyboardToHome()
+            }
+            synth.audioStatus = loaded ? "Bank initialized" : "Bank init failed"
+        } catch {
+            synth.audioStatus = "Bank init failed"
+        }
+    }
+
+    private func factoryBankURL() -> URL? {
+        if let directoryURL = opalineDocumentsDirectory {
+            let installedURL = directoryURL.appendingPathComponent("factory.syx")
+            if FileManager.default.fileExists(atPath: installedURL.path) {
+                return installedURL
+            }
+        }
+        return Bundle.main.url(forResource: "factory", withExtension: "syx")
     }
 
     private func handleSingleVoiceImport(_ result: Result<URL, Error>) {
@@ -610,6 +797,9 @@ struct PlayView: View {
         do {
             let data = try Data(contentsOf: url)
             let loaded = synth.loadSingleVoice(data: data, fileName: url.deletingPathExtension().lastPathComponent)
+            if loaded {
+                resetKeyboardToHome()
+            }
             synth.audioStatus = loaded ? "Single voice loaded" : "Single voice load failed"
         } catch {
             synth.audioStatus = "Single voice load failed"
@@ -624,7 +814,7 @@ struct PlayView: View {
 
     private func exportCurrentBank() {
         let bankName = sanitizedFilenamePart(synth.bankName)
-        let filename = bankName.isEmpty
+        let filename = bankName.isEmpty || bankName.lowercased() == "factory"
             ? "OpalineFM_Bank_\(synth.bankIndex + 1).syx"
             : "\(bankName).syx"
         prepareExport(data: synth.currentVoiceBankSysexData(), filename: filename)
@@ -643,9 +833,10 @@ struct PlayView: View {
             return
         }
 
+        let safeFilename = filename.lowercased() == "factory.syx" ? "Factory Copy.syx" : filename
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("OpalineFMExports", isDirectory: true)
-        let fileURL = temporaryDirectory.appendingPathComponent(filename)
+        let fileURL = temporaryDirectory.appendingPathComponent(safeFilename)
 
         do {
             try FileManager.default.createDirectory(
@@ -700,10 +891,12 @@ struct PlayView: View {
                 names: synth.voiceNames,
                 selectedIndex: target == .voiceA ? synth.voiceIndex : synth.voiceBIndex,
                 onSelect: { index in
-                    if target == .voiceA {
-                        synth.selectVoice(bank: synth.bankIndex, voice: index)
-                    } else {
-                        synth.selectVoiceB(index)
+                    changeVoice {
+                        if target == .voiceA {
+                            synth.selectVoice(bank: synth.bankIndex, voice: index)
+                        } else {
+                            synth.selectVoiceB(index)
+                        }
                     }
                     activeVoicePicker = nil
                 },
@@ -730,7 +923,9 @@ struct PlayView: View {
                 options: bankOptions,
                 selectedIndex: synth.bankIndex,
                 onSelect: { index in
-                    synth.selectBank(index)
+                    changeVoice {
+                        synth.selectBank(index)
+                    }
                     showingBankPicker = false
                 },
                 onClose: {
@@ -780,6 +975,11 @@ struct PlayView: View {
 private enum VoicePickerTarget {
     case voiceA
     case voiceB
+}
+
+private enum KeyboardShiftDirection {
+    case down
+    case up
 }
 
 private enum ImportTarget {
@@ -1022,11 +1222,13 @@ private enum ButtonTone {
 private struct PanelButton: View {
     let title: String
     let color: ButtonTone
+    let disabled: Bool
     let action: () -> Void
 
-    init(_ title: String, color: ButtonTone, action: @escaping () -> Void) {
+    init(_ title: String, color: ButtonTone, disabled: Bool = false, action: @escaping () -> Void) {
         self.title = title
         self.color = color
+        self.disabled = disabled
         self.action = action
     }
 
@@ -1043,6 +1245,8 @@ private struct PanelButton: View {
                 .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.black.opacity(0.55), lineWidth: 1))
         }
         .buttonStyle(.plain)
+        .disabled(disabled)
+        .opacity(disabled ? 0.45 : 1)
     }
 
     private var buttonFill: some View {

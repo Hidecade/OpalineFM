@@ -21,20 +21,9 @@ struct EditView: View {
                     ZStack(alignment: .topLeading) {
                         Color.clear
 
-                        Group {
-                            switch selectedTab {
-                            case .op1, .op2, .op3, .op4:
-                                OperatorEditPage(index: selectedTab.operatorIndex ?? 0, values: $values)
-                            case .lfoPitchEg:
-                                LfoPitchEgEditPage(values: $values, lfoWave: $lfoWave, syncEnabled: $syncEnabled)
-                            case .fx:
-                                FxEditPage(values: $values)
-                            case .setting:
-                                SettingEditPage()
-                            }
-                        }
-                        .frame(width: EditLayout.totalPanelWidth, alignment: .topLeading)
-                        .frame(maxHeight: .infinity, alignment: .top)
+                        currentEditPage
+                            .frame(width: EditLayout.totalPanelWidth, alignment: .topLeading)
+                            .frame(maxHeight: .infinity, alignment: .top)
                     }
                     .frame(width: EditLayout.totalPanelWidth)
                     .frame(maxHeight: .infinity)
@@ -43,6 +32,7 @@ struct EditView: View {
             }
             .padding(8)
             .frame(width: proxy.size.width, height: proxy.size.height)
+            .background(EditBackPanel())
             .background(EditSkin.appBackground)
             .onAppear {
                 synth.refreshEditValues()
@@ -52,6 +42,20 @@ struct EditView: View {
                 synth.refreshMIDISettings()
                 synth.refreshAudioDevices()
             }
+        }
+    }
+
+    @ViewBuilder
+    private var currentEditPage: some View {
+        switch selectedTab {
+        case .op1, .op2, .op3, .op4:
+            OperatorEditPage(index: selectedTab.operatorIndex ?? 0, values: $values)
+        case .lfoPitchEg:
+            LfoPitchEgEditPage(values: $values, lfoWave: $lfoWave, syncEnabled: $syncEnabled)
+        case .fx:
+            FxEditPage(values: $values)
+        case .setting:
+            SettingEditPage()
         }
     }
 
@@ -1220,6 +1224,15 @@ private enum EditLayout {
     static let panelHeight: CGFloat = 304
 }
 
+private struct EditBackPanel: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: 3)
+            .fill(LinearGradient(colors: [EditSkin.panelTop, EditSkin.panelBottom], startPoint: .top, endPoint: .bottom))
+            .overlay(RoundedRectangle(cornerRadius: 3).stroke(EditSkin.panelBorder, lineWidth: 1))
+            .shadow(color: .black.opacity(0.45), radius: 2, x: 0, y: 2)
+    }
+}
+
 private struct EditPanel<Content: View>: View {
     let title: String
     var contentPadding: CGFloat = 8
@@ -1794,7 +1807,7 @@ private enum ActiveButtonColor {
 }
 
 private enum EditSkin {
-    static let appBackground = Color.black
+    static let appBackground = Color(hexValue: 0x020405)
     static let panelTop = Color(hexValue: 0x2c2a21)
     static let panelBottom = Color(hexValue: 0x151610)
     static let panelBorder = Color(hexValue: 0x6a614d).opacity(0.50)

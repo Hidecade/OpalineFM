@@ -1,12 +1,37 @@
 import SwiftUI
 import UIKit
 
-struct MobileKeyboardView: View {
+private let keyboardAllWhiteNotes: [Int] = (21...108).filter { !keyboardIsBlack($0) }
+private let keyboardBlackKeys: [KeyboardBlackKey] = (21...108)
+    .filter { keyboardIsBlack($0) }
+    .map { note in
+        KeyboardBlackKey(
+            note: note,
+            whiteBefore: keyboardAllWhiteNotes.firstIndex(where: { $0 >= note }) ?? keyboardAllWhiteNotes.count
+        )
+    }
+
+private func keyboardIsBlack(_ note: Int) -> Bool {
+    switch note % 12 {
+    case 1, 3, 6, 8, 10:
+        return true
+    default:
+        return false
+    }
+}
+
+struct MobileKeyboardView: View, Animatable {
     @EnvironmentObject private var synth: MobileSynthModel
     @State private var activeNotes: [Int: Int] = [:]
 
     @Binding var baseNote: Int
-    let noteCount: Int
+    let visibleWhiteKeyCount: Int
+    var scrollWhiteIndex: CGFloat
+
+    var animatableData: CGFloat {
+        get { scrollWhiteIndex }
+        set { scrollWhiteIndex = newValue }
+    }
 
     var body: some View {
         ZStack {
@@ -18,7 +43,8 @@ struct MobileKeyboardView: View {
                 synth: synth,
                 baseNote: baseNote,
                 activeNotes: $activeNotes,
-                noteCount: noteCount
+                visibleWhiteKeyCount: visibleWhiteKeyCount,
+                scrollWhiteIndex: scrollWhiteIndex
             )
         }
         .accessibilityLabel("Mobile keyboard")
@@ -32,6 +58,7 @@ struct MobileKeyboardView: View {
 
     private func drawKeyboard(context: inout GraphicsContext, size: CGSize) {
         guard size.width > 0, size.height > 0 else { return }
+        let activeNotes = displayedActiveNotes
 
         let baseArea = CGRect(origin: .zero, size: size).insetBy(dx: 0, dy: 0)
         context.fill(Path(baseArea), with: .linearGradient(
@@ -46,19 +73,24 @@ struct MobileKeyboardView: View {
             width: max(1, baseArea.width),
             height: max(1, baseArea.height - 3)
         )
-        let whiteOffsets = whiteNotes
-        let whiteWidth = keyArea.width / CGFloat(max(1, whiteOffsets.count))
+        let whiteWidth = keyArea.width / CGFloat(max(1, visibleWhiteKeyCount))
         let blackHeight = keyArea.height * 0.62
         let blackWidth = whiteWidth * 0.58
+        let scrollX = -scrollWhiteIndex * whiteWidth
+        let firstVisibleWhite = max(0, Int(floor(scrollWhiteIndex)) - 1)
+        let lastVisibleWhite = min(keyboardAllWhiteNotes.count - 1, Int(ceil(scrollWhiteIndex)) + visibleWhiteKeyCount + 1)
 
-        for (index, _) in whiteOffsets.enumerated() {
-            let note = baseNote + whiteOffsets[index]
-            let noteVelocity = displayedActiveNotes[note] ?? 0
+        for index in firstVisibleWhite...lastVisibleWhite {
+            let note = keyboardAllWhiteNotes[index]
+            let noteVelocity = activeNotes[note] ?? 0
             let held = noteVelocity > 0
-            let rect = CGRect(x: keyArea.minX + CGFloat(index) * whiteWidth + 0.45,
+            let rect = CGRect(x: keyArea.minX + scrollX + CGFloat(index) * whiteWidth + 0.45,
                               y: keyArea.minY,
                               width: max(1, whiteWidth - 0.9),
                               height: max(1, keyArea.height - 2))
+            guard rect.maxX >= keyArea.minX - whiteWidth, rect.minX <= keyArea.maxX + whiteWidth else {
+                continue
+            }
             context.fill(Path(rect), with: .linearGradient(
                 Gradient(colors: held
                          ? [Color(hex: 0xb2efff), Color(hex: 0x70cde7)]
@@ -81,25 +113,30 @@ struct MobileKeyboardView: View {
             }
         }
 
-        for offset in blackNotes {
-            let whiteBefore = whiteOffsets.filter { $0 < offset }.count
-            let note = baseNote + offset
-            let noteVelocity = displayedActiveNotes[note] ?? 0
+        for key in keyboardBlackKeys {
+            guard key.whiteBefore >= firstVisibleWhite - 1, key.whiteBefore <= lastVisibleWhite + 1 else {
+                continue
+            }
+            let noteVelocity = activeNotes[key.note] ?? 0
             let held = noteVelocity > 0
-            let x = keyArea.minX + CGFloat(whiteBefore) * whiteWidth - blackWidth * 0.5
+            let x = keyArea.minX + scrollX + CGFloat(key.whiteBefore) * whiteWidth - blackWidth * 0.5
             let rect = CGRect(x: x, y: keyArea.minY - 1, width: blackWidth, height: blackHeight).insetBy(dx: 1.2, dy: 0)
+            guard rect.maxX >= keyArea.minX - blackWidth, rect.minX <= keyArea.maxX + blackWidth else {
+                continue
+            }
             let path = Path(roundedRect: rect, cornerRadius: 1)
 
-            context.drawLayer { layer in
-                layer.addFilter(.shadow(color: .black.opacity(0.72), radius: 2.5, x: 0, y: 3))
-                layer.fill(path, with: .linearGradient(
-                    Gradient(colors: held
-                             ? [Color(hex: 0x284650), Color(hex: 0x0d8aa8)]
-                             : [Color(hex: 0x20201c), Color(hex: 0x050504)]),
-                    startPoint: CGPoint(x: rect.midX, y: rect.minY),
-                    endPoint: CGPoint(x: rect.midX, y: rect.maxY)
-                ))
-            }
+            context.fill(
+                Path(roundedRect: rect.offsetBy(dx: 0, dy: 3), cornerRadius: 1),
+                with: .color(Color.black.opacity(0.28))
+            )
+            context.fill(path, with: .linearGradient(
+                Gradient(colors: held
+                         ? [Color(hex: 0x284650), Color(hex: 0x0d8aa8)]
+                         : [Color(hex: 0x20201c), Color(hex: 0x050504)]),
+                startPoint: CGPoint(x: rect.midX, y: rect.minY),
+                endPoint: CGPoint(x: rect.midX, y: rect.maxY)
+            ))
 
             context.fill(Path(roundedRect: rect.insetBy(dx: 3, dy: 3).withHeight(rect.height * 0.18), cornerRadius: 1),
                          with: .color(Color.white.opacity(held ? 0.16 : 0.08)))
@@ -152,30 +189,26 @@ struct MobileKeyboardView: View {
         )
     }
 
-    private var whiteNotes: [Int] {
-        (0..<noteCount).filter { !isBlack(note: baseNote + $0) }
-    }
+}
 
-    private var blackNotes: [Int] {
-        (0..<noteCount).filter { isBlack(note: baseNote + $0) }
-    }
-
-    private func isBlack(note: Int) -> Bool {
-        [1, 3, 6, 8, 10].contains(note % 12)
-    }
+private struct KeyboardBlackKey {
+    let note: Int
+    let whiteBefore: Int
 }
 
 private struct KeyboardTouchSurface: UIViewRepresentable {
     let synth: MobileSynthModel
     let baseNote: Int
     @Binding var activeNotes: [Int: Int]
-    let noteCount: Int
+    let visibleWhiteKeyCount: Int
+    let scrollWhiteIndex: CGFloat
 
     func makeUIView(context: Context) -> KeyboardTouchSurfaceView {
         let view = KeyboardTouchSurfaceView()
         view.synth = synth
         view.baseNote = baseNote
-        view.noteCount = noteCount
+        view.visibleWhiteKeyCount = visibleWhiteKeyCount
+        view.scrollWhiteIndex = scrollWhiteIndex
         view.onActiveNotesChanged = { activeNotes = $0 }
         return view
     }
@@ -183,7 +216,8 @@ private struct KeyboardTouchSurface: UIViewRepresentable {
     func updateUIView(_ uiView: KeyboardTouchSurfaceView, context: Context) {
         uiView.synth = synth
         uiView.baseNote = baseNote
-        uiView.noteCount = noteCount
+        uiView.visibleWhiteKeyCount = visibleWhiteKeyCount
+        uiView.scrollWhiteIndex = scrollWhiteIndex
         uiView.onActiveNotesChanged = { activeNotes = $0 }
     }
 }
@@ -191,12 +225,14 @@ private struct KeyboardTouchSurface: UIViewRepresentable {
 private final class KeyboardTouchSurfaceView: UIView {
     weak var synth: MobileSynthModel?
     var baseNote = 53
-    var noteCount = 28
+    var visibleWhiteKeyCount = 17
+    var scrollWhiteIndex: CGFloat = 0
     var onActiveNotesChanged: (([Int: Int]) -> Void)?
 
     private let touchAttackSampleDelay: TimeInterval = 0.024
     private let positionVelocityWeight = 0.70
     private let downwardVelocityWeight = 0.30
+    private let velocityLevels = [64, 76, 86, 94, 100]
     private var touchStates: [UITouch: KeyboardTouchState] = [:]
     private var noteCounts: [Int: Int] = [:]
     private var noteVelocities: [Int: Int] = [:]
@@ -349,13 +385,13 @@ private final class KeyboardTouchSurfaceView: UIView {
         let blended = Double(positionVelocity) * positionVelocityWeight
             + Double(downwardVelocity) * downwardVelocityWeight
         let corrected = max(Double(fallbackVelocity) * 0.42, blended)
-        return max(1, min(127, Int(corrected.rounded())))
+        return quantizedVelocity(fromRawValue: corrected)
     }
 
     private func velocityFromDownwardSpeed(_ speed: CGFloat) -> Int {
         let normalized = min(max(speed / 170.0, 0), 1)
         let curved = 1 - pow(1 - Double(normalized), 1.8)
-        return max(1, min(127, Int((curved * 126).rounded()) + 1))
+        return quantizedVelocity(fromNormalized: curved)
     }
 
     private func note(at location: CGPoint) -> Int? {
@@ -363,44 +399,46 @@ private final class KeyboardTouchSurfaceView: UIView {
         let keyArea = CGRect(x: 0, y: 0, width: max(1, bounds.width), height: max(1, bounds.height - 3))
         guard keyArea.contains(location) else { return nil }
 
-        let whiteOffsets = whiteNotes
-        let whiteWidth = keyArea.width / CGFloat(max(1, whiteOffsets.count))
+        let whiteWidth = keyArea.width / CGFloat(max(1, visibleWhiteKeyCount))
         let blackHeight = keyArea.height * 0.62
         let blackWidth = whiteWidth * 0.58
+        let contentX = location.x + scrollWhiteIndex * whiteWidth
 
         if location.y <= keyArea.minY + blackHeight {
-            for offset in blackNotes {
-                let whiteBefore = whiteOffsets.filter { $0 < offset }.count
-                let x = keyArea.minX + CGFloat(whiteBefore) * whiteWidth - blackWidth * 0.5
-                if CGRect(x: x, y: keyArea.minY, width: blackWidth, height: blackHeight).contains(location) {
-                    return baseNote + offset
+            let approximateWhiteIndex = Int((contentX - keyArea.minX) / max(1, whiteWidth))
+            for key in keyboardBlackKeys where abs(key.whiteBefore - approximateWhiteIndex) <= 1 {
+                let x = keyArea.minX + CGFloat(key.whiteBefore) * whiteWidth - blackWidth * 0.5
+                if CGRect(x: x, y: keyArea.minY, width: blackWidth, height: blackHeight)
+                    .contains(CGPoint(x: contentX, y: location.y)) {
+                    return key.note
                 }
             }
         }
 
-        let whiteIndex = min(max(0, Int((location.x - keyArea.minX) / max(1, whiteWidth))), whiteOffsets.count - 1)
-        return baseNote + whiteOffsets[whiteIndex]
+        let whiteIndex = min(max(0, Int((contentX - keyArea.minX) / max(1, whiteWidth))), keyboardAllWhiteNotes.count - 1)
+        return keyboardAllWhiteNotes[whiteIndex]
     }
 
     private func velocity(at location: CGPoint, note: Int?) -> Int {
-        guard bounds.height > 0 else { return 104 }
+        guard bounds.height > 0 else { return quantizedVelocity(fromNormalized: 0.75) }
         let keyArea = CGRect(x: 0, y: 0, width: max(1, bounds.width), height: max(1, bounds.height - 3))
-        let playableHeight = note.map(isBlack(note:)) == true ? keyArea.height * 0.62 : keyArea.height
+        let playableHeight = note.map(keyboardIsBlack) == true ? keyArea.height * 0.62 : keyArea.height
         let normalized = min(max((location.y - keyArea.minY) / max(1, playableHeight), 0), 1)
-        return max(1, min(127, Int((normalized * 126).rounded()) + 1))
+        return quantizedVelocity(fromNormalized: Double(normalized))
     }
 
-    private var whiteNotes: [Int] {
-        (0..<noteCount).filter { !isBlack(note: baseNote + $0) }
+    private func quantizedVelocity(fromNormalized normalized: Double) -> Int {
+        let safeNormalized = min(max(normalized, 0), 1)
+        let step = Int((safeNormalized * Double(velocityLevels.count - 1)).rounded())
+        return velocityLevels[min(max(0, step), velocityLevels.count - 1)]
     }
 
-    private var blackNotes: [Int] {
-        (0..<noteCount).filter { isBlack(note: baseNote + $0) }
+    private func quantizedVelocity(fromRawValue rawValue: Double) -> Int {
+        velocityLevels.min { lhs, rhs in
+            abs(Double(lhs) - rawValue) < abs(Double(rhs) - rawValue)
+        } ?? velocityLevels[0]
     }
 
-    private func isBlack(note: Int) -> Bool {
-        [1, 3, 6, 8, 10].contains(note % 12)
-    }
 }
 
 private struct KeyboardTouchState {

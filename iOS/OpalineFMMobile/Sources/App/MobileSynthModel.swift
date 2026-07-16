@@ -531,10 +531,11 @@ final class MobileSynthModel: ObservableObject {
 
     private func startScopeUpdates() {
         scopeTimer?.invalidate()
-        scopeTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+        scopeTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 20.0, repeats: true) { [weak self] _ in
             guard let self else { return }
             let samples = self.engine.scopeSnapshot().map { $0.floatValue }
             if samples.count == self.scopeSamples.count {
+                guard samples != self.scopeSamples else { return }
                 self.scopeSamples = samples
             }
         }
