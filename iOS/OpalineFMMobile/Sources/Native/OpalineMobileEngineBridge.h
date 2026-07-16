@@ -16,9 +16,11 @@ NS_ASSUME_NONNULL_BEGIN
 - (NSData*)currentVoiceBankSysexData;
 - (NSData*)voiceLibraryXMLData;
 - (BOOL)loadVoiceLibraryXMLData:(NSData*)data NS_SWIFT_NAME(loadVoiceLibraryXMLData(_:));
+- (void)reloadBundledFactoryBank;
 - (BOOL)loadSingleVoiceXMLData:(NSData*)data fallbackName:(NSString*)name NS_SWIFT_NAME(loadSingleVoiceXMLData(_:fallbackName:));
 - (NSData*)currentSingleVoiceXMLData;
 - (NSDictionary<NSString*, NSNumber*>*)currentPatchSnapshot;
+- (double)operatorRatioForIndex:(int)index NS_SWIFT_NAME(operatorRatio(for:));
 - (void)initializeCurrentVoice;
 - (void)copyCurrentVoice;
 - (BOOL)pasteCopiedVoice;

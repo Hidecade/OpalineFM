@@ -14,7 +14,7 @@ struct PlayView: View {
     @State private var showingBankPicker = false
     @State private var showingModePicker = false
     @State private var screenSafeAreaInsets = UIEdgeInsets.zero
-    private let keyboardVisibleWhiteKeyCount = 17
+    private let keyboardVisibleWhiteKeyCount = 15
 
     var body: some View {
         GeometryReader { proxy in
@@ -210,7 +210,7 @@ struct PlayView: View {
                     .frame(width: cellWidth(width, 4, 1) - buttonInset * 2, height: buttonHeight)
                     .position(x: cellMidX(width, 4, 1), y: bankY + rowHeight / 2)
 
-                PanelButton("INIT", color: .red) { initializeCurrentBankFromFactory() }
+                PanelButton("EXPORT", color: .blue) { exportVoiceLibrary() }
                     .frame(width: cellWidth(width, 5, 1) - buttonInset * 2, height: buttonHeight)
                     .position(x: cellMidX(width, 5, 1), y: bankY + rowHeight / 2)
 
@@ -709,9 +709,19 @@ struct PlayView: View {
         let factoryURL = directoryURL.appendingPathComponent("factory.syx")
         let fileManager = FileManager.default
 
-        if !fileManager.fileExists(atPath: factoryURL.path),
-           let bundledFactoryURL = Bundle.main.url(forResource: "factory", withExtension: "syx") {
-            try? fileManager.copyItem(at: bundledFactoryURL, to: factoryURL)
+        if let bundledFactoryURL = Bundle.main.url(forResource: "factory", withExtension: "syx") {
+            let bundledData = try? Data(contentsOf: bundledFactoryURL)
+            let installedData = try? Data(contentsOf: factoryURL)
+            if bundledData != installedData {
+                if fileManager.fileExists(atPath: factoryURL.path) {
+                    try? fileManager.setAttributes(
+                        [.posixPermissions: NSNumber(value: Int16(0o644))],
+                        ofItemAtPath: factoryURL.path
+                    )
+                    try? fileManager.removeItem(at: factoryURL)
+                }
+                try? fileManager.copyItem(at: bundledFactoryURL, to: factoryURL)
+            }
         }
 
         guard fileManager.fileExists(atPath: factoryURL.path) else { return }
@@ -755,34 +765,6 @@ struct PlayView: View {
         } catch {
             synth.audioStatus = "Bank load failed"
         }
-    }
-
-    private func initializeCurrentBankFromFactory() {
-        guard let factoryURL = factoryBankURL() else {
-            synth.audioStatus = "Factory bank not found"
-            return
-        }
-
-        do {
-            let data = try Data(contentsOf: factoryURL)
-            let loaded = synth.loadVoiceBank(data: data, fileName: "Factory")
-            if loaded {
-                resetKeyboardToHome()
-            }
-            synth.audioStatus = loaded ? "Bank initialized" : "Bank init failed"
-        } catch {
-            synth.audioStatus = "Bank init failed"
-        }
-    }
-
-    private func factoryBankURL() -> URL? {
-        if let directoryURL = opalineDocumentsDirectory {
-            let installedURL = directoryURL.appendingPathComponent("factory.syx")
-            if FileManager.default.fileExists(atPath: installedURL.path) {
-                return installedURL
-            }
-        }
-        return Bundle.main.url(forResource: "factory", withExtension: "syx")
     }
 
     private func handleSingleVoiceImport(_ result: Result<URL, Error>) {

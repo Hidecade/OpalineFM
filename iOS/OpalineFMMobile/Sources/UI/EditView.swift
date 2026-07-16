@@ -1139,7 +1139,13 @@ private struct OperatorEditPage: View {
 
                 HStack(spacing: 5) {
                     ForEach(["Ratio", "Detune", "Level", "RateSc", "LevelSc", "Vel"], id: \.self) { title in
-                        OperatorCompactKnob(title: title, value: binding(key(for: title)), range: range(for: title), defaultValue: EditParameterDefaults.values[key(for: title)])
+                        OperatorCompactKnob(
+                            title: title,
+                            value: binding(key(for: title)),
+                            range: range(for: title),
+                            defaultValue: EditParameterDefaults.values[key(for: title)],
+                            valueFormatter: valueFormatter(for: title)
+                        )
                     }
                 }
                 .padding(.top, 4)
@@ -1174,6 +1180,11 @@ private struct OperatorEditPage: View {
         case "LevelSc": return "levelsc"
         default: return title.lowercased()
         }
+    }
+
+    private func valueFormatter(for title: String) -> ((Int) -> String)? {
+        guard title == "Ratio" else { return nil }
+        return { synth.operatorRatioText(for: $0) }
     }
 
     private var envelopeParameters: [EditParameter] {
@@ -1291,6 +1302,7 @@ private struct OperatorCompactKnob: View {
     @Binding var value: Int
     let range: ClosedRange<Int>
     var defaultValue: Int? = nil
+    var valueFormatter: ((Int) -> String)? = nil
 
     var body: some View {
         VStack(spacing: 2) {
@@ -1304,7 +1316,7 @@ private struct OperatorCompactKnob: View {
             MiniRotaryKnob(value: $value, range: range, defaultValue: defaultValue)
                 .frame(width: 38, height: 38)
 
-            Text("\(value)")
+            Text(valueFormatter?(value) ?? String(value))
                 .font(.system(size: 16, weight: .bold, design: .monospaced))
                 .foregroundStyle(EditSkin.valueText)
                 .frame(width: 52, height: 20)

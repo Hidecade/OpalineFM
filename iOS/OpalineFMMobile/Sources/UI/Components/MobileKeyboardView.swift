@@ -225,7 +225,7 @@ private struct KeyboardTouchSurface: UIViewRepresentable {
 private final class KeyboardTouchSurfaceView: UIView {
     weak var synth: MobileSynthModel?
     var baseNote = 53
-    var visibleWhiteKeyCount = 17
+    var visibleWhiteKeyCount = 15
     var scrollWhiteIndex: CGFloat = 0
     var onActiveNotesChanged: (([Int: Int]) -> Void)?
 

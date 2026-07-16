@@ -85,17 +85,17 @@ UIやホストからのパラメータ変更は、次のいずれかの方式で
 
 ### Phase A：AUv3 Extensionの雛形
 
-- [ ] 作業開始前に`git status`を確認する
-- [ ] 現在の`project.yml`とXcodeプロジェクト構成を確認する
-- [ ] AUv3 Instrument Extensionターゲットを追加する
-- [ ] Music Device／Instrumentとして登録する
-- [ ] アプリ本体とExtensionで異なるBundle IDを設定する
-- [ ] 本体とExtensionのバージョン／ビルド番号を揃える
-- [ ] `project.yml`を正とし、XcodeGenで再生成可能な状態を維持する
-- [ ] AUv3がホストのコンポーネント一覧へ登録される設定を追加する
-- [ ] 最小の`AUAudioUnit`クラスを作成する
-- [ ] 最小のAUv3 View Controllerを作成する
-- [ ] アプリ本体と既存Mac／Windowsターゲットに影響がないことを確認する
+- [x] 作業開始前に`git status`を確認する
+- [x] 現在の`project.yml`とXcodeプロジェクト構成を確認する
+- [x] AUv3 Instrument Extensionターゲットを追加する
+- [x] Music Device／Instrumentとして登録する
+- [x] アプリ本体とExtensionで異なるBundle IDを設定する
+- [x] 本体とExtensionのバージョン／ビルド番号を揃える
+- [x] `project.yml`を正とし、XcodeGenで再生成可能な状態を維持する
+- [x] AUv3がホストのコンポーネント一覧へ登録される設定を追加する
+- [x] 最小の`AUAudioUnit`クラスを作成する
+- [x] 最小のAUv3 View Controllerを作成する
+- [x] アプリ本体と既存Mac／Windowsターゲットに影響がないことを確認する
 
 #### Phase A 完了条件
 
@@ -106,24 +106,24 @@ UIやホストからのパラメータ変更は、次のいずれかの方式で
 
 ### Phase B：C++レンダリングとMIDI
 
-- [ ] AUv3専用のC++ Bridgeを追加する
-- [ ] `Source/Engine`の`OpalineEngine`を再利用する
-- [ ] AUv3インスタンスごとに独立したエンジンを作成する
-- [ ] `allocateRenderResources`でエンジンをprepareする
-- [ ] 最大フレーム数分のバッファを事前確保する
-- [ ] `internalRenderBlock`からC++エンジンを呼び出す
-- [ ] モノ出力とステレオ出力を安全に処理する
-- [ ] MIDIイベントのsample offsetを保持する
-- [ ] Note Onを実装する
-- [ ] Note Offを実装する
-- [ ] velocity 0のNote OnをNote Offとして処理する
-- [ ] Pitch Bendを実装する
-- [ ] CC1 Modulation Wheelを実装する
-- [ ] CC64 Sustain Pedalを実装する
-- [ ] CC65 Portamento Foot Switchを実装する
-- [ ] CC120 All Sound Offを実装する
-- [ ] CC123 All Notes Offを実装する
-- [ ] レンダースレッドにロックと動的メモリ確保がないことを確認する
+- [x] AUv3専用のC++ Bridgeを追加する
+- [x] `Source/Engine`の`OpalineEngine`を再利用する
+- [x] AUv3インスタンスごとに独立したエンジンを作成する
+- [x] `allocateRenderResources`でエンジンをprepareする
+- [x] 最大フレーム数分のバッファを事前確保する
+- [x] `internalRenderBlock`からC++エンジンを呼び出す
+- [x] モノ出力とステレオ出力を安全に処理する
+- [x] MIDIイベントのsample offsetを保持する
+- [x] Note Onを実装する
+- [x] Note Offを実装する
+- [x] velocity 0のNote OnをNote Offとして処理する
+- [x] Pitch Bendを実装する
+- [x] CC1 Modulation Wheelを実装する
+- [x] CC64 Sustain Pedalを実装する
+- [x] CC65 Portamento Foot Switchを実装する
+- [x] CC120 All Sound Offを実装する
+- [x] CC123 All Notes Offを実装する
+- [x] レンダースレッドにロックと動的メモリ確保がないことを確認する
 
 #### Phase B 完了条件
 
@@ -138,44 +138,44 @@ Mac版`PluginProcessor`のパラメータ定義を基準にする。パラメー
 
 #### 初期版で公開するパラメータ
 
-- [ ] Master Volume
-- [ ] Algorithm
-- [ ] Feedback
-- [ ] Transpose
-- [ ] Pitch Bend Range
-- [ ] Portamento
-- [ ] LFO Wave
-- [ ] LFO Speed
-- [ ] LFO Delay
-- [ ] PMD
-- [ ] AMD
-- [ ] PMS
-- [ ] AMS
-- [ ] OP1～OP4 Enabled
-- [ ] OP1～OP4 Ratio
-- [ ] OP1～OP4 Detune
-- [ ] OP1～OP4 Level
-- [ ] Reverb
-- [ ] Delay
-- [ ] Chorus
-- [ ] Reverb Mix
-- [ ] Delay Mix
-- [ ] Tone
-- [ ] Effects Enabled
+- [x] Master Volume
+- [x] Algorithm
+- [x] Feedback
+- [x] Transpose
+- [x] Pitch Bend Range
+- [x] Portamento
+- [x] LFO Wave
+- [x] LFO Speed
+- [x] LFO Delay
+- [x] PMD
+- [x] AMD
+- [x] PMS
+- [x] AMS
+- [x] OP1～OP4 Enabled
+- [x] OP1～OP4 Ratio
+- [x] OP1～OP4 Detune
+- [x] OP1～OP4 Level
+- [x] Reverb
+- [x] Delay
+- [x] Chorus
+- [x] Reverb Mix
+- [x] Delay Mix
+- [x] Tone
+- [x] Effects Enabled
 
 #### 拡張パラメータ
 
-- [ ] OP1～OP4 AR
-- [ ] OP1～OP4 D1R
-- [ ] OP1～OP4 D1L
-- [ ] OP1～OP4 D2R
-- [ ] OP1～OP4 RR
-- [ ] OP1～OP4 Rate Scale
-- [ ] OP1～OP4 Level Scale
-- [ ] OP1～OP4 Velocity
-- [ ] OP1～OP4 AM Enable
-- [ ] PEG PR1～PR3
-- [ ] PEG PL1～PL3
+- [x] OP1～OP4 AR
+- [x] OP1～OP4 D1R
+- [x] OP1～OP4 D1L
+- [x] OP1～OP4 D2R
+- [x] OP1～OP4 RR
+- [x] OP1～OP4 Rate Scale
+- [x] OP1～OP4 Level Scale
+- [x] OP1～OP4 Velocity
+- [x] OP1～OP4 AM Enable
+- [x] PEG PR1～PR3
+- [x] PEG PL1～PL3
 - [ ] Performance Mode
 - [ ] Voice A／B
 - [ ] DUAL Detune／Balance
@@ -183,13 +183,13 @@ Mac版`PluginProcessor`のパラメータ定義を基準にする。パラメー
 
 #### 状態保存
 
-- [ ] `fullState`または`fullStateForDocument`を実装する
-- [ ] 現在のパッチを保存する
-- [ ] 音色名を保存する
+- [x] `fullState`または`fullStateForDocument`を実装する
+- [x] 現在のパッチを保存する
+- [x] 音色名を保存する
 - [ ] Voice A／BとPerformance Modeを保存する
-- [ ] 音量、エフェクト、演奏設定を保存する
-- [ ] ホストのプロジェクト再読込時に状態を復元する
-- [ ] 不正または古い状態データでクラッシュしない
+- [x] 音量、エフェクト、演奏設定を保存する
+- [x] ホストのプロジェクト再読込時に状態を復元する
+- [x] 不正または古い状態データでクラッシュしない
 - [ ] 既存シリアライズ形式を再利用できる場合は再利用する
 
 #### Phase C 完了条件
@@ -203,7 +203,7 @@ Mac版`PluginProcessor`のパラメータ定義を基準にする。パラメー
 - [ ] AUv3用の音源操作モデルを作成する
 - [ ] `MobileSynthModel`をAUv3内で直接使用しない
 - [ ] UIと音源操作をプロトコルまたは共通インターフェースで分離する
-- [ ] 音色名を表示する
+- [x] 音色名を表示する
 - [ ] Algorithmを操作できる
 - [ ] Feedbackを操作できる
 - [ ] Master Volumeを操作できる
@@ -291,8 +291,8 @@ Codexは明示的な指示なしにコミット、push、PR作成を行わない
 
 ## 10. 進捗
 
-- [ ] Phase A：AUv3 Extension雛形
-- [ ] Phase B：C++レンダリングとMIDI
+- [x] Phase A：AUv3 Extension雛形
+- [x] Phase B：C++レンダリングとMIDI
 - [ ] Phase C：AUParameterTreeと状態保存
 - [ ] Phase D：AUv3 UI
 - [ ] Phase E：テストと安定化
@@ -301,24 +301,46 @@ Codexは明示的な指示なしにコミット、push、PR作成を行わない
 
 | 日付 | Phase | 環境 | 結果 | コミット | 備考 |
 | --- | --- | --- | --- | --- | --- |
-|  |  |  |  |  |  |
+| 2026-07-16 | Phase A | Xcode 26.5 SDK / Release / iphoneos | 成功 | 未コミット | `xcodegen generate`後、`OpalineFMMobile`スキームと`OpalineFMAUv3Extension`ターゲット単体をビルド。AUv3は無音の雛形。 |
+| 2026-07-16 | Phase A | 実機AUv3ホスト | 一部成功 | 未コミット | AU音源一覧への表示を確認。ホスト内ロード失敗に対してViewControllerを`AUViewController`ベースへ修正し、Releaseビルド成功。再実機確認待ち。 |
+| 2026-07-16 | Phase B | Xcode 26.5 SDK / Release / iphoneos | 成功 | 未コミット | AUv3専用ObjC++ `AUAudioUnit`で`OpalineEngine`を保持。Note On/Off、Pitch Bend、CC1/64/65/120/123、sample offset分割レンダーを実装。 |
+| 2026-07-16 | Phase B | GarageBand + 外部MIDI実機確認 | 成功 | 未コミット | GarageBand鍵盤で発音、Note Off、連打、Sustain ON/OFFを確認。外部MIDIでPitch Bend動作を確認。 |
+| 2026-07-16 | Phase C | Xcode 26.5 SDK / Release / iphoneos | 一部成功 | 未コミット | AUParameterTree、主要パラメータ、OP/PEG拡張パラメータ、レンダーイベント経由のオートメーション反映、`fullState`/`fullStateForDocument`を実装。 |
+| 2026-07-16 | Phase C | Xcode 26.5 SDK / Release / iphoneos | 一部成功 | 未コミット | AUv3 Extensionに`factory.syx`を同梱し、初期化時にFactoryバンクを読み込むようにした。`fullState`に音色名、Voice A/B、bankIndexを保存。 |
+| 2026-07-16 | Phase C | Xcode 26.5 SDK / Release / iphoneos | 一部成功 | 未コミット | AUv3にBエンジンを追加し、Performance Mode、Voice A/B、DUAL Detune、A/B Balance、SPLIT PointをAUパラメータ化。SINGLE/DUAL/SPLITのMIDI振り分けとミックスを実装。 |
+| 2026-07-16 | Phase D | Xcode 26.5 SDK / Release / iphoneos | 一部成功 | 未コミット | AUv3画面にSINGLE/DUAL/SPLIT切替とVoice A/Bの音色Pickerを追加。ホスト画面内でFactory音色を選択できるようにした。 |
+| 2026-07-16 | Phase C/D | Xcode 26.5 SDK / Release / iphoneos | 成功 | 未コミット | GarageBandで拡張終了が発生したため、AUv3をSingle専用へ簡略化。GarageBand内UIはVoice A選択とFX ON/OFFのみとし、Performance/DUAL/SPLIT/Voice Bは一旦対象外に戻した。 |
+| 2026-07-16 | Phase C/D | Xcode 26.5 SDK / Release / iphoneos | 成功 | 未コミット | AUParameterTreeを`voiceA`と`effectsEnabled`の2項目だけに縮小。音色編集用パラメータ反映をAUv3から外し、GarageBand向けの軽量再生専用構成にした。 |
+| 2026-07-16 | Phase D/E | Xcode 26.5 SDK / Release / iphoneos | 成功 | 未コミット | GarageBandでAUv3拡張終了が継続したため、切り分けとしてAUv3 UIを静的表示へ戻した。SysExイベントは無視し、通常MIDIのみ処理する。 |
+| 2026-07-16 | Phase D/E | Xcode 26.5 SDK / Release / iphoneos | 成功 | 未コミット | 静的UIで安定確認後、FX ON/OFFボタンだけをAUv3 UIへ復帰。音色名取得とVoice変更UIはまだ戻さない。 |
+| 2026-07-16 | Phase D/E | Xcode 26.5 SDK / Release / iphoneos | 成功 | 未コミット | FX ON/OFFで安定確認後、Voice Aの音色名取得と`-`/`+`変更UIを復帰。Pickerは使わず軽量ボタンUIを維持。 |
+| 2026-07-16 | Phase D/E | Xcode 26.5 SDK / Release / iphoneos | 成功 | 未コミット | AUv3 UIにMONO ON/OFFと7段階Portamento（OFF、FULL S/M/L、FINGERED S/M/L）を追加。音色編集系UIは引き続き未実装。 |
 
 ## 12. 未解決事項
 
-- なし
+- GarageBandでAU音源一覧への表示とMIDI演奏は確認済み。AUMでの表示と演奏は未確認。
+- 44.1kHz／48kHz、複数バッファサイズ、Note Off／All Notes Offの実機確認を行う。
+- 現在のPhase B実装は従来MIDIイベントを処理する。ホストが`AURenderEventMIDIEventList`のみを送る場合のUMP処理は追加確認が必要。
+- GarageBand内AUv3は安定性優先でSingle専用。Voice A選択とFX ON/OFFのみを対象にする。
+- Performance Mode、Voice B、DUAL/SPLIT、音色編集UIは未実装。音色編集はOpaline FM本体アプリで行う方針。
+- factory.syx読込は実装済み。公開AUパラメータは`voiceA`と`effectsEnabled`のみ。
+- GarageBandで拡張終了が出たため、AUv3 UIは段階的に復帰中。現在はFX ON/OFFとVoice A `-`/`+`変更UIを復帰済み。
+- MONO ON/OFFと7段階Portamento（FULL/FINGERED）は実装済み。GarageBand実機で長時間操作時の安定性確認が必要。
+- AUParameterTreeと状態保存は実装済みだが、GarageBand/AUMでプロジェクト再読込後にパラメータが復元されるか実機確認が必要。
+- GarageBandのピアノ鍵盤画面ではPitch Bend UIが表示されない場合がある。外部MIDIではPitch Bend動作確認済み。
 
 ## 13. 実機確認表
 
-- [ ] GarageBandのAU音源一覧にOpaline FMが表示される
+- [x] GarageBandのAU音源一覧にOpaline FMが表示される
 - [ ] AUMのAU音源一覧にOpaline FMが表示される
-- [ ] MIDI鍵盤で演奏できる
+- [x] MIDI鍵盤で演奏できる
 - [ ] 画面鍵盤で演奏できる
 - [ ] 44.1kHzで正常に再生できる
 - [ ] 48kHzで正常に再生できる
 - [ ] 音程と再生速度が正常である
 - [ ] 音割れや周期的な音切れがない
-- [ ] Sustainが正常に動作する
-- [ ] Pitch Bendが正常に動作する
+- [x] Sustainが正常に動作する
+- [x] Pitch Bendが正常に動作する
 - [ ] プロジェクト再読込後に音色が復元される
 - [ ] 複数インスタンスを同時に使用できる
 - [ ] ホスト停止／再開後も演奏できる

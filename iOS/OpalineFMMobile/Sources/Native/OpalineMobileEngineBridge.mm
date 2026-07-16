@@ -2,6 +2,7 @@
 
 #include "Engine/OpalineEngine.h"
 #include "Engine/OpalineSysex.h"
+#include "Engine/OpalineTables.h"
 #include "Engine/OpalineVoiceLibrary.h"
 
 #include <algorithm>
@@ -366,6 +367,19 @@ static std::string xmlUnescapedString(NSString* text)
     }
 }
 
+- (void)reloadBundledFactoryBank
+{
+    std::lock_guard<std::mutex> lock(engineMutex);
+    [self loadBundledFactoryBank];
+    currentPatch = opaline::normalizePatch(opaline::voiceAt(library, currentBank, currentVoice).patch);
+    currentPatchB = opaline::normalizePatch(opaline::voiceAt(library, currentBank, currentVoiceB).patch);
+    currentVoiceName = opaline::voiceAt(library, currentBank, currentVoice).name;
+    currentVoiceBName = opaline::voiceAt(library, currentBank, currentVoiceB).name;
+    engine->panic();
+    engineB->panic();
+    [self applyCurrentPatchNoLock];
+}
+
 - (NSData*)currentSingleVoiceXMLData
 {
     std::lock_guard<std::mutex> lock(engineMutex);
@@ -665,6 +679,12 @@ static std::string xmlUnescapedString(NSString* text)
     }
 
     return snapshot;
+}
+
+- (double)operatorRatioForIndex:(int)index
+{
+    const int safeIndex = std::max(0, std::min(index, 63));
+    return opaline::opalineRatios()[static_cast<std::size_t>(safeIndex)];
 }
 
 - (void)setPatchParameter:(NSString*)parameter value:(int)value

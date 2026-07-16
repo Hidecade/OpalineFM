@@ -44,7 +44,7 @@ void OpalineEngine::prepare(const double sampleRate, const int maxVoices)
     delayBufferRight.assign(delayBufferLeft.size(), 0.0);
     chorusBufferLeft.assign(static_cast<std::size_t>(std::ceil(currentSampleRate * kMaxChorusSeconds)) + 4, 0.0);
     chorusBufferRight.assign(chorusBufferLeft.size(), 0.0);
-    static constexpr std::array<double, 4> kReverbTimes { 0.031, 0.043, 0.057, 0.071 };
+    static constexpr std::array<double, 4> kReverbTimes { 0.0473, 0.0599, 0.0731, 0.0897 };
     for (int i = 0; i < 4; ++i)
     {
         const auto length = static_cast<std::size_t>(std::ceil(currentSampleRate * kReverbTimes[static_cast<std::size_t>(i)])) + 1;
@@ -216,6 +216,8 @@ void OpalineEngine::resetEffects()
         std::fill(buffer.begin(), buffer.end(), 0.0);
     for (auto& buffer : reverbBufferRight)
         std::fill(buffer.begin(), buffer.end(), 0.0);
+    reverbDampingLeft.fill(0.0);
+    reverbDampingRight.fill(0.0);
     reverbWriteIndices.fill(0);
     delayWriteIndex = 0;
     chorusWriteIndex = 0;
@@ -260,32 +262,62 @@ StereoSample OpalineEngine::processEffects(const double input)
     const double reverbWetGain = reverbMix * (0.18 + reverb * 0.82);
     const double echoWetGain = echoMix * (0.18 + delay * 0.82);
 
-    const double reverbFeedback = 0.18 + reverb * 0.62;
-    double reverbOutLeft = 0.0;
-    double reverbOutRight = 0.0;
+    const double reverbFeedback = 0.48 + reverb * 0.40;
+    const double reverbDamping = 0.08 + tone * 0.30;
+    std::array<double, 4> reverbTapsLeft {};
+    std::array<double, 4> reverbTapsRight {};
     for (int i = 0; i < 4; ++i)
     {
-        auto& leftBuffer = reverbBufferLeft[static_cast<std::size_t>(i)];
-        auto& rightBuffer = reverbBufferRight[static_cast<std::size_t>(i)];
+        const auto line = static_cast<std::size_t>(i);
+        auto& leftBuffer = reverbBufferLeft[line];
+        auto& rightBuffer = reverbBufferRight[line];
         if (leftBuffer.empty() || rightBuffer.empty())
             continue;
 
-        int& index = reverbWriteIndices[static_cast<std::size_t>(i)];
+        int& index = reverbWriteIndices[line];
         index %= static_cast<int>(leftBuffer.size());
-        const auto leftIndex = static_cast<std::size_t>(index);
-        const auto rightIndex = static_cast<std::size_t>(index);
-        const double delayedLeft = leftBuffer[leftIndex];
-        const double delayedRight = rightBuffer[rightIndex];
-        const double sign = (i & 1) == 0 ? 1.0 : -1.0;
-        reverbOutLeft += delayedLeft * sign;
-        reverbOutRight += delayedRight * -sign;
-        const double damping = 0.58 + reverb * 0.24;
-        leftBuffer[leftIndex] = input + delayedRight * reverbFeedback * damping;
-        rightBuffer[rightIndex] = input + delayedLeft * reverbFeedback * damping;
+        const auto bufferIndex = static_cast<std::size_t>(index);
+        reverbDampingLeft[line] += (leftBuffer[bufferIndex] - reverbDampingLeft[line]) * reverbDamping;
+        reverbDampingRight[line] += (rightBuffer[bufferIndex] - reverbDampingRight[line]) * reverbDamping;
+        reverbTapsLeft[line] = reverbDampingLeft[line];
+        reverbTapsRight[line] = reverbDampingRight[line];
+    }
+
+    const auto diffuse = [](const std::array<double, 4>& taps)
+    {
+        return std::array<double, 4> {
+            (taps[0] + taps[1] + taps[2] + taps[3]) * 0.5,
+            (taps[0] - taps[1] + taps[2] - taps[3]) * 0.5,
+            (taps[0] + taps[1] - taps[2] - taps[3]) * 0.5,
+            (taps[0] - taps[1] - taps[2] + taps[3]) * 0.5
+        };
+    };
+    const auto diffusedLeft = diffuse(reverbTapsLeft);
+    const auto diffusedRight = diffuse(reverbTapsRight);
+    static constexpr std::array<double, 4> kInputLeft { 0.58, 0.49, 0.40, 0.31 };
+    static constexpr std::array<double, 4> kInputRight { 0.31, 0.40, 0.49, 0.58 };
+    for (int i = 0; i < 4; ++i)
+    {
+        const auto line = static_cast<std::size_t>(i);
+        auto& leftBuffer = reverbBufferLeft[line];
+        auto& rightBuffer = reverbBufferRight[line];
+        if (leftBuffer.empty() || rightBuffer.empty())
+            continue;
+
+        int& index = reverbWriteIndices[line];
+        const auto bufferIndex = static_cast<std::size_t>(index);
+        const auto crossLine = static_cast<std::size_t>((i + 1) % 4);
+        leftBuffer[bufferIndex] = input * kInputLeft[line]
+            + reverbFeedback * (diffusedLeft[line] * 0.88 + diffusedRight[crossLine] * 0.12);
+        rightBuffer[bufferIndex] = input * kInputRight[line]
+            + reverbFeedback * (diffusedRight[line] * 0.88 + diffusedLeft[crossLine] * 0.12);
         index = (index + 1) % static_cast<int>(leftBuffer.size());
     }
-    reverbOutLeft *= 0.25 * reverb;
-    reverbOutRight *= 0.25 * reverb;
+
+    const double reverbOutLeft = (reverbTapsLeft[0] + reverbTapsLeft[1]
+        - reverbTapsLeft[2] + reverbTapsLeft[3]) * 0.32 * reverb;
+    const double reverbOutRight = (reverbTapsRight[0] - reverbTapsRight[1]
+        + reverbTapsRight[2] + reverbTapsRight[3]) * 0.32 * reverb;
 
     const double delaySamples = delay * 0.52 * currentSampleRate;
     const double wetInLeft = input + reverbOutLeft * 0.35;

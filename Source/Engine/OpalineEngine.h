@@ -49,6 +49,8 @@ private:
     std::vector<double> chorusBufferRight;
     std::array<std::vector<double>, 4> reverbBufferLeft;
     std::array<std::vector<double>, 4> reverbBufferRight;
+    std::array<double, 4> reverbDampingLeft {};
+    std::array<double, 4> reverbDampingRight {};
     std::array<int, 4> reverbWriteIndices {};
     int delayWriteIndex = 0;
     int chorusWriteIndex = 0;

@@ -21,6 +21,8 @@ targets:
       - path: ../../assets/factory.syx
         buildPhase: resources
     dependencies:
+      - target: OpalineFMAUv3Extension
+        embed: true
       - sdk: AVFoundation.framework
       - sdk: AVKit.framework
       - sdk: AudioToolbox.framework
@@ -30,8 +32,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.hidekikonishi.opalinefm.mobile
         PRODUCT_NAME: Opaline FM
         INFOPLIST_KEY_CFBundleDisplayName: Opaline FM
-        MARKETING_VERSION: "1.0.2"
-        CURRENT_PROJECT_VERSION: 5
+        MARKETING_VERSION: "1.0.3"
+        CURRENT_PROJECT_VERSION: 6
         TARGETED_DEVICE_FAMILY: 1
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_STYLE: Automatic
@@ -45,6 +47,8 @@ targets:
       path: Sources/Resources/Info.plist
       properties:
         CFBundleDisplayName: Opaline FM
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         ITSAppUsesNonExemptEncryption: false
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
@@ -57,3 +61,63 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         UIRequiredDeviceCapabilities:
           - arm64
+  OpalineFMAUv3Extension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: AUv3Extension
+      - path: ../../Source/Engine
+        name: SharedEngine
+      - path: ../../assets/factory.syx
+        buildPhase: resources
+    dependencies:
+      - sdk: AudioToolbox.framework
+      - sdk: AVFoundation.framework
+      - sdk: CoreAudioKit.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hidekikonishi.opalinefm.mobile.auv3
+        PRODUCT_NAME: OpalineFMAUv3Extension
+        PRODUCT_MODULE_NAME: OpalineFMAUv3Extension
+        INFOPLIST_KEY_CFBundleDisplayName: Opaline FM
+        MARKETING_VERSION: "1.0.3"
+        CURRENT_PROJECT_VERSION: 6
+        TARGETED_DEVICE_FAMILY: 1
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: 8H7SC722UJ
+        APPLICATION_EXTENSION_API_ONLY: true
+        INFOPLIST_FILE: AUv3Extension/Info.plist
+        SWIFT_OBJC_BRIDGING_HEADER: AUv3Extension/OpalineFMAUv3Extension-Bridging-Header.h
+        HEADER_SEARCH_PATHS:
+          - ../../Source
+          - ../../build/generated
+    info:
+      path: AUv3Extension/Info.plist
+      properties:
+        CFBundleDisplayName: Opaline FM
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.AudioUnit-UI
+          NSExtensionPrincipalClass: "$(PRODUCT_MODULE_NAME).AudioUnitViewController"
+          NSExtensionAttributes:
+            AudioComponents:
+              - type: aumu
+                subtype: OpFM
+                manufacturer: Hcde
+                name: "Hidecade: Opaline FM"
+                description: Opaline FM AUv3 Instrument
+                version: 1
+schemes:
+  OpalineFMMobile:
+    build:
+      targets:
+        OpalineFMMobile: all
+    run:
+      config: Release
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release

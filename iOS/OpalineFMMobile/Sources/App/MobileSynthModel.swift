@@ -113,6 +113,8 @@ final class MobileSynthModel: ObservableObject {
         audioOutput = MobileAudioEngine(engineBridge: engine)
         engine.prepare(sampleRate: 44100, maxVoices: 16)
         loadPersistedVoiceLibrary()
+        engine.reloadBundledFactoryBank()
+        saveVoiceLibraryState()
         engine.selectVoiceB(Int32(voiceBIndex))
         applyWheelRanges()
         startAudio()
@@ -353,6 +355,10 @@ final class MobileSynthModel: ObservableObject {
 
     func editValue(_ key: String, fallback: Int = 0) -> Int {
         editValues[key] ?? fallback
+    }
+
+    func operatorRatioText(for index: Int) -> String {
+        String(format: "%.2f", engine.operatorRatio(for: Int32(index)))
     }
 
     func setEditValue(_ key: String, _ value: Int) {
