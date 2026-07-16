@@ -11,7 +11,9 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
 
       - name: Install Inno Setup
         shell: powershell
