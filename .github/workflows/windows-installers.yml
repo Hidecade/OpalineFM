@@ -21,7 +21,7 @@ jobs:
 
       - name: Build installers
         shell: powershell
-        run: ./scripts/build-windows-installers.ps1 -Generator "Visual Studio 17 2022"
+        run: ./scripts/build-windows-installers.ps1
 
       - name: Upload installers
         uses: actions/upload-artifact@v4
