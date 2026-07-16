@@ -1,4 +1,5 @@
 #import "OpalineAUAudioUnit.h"
+#import "../Sources/Native/OpalineMobileVoiceLibraryXML.h"
 
 #include "Engine/OpalineEngine.h"
 #include "Engine/OpalineVoiceLibrary.h"
@@ -119,7 +120,8 @@ int portamentoValueForPreset(const int preset)
 {
     NSMutableArray<AUParameter*>* parameters = [NSMutableArray array];
     [self addParameterTo:parameters identifier:@"voiceA" name:@"Voice A" address:ParamVoiceA min:0 max:31 unit:kAudioUnitParameterUnit_Indexed defaultValue:currentVoiceIndex valueStrings:voiceDisplayNames];
-    [self addParameterTo:parameters identifier:@"effectsEnabled" name:@"Effects Enabled" address:ParamEffectsEnabled min:0 max:1 unit:kAudioUnitParameterUnit_Boolean defaultValue:1 valueStrings:nil];
+    const AUValue initialEffectsEnabled = opaline::voiceAt(voiceLibrary, currentBankIndex, currentVoiceIndex).effectsEnabled ? 1.0f : 0.0f;
+    [self addParameterTo:parameters identifier:@"effectsEnabled" name:@"Effects Enabled" address:ParamEffectsEnabled min:0 max:1 unit:kAudioUnitParameterUnit_Boolean defaultValue:initialEffectsEnabled valueStrings:nil];
     [self addParameterTo:parameters identifier:@"mono" name:@"Mono" address:ParamMono min:0 max:1 unit:kAudioUnitParameterUnit_Boolean defaultValue:0 valueStrings:nil];
     [self addParameterTo:parameters identifier:@"portamentoPreset" name:@"Portamento" address:ParamPortamentoPreset min:0 max:6 unit:kAudioUnitParameterUnit_Indexed defaultValue:0 valueStrings:@[@"Off", @"Full Short", @"Full Medium", @"Full Long", @"Fingered Short", @"Fingered Medium", @"Fingered Long"]];
 
@@ -319,6 +321,15 @@ int portamentoValueForPreset(const int preset)
 
 - (void)loadBundledFactoryBank
 {
+    NSURL* libraryURL = [NSBundle.mainBundle URLForResource:@"factory.opalinelibrary" withExtension:@"xml"];
+    NSData* libraryData = libraryURL != nil ? [NSData dataWithContentsOfURL:libraryURL] : nil;
+    opaline::OpalineVoiceLibrary factoryLibrary;
+    if (opaline::mobile::voiceLibraryFromXMLData(libraryData, factoryLibrary))
+    {
+        voiceLibrary.banks[0] = std::move(factoryLibrary.banks[0]);
+        return;
+    }
+
     NSURL* factoryURL = [NSBundle.mainBundle URLForResource:@"factory" withExtension:@"syx"];
     if (factoryURL == nil)
         return;
@@ -335,7 +346,7 @@ int portamentoValueForPreset(const int preset)
     }
     catch (...)
     {
-        voiceLibrary = opaline::makeInitVoiceLibrary();
+        voiceLibrary.banks[0] = opaline::makeInitVoiceBank("Factory");
     }
 }
 

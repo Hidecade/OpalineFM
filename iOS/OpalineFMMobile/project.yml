@@ -20,6 +20,8 @@ targets:
         name: SharedEngine
       - path: ../../assets/factory.syx
         buildPhase: resources
+      - path: ../../assets/factory.opalinelibrary.xml
+        buildPhase: resources
     dependencies:
       - target: OpalineFMAUv3Extension
         embed: true
@@ -32,8 +34,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.hidekikonishi.opalinefm.mobile
         PRODUCT_NAME: Opaline FM
         INFOPLIST_KEY_CFBundleDisplayName: Opaline FM
-        MARKETING_VERSION: "1.0.4"
-        CURRENT_PROJECT_VERSION: 7
+        MARKETING_VERSION: "1.0.5"
+        CURRENT_PROJECT_VERSION: 9
         TARGETED_DEVICE_FAMILY: 1
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_STYLE: Automatic
@@ -70,6 +72,8 @@ targets:
         name: SharedEngine
       - path: ../../assets/factory.syx
         buildPhase: resources
+      - path: ../../assets/factory.opalinelibrary.xml
+        buildPhase: resources
     dependencies:
       - sdk: AudioToolbox.framework
       - sdk: AVFoundation.framework
@@ -80,8 +84,8 @@ targets:
         PRODUCT_NAME: OpalineFMAUv3Extension
         PRODUCT_MODULE_NAME: OpalineFMAUv3Extension
         INFOPLIST_KEY_CFBundleDisplayName: Opaline FM
-        MARKETING_VERSION: "1.0.4"
-        CURRENT_PROJECT_VERSION: 7
+        MARKETING_VERSION: "1.0.5"
+        CURRENT_PROJECT_VERSION: 9
         TARGETED_DEVICE_FAMILY: 1
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: 8H7SC722UJ

@@ -1,4 +1,5 @@
 #import "OpalineMobileEngineBridge.h"
+#import "OpalineMobileVoiceLibraryXML.h"
 
 #include "Engine/OpalineEngine.h"
 #include "Engine/OpalineSysex.h"
@@ -103,58 +104,6 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
         encoded += encodingTable[value];
     }
     return encoded;
-}
-
-static NSData* decodedVoiceData(NSString* encoded)
-{
-    if (encoded == nil)
-        return nil;
-
-    const std::string text(encoded.UTF8String);
-    const auto dot = text.find('.');
-    if (dot == std::string::npos)
-        return [[NSData alloc] initWithBase64EncodedString:encoded options:0];
-
-    const auto decodedSize = static_cast<std::size_t>(std::max(0, std::atoi(text.substr(0, dot).c_str())));
-    std::vector<std::uint8_t> bytes(decodedSize, 0);
-    static constexpr char encodingTable[] = ".ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+";
-    for (std::size_t character = dot + 1, encodedIndex = 0; character < text.size(); ++character, ++encodedIndex)
-    {
-        const char* match = std::strchr(encodingTable, text[character]);
-        if (match == nullptr)
-            continue;
-        const int value = static_cast<int>(match - encodingTable);
-        for (int bit = 0; bit < 6; ++bit)
-        {
-            const auto bitPosition = encodedIndex * 6 + static_cast<std::size_t>(bit);
-            if (bitPosition >= bytes.size() * 8)
-                break;
-            bytes[bitPosition / 8] |= ((value >> bit) & 1) << (bitPosition % 8);
-        }
-    }
-    return [NSData dataWithBytes:bytes.data() length:bytes.size()];
-}
-
-static NSString* xmlAttribute(NSString* attributes, NSString* name)
-{
-    NSString* pattern = [NSString stringWithFormat:@"%@=\"([^\"]*)\"", name];
-    NSRegularExpression* regex = [NSRegularExpression regularExpressionWithPattern:pattern options:0 error:nil];
-    NSTextCheckingResult* match = [regex firstMatchInString:attributes options:0 range:NSMakeRange(0, attributes.length)];
-    if (match == nil || match.numberOfRanges < 2)
-        return nil;
-    return [attributes substringWithRange:[match rangeAtIndex:1]];
-}
-
-static std::string xmlUnescapedString(NSString* text)
-{
-    if (text == nil)
-        return {};
-    NSString* unescaped = [text stringByReplacingOccurrencesOfString:@"&quot;" withString:@"\""];
-    unescaped = [unescaped stringByReplacingOccurrencesOfString:@"&apos;" withString:@"'"];
-    unescaped = [unescaped stringByReplacingOccurrencesOfString:@"&gt;" withString:@">"];
-    unescaped = [unescaped stringByReplacingOccurrencesOfString:@"&lt;" withString:@"<"];
-    unescaped = [unescaped stringByReplacingOccurrencesOfString:@"&amp;" withString:@"&"];
-    return std::string(unescaped.UTF8String);
 }
 
 @implementation OpalineMobileEngineBridge
@@ -355,100 +304,16 @@ static std::string xmlUnescapedString(NSString* text)
 
 - (BOOL)loadVoiceLibraryXMLData:(NSData*)data
 {
-    if (data == nil || data.length == 0)
-        return NO;
-
-    NSString* xml = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-    if (xml == nil || [xml rangeOfString:@"<compatibleVoiceLibrary"].location == NSNotFound)
+    opaline::OpalineVoiceLibrary restored;
+    if (!opaline::mobile::voiceLibraryFromXMLData(data, restored))
         return NO;
 
     std::lock_guard<std::mutex> lock(engineMutex);
-    try
-    {
-        opaline::OpalineVoiceLibrary restored = opaline::makeInitVoiceLibrary();
-        NSRegularExpression* bankRegex = [NSRegularExpression regularExpressionWithPattern:@"<Bank\\b([^>]*)>(.*?)</Bank>"
-                                                                                   options:NSRegularExpressionDotMatchesLineSeparators
-                                                                                     error:nil];
-        NSArray<NSTextCheckingResult*>* bankMatches = [bankRegex matchesInString:xml options:0 range:NSMakeRange(0, xml.length)];
-        for (NSUInteger bankMatchIndex = 0; bankMatchIndex < bankMatches.count; ++bankMatchIndex)
-        {
-            NSTextCheckingResult* bankMatch = bankMatches[bankMatchIndex];
-            NSString* bankAttributes = [xml substringWithRange:[bankMatch rangeAtIndex:1]];
-            NSString* bankBody = [xml substringWithRange:[bankMatch rangeAtIndex:2]];
-            NSString* bankIndexText = xmlAttribute(bankAttributes, @"index");
-            const int bankIndex = std::max(0, std::min(bankIndexText != nil ? bankIndexText.intValue : static_cast<int>(bankMatchIndex),
-                                                       opaline::kOpalineVoiceBankCount - 1));
-            auto& bank = restored.banks[static_cast<std::size_t>(bankIndex)];
-            NSString* bankName = xmlAttribute(bankAttributes, @"name");
-            if (bankName != nil && bankName.length > 0)
-                bank.name = xmlUnescapedString(bankName);
-
-            NSRegularExpression* voiceRegex = [NSRegularExpression regularExpressionWithPattern:@"<Voice\\b([^>]*)>(.*?)</Voice>|<Voice\\b([^>]*)/>"
-                                                                                       options:NSRegularExpressionDotMatchesLineSeparators
-                                                                                         error:nil];
-            NSArray<NSTextCheckingResult*>* voiceMatches = [voiceRegex matchesInString:bankBody options:0 range:NSMakeRange(0, bankBody.length)];
-            for (NSUInteger voiceMatchIndex = 0; voiceMatchIndex < voiceMatches.count; ++voiceMatchIndex)
-            {
-                NSTextCheckingResult* voiceMatch = voiceMatches[voiceMatchIndex];
-                NSRange attributesRange = [voiceMatch rangeAtIndex:1];
-                if (attributesRange.location == NSNotFound)
-                    attributesRange = [voiceMatch rangeAtIndex:3];
-                NSString* voiceAttributes = [bankBody substringWithRange:attributesRange];
-                NSString* voiceIndexText = xmlAttribute(voiceAttributes, @"index");
-                const int voiceIndex = std::max(0, std::min(voiceIndexText != nil ? voiceIndexText.intValue : static_cast<int>(voiceMatchIndex),
-                                                            opaline::kOpalineVoiceBankSize - 1));
-                NSString* encoded = xmlAttribute(voiceAttributes, @"vmem");
-                NSData* decoded = decodedVoiceData(encoded);
-                if (decoded == nil || decoded.length != static_cast<NSUInteger>(opaline::kOpalineVmemVoiceSize))
-                    continue;
-
-                std::array<std::uint8_t, opaline::kOpalineVmemVoiceSize> vmem {};
-                std::memcpy(vmem.data(), decoded.bytes, vmem.size());
-                auto voice = opaline::decodeCompatibleVmemVoice(vmem);
-                NSString* voiceName = xmlAttribute(voiceAttributes, @"name");
-                if (voiceName != nil && voiceName.length > 0)
-                    voice.name = xmlUnescapedString(voiceName);
-
-                NSRange voiceBodyRange = [voiceMatch rangeAtIndex:2];
-                if (voiceBodyRange.location != NSNotFound)
-                {
-                    NSString* voiceBody = [bankBody substringWithRange:voiceBodyRange];
-                    NSRegularExpression* effectsRegex = [NSRegularExpression regularExpressionWithPattern:@"<Effects\\b([^>]*)/>"
-                                                                                                  options:0
-                                                                                                    error:nil];
-                    NSTextCheckingResult* effectsMatch = [effectsRegex firstMatchInString:voiceBody options:0 range:NSMakeRange(0, voiceBody.length)];
-                    if (effectsMatch != nil && effectsMatch.numberOfRanges >= 2)
-                    {
-                        NSString* attributes = [voiceBody substringWithRange:[effectsMatch rangeAtIndex:1]];
-                        const auto value = [&](NSString* name, const int fallback)
-                        {
-                            NSString* text = xmlAttribute(attributes, name);
-                            return text != nil ? text.intValue : fallback;
-                        };
-                        voice.effectsEnabled = value(@"enabled", 1) != 0;
-                        voice.patch.effects.reverb = value(@"reverb", 0);
-                        voice.patch.effects.mix = value(@"mix", 0);
-                        voice.patch.effects.delay = value(@"delay", 0);
-                        voice.patch.effects.echoMix = value(@"echoMix", 0);
-                        voice.patch.effects.chorus = value(@"chorus", 0);
-                        voice.patch.effects.tone = value(@"tone", 50);
-                        voice.patch = opaline::normalizePatch(voice.patch);
-                    }
-                }
-                bank.voices[static_cast<std::size_t>(voiceIndex)] = voice;
-            }
-        }
-
-        engine->panic();
-        engineB->panic();
-        library = std::move(restored);
-        [self applyPatchesNoLock];
-        return YES;
-    }
-    catch (...)
-    {
-        return NO;
-    }
+    engine->panic();
+    engineB->panic();
+    library = std::move(restored);
+    [self applyPatchesNoLock];
+    return YES;
 }
 
 - (void)reloadBundledFactoryBank
@@ -1158,6 +1023,15 @@ static std::string xmlUnescapedString(NSString* text)
 
 - (void)loadBundledFactoryBank
 {
+    NSURL* libraryURL = [NSBundle.mainBundle URLForResource:@"factory.opalinelibrary" withExtension:@"xml"];
+    NSData* libraryData = libraryURL != nil ? [NSData dataWithContentsOfURL:libraryURL] : nil;
+    opaline::OpalineVoiceLibrary factoryLibrary;
+    if (opaline::mobile::voiceLibraryFromXMLData(libraryData, factoryLibrary))
+    {
+        library.banks[0] = std::move(factoryLibrary.banks[0]);
+        return;
+    }
+
     NSString* path = [[NSBundle mainBundle] pathForResource:@"factory" ofType:@"syx"];
     if (path == nil)
         return;
@@ -1175,7 +1049,7 @@ static std::string xmlUnescapedString(NSString* text)
     }
     catch (...)
     {
-        library = opaline::makeInitVoiceLibrary();
+        library.banks[0] = opaline::makeInitVoiceBank("Factory");
     }
 }
 
