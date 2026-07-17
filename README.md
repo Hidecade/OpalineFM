@@ -13,6 +13,7 @@ Opaline FM uses FM synthesis, but it is not a chip emulator and does not attempt
 - Four-operator FM synthesis with eight algorithms and operator feedback
 - FM rendering engine
 - Compatible 32-voice SysEx bank import and export
+- YM2151/YM2612-related single-voice import from OPM, TFI, VGI, and DMP files
 - SINGLE, DUAL, and SPLIT performance modes
 - Pitch EG, amplitude EG, LFO, keyboard scaling, velocity, and operator AM
 - Pitch bend, modulation wheel, sustain pedal, and portamento control
@@ -24,15 +25,15 @@ Opaline FM uses FM synthesis, but it is not a chip emulator and does not attempt
 
 ## Downloads
 
-The current public release is **v0.3.2**. Download Windows and macOS installers from the [v0.3.2 release page](https://github.com/Hidecade/OpalineFM/releases/tag/v0.3.2).
+The current public release is **v1.0.6**. Download Windows and macOS installers from the [v1.0.6 release page](https://github.com/Hidecade/OpalineFM/releases/tag/v1.0.6).
 
 Choose the package for the format you need:
 
-- `OpalineFM-Standalone-0.3.2.0-macOS.pkg`: standalone app. Use this if you want to play Opaline FM without a DAW.
-- `OpalineFM-AU-0.3.2.0-macOS.pkg`: Audio Unit instrument for Logic Pro, GarageBand, and AU hosts.
-- `OpalineFM-VST3-0.3.2.0-macOS.pkg`: VST3 instrument for VST3-compatible DAWs.
-- `OpalineFM-Standalone-v0.3.2-Windows-x64.exe`: standalone application for 64-bit Windows.
-- `OpalineFM-VST3-v0.3.2-Windows-x64.exe`: VST3 instrument installer for 64-bit Windows.
+- `OpalineFM-Standalone-1.0.6.0-macOS.pkg`: standalone app. Use this if you want to play Opaline FM without a DAW.
+- `OpalineFM-AU-1.0.6.0-macOS.pkg`: Audio Unit instrument for Logic Pro, GarageBand, and AU hosts.
+- `OpalineFM-VST3-1.0.6.0-macOS.pkg`: VST3 instrument for VST3-compatible DAWs.
+- `OpalineFM-Standalone-v1.0.6-Windows-x64.exe`: standalone application for 64-bit Windows.
+- `OpalineFM-VST3-v1.0.6-Windows-x64.exe`: VST3 instrument installer for 64-bit Windows.
 
 The macOS packages are signed and notarized. The Windows installers are currently unsigned, so Windows may display a publisher warning during installation.
 
@@ -60,12 +61,29 @@ Top-row library commands:
 
 Single-voice commands shown in SINGLE mode:
 
-- **LOAD / SAVE**: read or write one `.opalinevoice` file.
+- **LOAD / SAVE**: load an Opaline or supported chip voice, or write one `.opalinevoice` file.
 - **COPY / PASTE**: copy the current voice, including its name, and paste it into the edit buffer.
 - **INIT**: initialize the edit buffer.
 - **STORE**: write the edited voice and name into the currently selected library slot.
 
 Selecting another voice without using **STORE** discards edits and reloads the stored voice.
+
+## Importing YM2151 and YM2612 Voice Data
+
+In SINGLE mode, use the single-voice **LOAD** button and select one of these files:
+
+| Extension | Source format | Import behavior |
+| --- | --- | --- |
+| `.opm` | YM2151 VOPM text voice list | Shows the voices in the file and loads the selected voice. |
+| `.tfi` | YM2612 TFM Music Maker voice | Loads one 42-byte voice. |
+| `.vgi` | YM2612 VGM Music Maker voice | Loads one 43-byte voice, including FMS/AMS. |
+| `.dmp` | DefleMask FM preset | Loads supported version 10 or 11 YM2151/YM2612 FM data. |
+
+The importer converts Yamaha operator order, algorithm, feedback, multiplier, detune, total level, envelope rates, sustain level, rate scaling, AM, and available LFO settings into an Opaline voice. YM2151 DT2 is combined with the multiplier and mapped to the nearest available Opaline Ratio value.
+
+Parameters that are not present in the source format are initialized rather than inherited from the previously selected voice. Pitch EG is neutral, effects are disabled, and keyboard level scaling and velocity sensitivity use their defaults. Unsupported SSG-EG behavior is ignored. Some values are necessarily approximated because Opaline FM is not a YM2151/YM2612 chip emulator.
+
+The imported voice is placed in the current edit buffer. Use **STORE** to keep it in the selected library slot, or **SAVE** to write it as an `.opalinevoice` file. On iPhone, an OPM file currently loads its first voice.
 
 ## Performance Modes
 
@@ -157,8 +175,8 @@ In the standalone application, press **WAV** to begin recording. The button chan
 
 Run the installer for the format you need:
 
-- `OpalineFM-Standalone-v0.3.2-Windows-x64.exe`
-- `OpalineFM-VST3-v0.3.2-Windows-x64.exe`
+- `OpalineFM-Standalone-v1.0.6-Windows-x64.exe`
+- `OpalineFM-VST3-v1.0.6-Windows-x64.exe`
 
 The standalone installer adds the Opaline FM application. The VST3 installer places the plug-in in the standard system VST3 directory:
 
@@ -172,9 +190,9 @@ Restart the DAW or rescan VST3 plug-ins after installation. The Windows installe
 
 Run the signed and notarized macOS package for the build you want:
 
-- `OpalineFM-Standalone-0.3.2.0-macOS.pkg`
-- `OpalineFM-VST3-0.3.2.0-macOS.pkg`
-- `OpalineFM-AU-0.3.2.0-macOS.pkg`
+- `OpalineFM-Standalone-1.0.6.0-macOS.pkg`
+- `OpalineFM-VST3-1.0.6.0-macOS.pkg`
+- `OpalineFM-AU-1.0.6.0-macOS.pkg`
 
 The packages install to the standard macOS application and plug-in locations:
 
@@ -216,7 +234,7 @@ cmake --build --preset plugin-au-macos-debug
 Windows development installers require Inno Setup 6 or 7:
 
 ```powershell
-.\scripts\build-windows-installers.ps1 -Version 0.3.2
+.\scripts\build-windows-installers.ps1 -Version 1.0.6
 ```
 
 Generated installers are written to `dist/`.
@@ -227,6 +245,10 @@ Generated installers are written to `dist/`.
 | --- | --- |
 | `.syx` | Compatible 32-voice SysEx bank |
 | `.opalinevoice` | One Opaline voice |
+| `.opm` | YM2151 VOPM text voice list |
+| `.tfi` | YM2612 TFM Music Maker single voice |
+| `.vgi` | YM2612 VGM Music Maker single voice |
+| `.dmp` | Supported DefleMask YM2151/YM2612 FM preset |
 | `.opalinelibrary.xml` | Multi-bank Opaline voice library |
 | `.opalinefmstate` | Plugin-standalone complete state |
 
@@ -234,6 +256,7 @@ Generated installers are written to `dist/`.
 
 - [Technical specification](docs/OpalineFM_Spec.md)
 - [Japanese technical specification](docs/OpalineFM_Spec_ja.md)
+- [YM2151/YM2612 voice import specification (Japanese)](docs/YM2151_YM2612_VOICE_IMPORT_SPEC_ja.md)
 - [Japanese README](README_ja.md)
 
 ## Legal and Project Status
