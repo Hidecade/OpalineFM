@@ -313,6 +313,7 @@ private:
     void loadVoiceBankFromFile(const juce::File& file);
     void loadVoiceLibraryFromFile(const juce::File& file);
     void loadSingleVoiceFromFile(const juce::File& file);
+    void applyImportedSingleVoice(const opaline::OpalinePatchWithMetadata& voice, const juce::String& status);
     void saveCurrentVoiceBankToFile(const juce::File& file);
     void saveSingleVoiceToFile(const juce::File& file);
     void exportVoiceLibraryToFile(const juce::File& file);

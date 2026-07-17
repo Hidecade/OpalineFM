@@ -1,3 +1,5 @@
+#include "Engine/ChipVoiceImport.h"
+#include "Engine/OpalineChipEnvelope.h"
 #include "Engine/OpalineEngine.h"
 #include "Engine/OpalineEnvelope.h"
 #include "Engine/OpalinePitchEnvelope.h"
@@ -178,6 +180,32 @@ void testD1L15SkipsToDecay2()
     const double d1l15 = sampleEnvelope(15);
     expect(d1l14 > 0.5, "D1L14 sustains when D1R is zero");
     expect(d1l15 < d1l14 * 0.5, "D1L15 decays through D2R even when D1R is zero");
+}
+
+void testChipEnvelopeSustainLevels()
+{
+    auto settledIndex = [](const int decay1Level)
+    {
+        opaline::OpalineChipEnvelope envelope;
+        envelope.reset(55930.0);
+
+        opaline::OpalineEnvelopeParams params;
+        params.attackRate = 31;
+        params.decay1Rate = 31;
+        params.decay1Level = decay1Level;
+        params.decay2Rate = 0;
+        params.releaseRate = 15;
+        envelope.noteOn(params, 0, 60);
+
+        double index = 0.0;
+        for (int sample = 0; sample < 55930; ++sample)
+            index = envelope.nextIndex();
+        return index;
+    };
+
+    expectNear(settledIndex(14), 32.0, 0.0, "chip EG uses 32 internal steps per sustain level");
+    expectNear(settledIndex(1), 448.0, 0.0, "chip EG preserves the regular SL14 target");
+    expectNear(settledIndex(0), 992.0, 0.0, "chip EG preserves the YM2151 SL15 special target");
 }
 
 void testPitchEnvelope()
@@ -620,6 +648,142 @@ void testVoiceLibrary()
     expect(threw, "voiceAt rejects invalid bank index");
 }
 
+void testChipVoiceImport()
+{
+    std::vector<std::uint8_t> tfi(42, 0);
+    tfi[0] = 2;
+    tfi[1] = 5;
+    for (int block = 0; block < 4; ++block)
+    {
+        const auto base = static_cast<std::size_t>(2 + block * 10);
+        tfi[base + 0] = static_cast<std::uint8_t>(block + 1);
+        tfi[base + 1] = 3;
+        tfi[base + 2] = static_cast<std::uint8_t>(block == 0 ? 0 : 127);
+        tfi[base + 3] = 2;
+        tfi[base + 4] = 31;
+        tfi[base + 5] = 12;
+        tfi[base + 6] = 8;
+        tfi[base + 7] = 7;
+        tfi[base + 8] = 9;
+    }
+
+    const auto importedTfi = opaline::importChipVoices(tfi, ".TFI", "TEST TFI");
+    expect(importedTfi.voices.size() == 1, "TFI imports one voice");
+    const auto& tfiVoice = importedTfi.voices.front();
+    expect(tfiVoice.patch.algorithm == 3 && tfiVoice.patch.feedback == 5, "TFI imports algorithm and feedback");
+    expect(tfiVoice.patch.operators[3].ratioIndex == 4, "TFI S1 maps to Opaline OP4");
+    expect(tfiVoice.patch.operators[3].level == 99, "TFI TL zero maps to LEVEL 99");
+    expect(tfiVoice.patch.operators[0].level == 0, "TFI TL 127 maps to LEVEL zero");
+    expect(tfiVoice.patch.operators[3].envelope.decay1Level == 6, "TFI SL 9 maps to D1L 6");
+    expect(tfiVoice.patch.pitchEnvelope.level1 == 50 && tfiVoice.patch.pitchEnvelope.level2 == 50
+               && tfiVoice.patch.pitchEnvelope.level3 == 50,
+           "chip import leaves pitch EG neutral");
+    expect(tfiVoice.patch.effects.reverb == 0 && tfiVoice.patch.effects.delay == 0
+               && tfiVoice.patch.effects.chorus == 0 && !tfiVoice.effectsEnabled,
+           "chip import disables FX");
+
+    auto vgi = tfi;
+    vgi.insert(vgi.begin() + 2, static_cast<std::uint8_t>(0x23));
+    const auto importedVgi = opaline::importChipVoices(vgi, "vgi", "TEST VGI");
+    expect(importedVgi.voices.front().patch.lfo.pitchSensitivity == 3, "VGI imports FMS");
+    expect(importedVgi.voices.front().patch.lfo.ampSensitivity == 2, "VGI imports AMS");
+
+    const std::string opmText =
+        "// VOPM test\n"
+        "@:0 OPM TEST\n"
+        "LFO: 255 127 64 2 0\n"
+        "CH: 64 6 4 2 5 120 0 0\n"
+        "M1: 31 12 8 7 9 0 2 1 0 0 128\n"
+        "C1: 30 11 7 6 8 127 1 2 1 0 0\n"
+        "M2: 29 10 6 5 7 64 0 3 5 0 0\n"
+        "C2: 28 9 5 4 6 32 3 4 7 0 0\n";
+    const std::vector<std::uint8_t> opm(opmText.begin(), opmText.end());
+    const auto importedOpm = opaline::importChipVoices(opm, "opm", "fallback");
+    expect(importedOpm.voices.size() == 1, "OPM imports one voice block");
+    expect(importedOpm.voices.front().name == "OPM TEST", "OPM imports voice name");
+    expect(importedOpm.voices.front().patch.algorithm == 5 && importedOpm.voices.front().patch.feedback == 6,
+           "OPM imports channel parameters");
+    expect(importedOpm.voices.front().patch.operators[3].level == 99, "OPM M1 maps to Opaline OP4");
+    expect(importedOpm.voices.front().patch.operators[1].ratioIndex == 8, "OPM C1 maps to Opaline OP2");
+    expect(importedOpm.voices.front().patch.operators[2].ratioIndex == 10, "OPM M2 maps to Opaline OP3");
+    expect(importedOpm.voices.front().patch.operators[2].level == 35, "OPM TL 64 maps to LEVEL 35");
+    expect(importedOpm.voices.front().patch.operators[3].envelope.decay1Level == 6,
+           "OPM D1L 9 maps to Opaline D1L 6");
+    expect(importedOpm.voices.front().patch.operators[3].ampModEnable, "OPM imports operator AM enable");
+    expect(importedOpm.voices.front().patch.lfo.speed == 99, "OPM scales LFO frequency");
+    expect(importedOpm.voices.front().patch.lfo.wave == 2, "OPM imports LFO waveform");
+
+    std::vector<std::uint8_t> dmp(50, 0);
+    dmp[0] = 0x0a;
+    dmp[1] = 1;
+    dmp[2] = 3;
+    dmp[3] = 4;
+    dmp[4] = 5;
+    dmp[5] = 2;
+    for (int block = 0; block < 4; ++block)
+    {
+        const auto base = static_cast<std::size_t>(6 + block * 11);
+        dmp[base + 0] = static_cast<std::uint8_t>(block + 1);
+        dmp[base + 1] = static_cast<std::uint8_t>(block == 3 ? 0 : 127);
+        dmp[base + 2] = 31;
+        dmp[base + 3] = 10;
+        dmp[base + 4] = 8;
+        dmp[base + 5] = 6;
+        dmp[base + 7] = 2;
+        dmp[base + 8] = 3;
+        dmp[base + 9] = 5;
+    }
+    const auto importedDmp = opaline::importChipVoices(dmp, "dmp", "DMP TEST");
+    expect(importedDmp.voices.front().patch.algorithm == 6, "DMP imports algorithm");
+    expect(importedDmp.voices.front().patch.operators[0].level == 99, "DMP operator order maps carrier outward");
+    expect(importedDmp.voices.front().patch.operators[1].ratioIndex == 8, "DMP OP3 maps to Opaline OP2");
+    expect(importedDmp.voices.front().patch.operators[2].ratioIndex == 10, "DMP OP2 maps to Opaline OP3");
+    expect(importedDmp.voices.front().patch.operators[3].detune == 0, "DMP DT 3 maps to centered detune");
+
+    std::vector<std::uint8_t> dmpV11(51, 0);
+    dmpV11[0] = 0x0b;
+    dmpV11[1] = 8; // YM2151 system identifier
+    dmpV11[2] = 1; // FM instrument mode
+    dmpV11[3] = 0;
+    dmpV11[4] = 2;
+    dmpV11[5] = 2;
+    dmpV11[6] = 0;
+    for (int block = 0; block < 4; ++block)
+    {
+        const auto base = static_cast<std::size_t>(7 + block * 11);
+        dmpV11[base + 0] = static_cast<std::uint8_t>(block + 1);
+        dmpV11[base + 1] = static_cast<std::uint8_t>(27 + block);
+        dmpV11[base + 2] = 31;
+        dmpV11[base + 3] = 12;
+        dmpV11[base + 4] = 8;
+        dmpV11[base + 5] = 10;
+        dmpV11[base + 7] = 3;
+        dmpV11[base + 8] = 3;
+    }
+    const auto importedDmpV11 = opaline::importChipVoices(dmpV11, "dmp", "DMP V11");
+    expect(importedDmpV11.voices.front().patch.algorithm == 3, "DMP v11 reads algorithm after system byte");
+    expect(importedDmpV11.voices.front().patch.feedback == 2, "DMP v11 reads feedback after system byte");
+    expect(importedDmpV11.voices.front().patch.operators[3].ratioIndex == 4,
+           "DMP v11 reads first operator after extended header");
+    expect(importedDmpV11.voices.front().patch.operators[1].ratioIndex == 8,
+           "DMP v11 register OP3 maps to Opaline OP2");
+    expect(importedDmpV11.voices.front().patch.operators[2].ratioIndex == 10,
+           "DMP v11 register OP2 maps to Opaline OP3");
+    expect(importedDmpV11.voices.front().patch.operators[3].detune == 0,
+           "DMP v11 DT 3 matches TFI centered detune");
+
+    bool rejected = false;
+    try
+    {
+        (void) opaline::importChipVoices(std::vector<std::uint8_t>(41), "tfi", "bad");
+    }
+    catch (const std::runtime_error&)
+    {
+        rejected = true;
+    }
+    expect(rejected, "TFI rejects an invalid file size");
+}
+
 void testOptionalAssetSysex()
 {
 #ifdef OPALINE_TEST_ASSET_DIR
@@ -668,6 +832,7 @@ int main()
     testEnvelope();
     testFastAttackTiming();
     testD1L15SkipsToDecay2();
+    testChipEnvelopeSustainLevels();
     testPitchEnvelope();
     testEngineRendering();
     testVoiceLimit();
@@ -676,6 +841,7 @@ int main()
     testVmemDecodeAndPatchMerge();
     testSysexEncoding();
     testVoiceLibrary();
+    testChipVoiceImport();
     testOptionalAssetSysex();
 
     if (failures != 0)

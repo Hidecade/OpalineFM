@@ -678,7 +678,7 @@ struct PlayView: View {
         case .voiceBank:
             return [.opalineSysexBank, .data]
         case .singleVoice:
-            return [.opalineVoice, .xml, .data]
+            return [.opalineVoice, .opmVoice, .tfiVoice, .vgiVoice, .dmpVoice, .xml, .data]
         case nil:
             return [.data]
         }
@@ -778,7 +778,7 @@ struct PlayView: View {
 
         do {
             let data = try Data(contentsOf: url)
-            let loaded = synth.loadSingleVoice(data: data, fileName: url.deletingPathExtension().lastPathComponent)
+            let loaded = synth.loadSingleVoice(data: data, fileName: url.lastPathComponent)
             if loaded {
                 resetKeyboardToHome()
             }
@@ -1031,6 +1031,10 @@ private struct OpalineDocumentPicker: UIViewControllerRepresentable {
 private extension UTType {
     static let opalineSysexBank = UTType(filenameExtension: "syx") ?? .data
     static let opalineVoice = UTType(filenameExtension: "opalinevoice") ?? .xml
+    static let opmVoice = UTType(filenameExtension: "opm") ?? .data
+    static let tfiVoice = UTType(filenameExtension: "tfi") ?? .data
+    static let vgiVoice = UTType(filenameExtension: "vgi") ?? .data
+    static let dmpVoice = UTType(filenameExtension: "dmp") ?? .data
     static let opalineVoiceLibrary = UTType(filenameExtension: "xml") ?? .xml
 }
 

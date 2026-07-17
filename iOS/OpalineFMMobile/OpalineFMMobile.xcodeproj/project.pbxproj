@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0A1B2C3D4E5F60718293A4B5 /* ChipVoiceImport.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1B2C3D4E5F60718293A4B5C6 /* ChipVoiceImport.cpp */; };
 		0DD0A473A68D820418BB12C6 /* AudioUnitViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22931033B97A8A3D5F51A809 /* AudioUnitViewController.swift */; };
 		175B6D48558618C496169FBF /* OpalineEngine.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0EB99C4C1E83AE9B2A63540E /* OpalineEngine.cpp */; };
 		1EC617C2A3FF67EC3217930B /* OpalineVoiceLibrary.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 605AAB7B4CDAA4FFC14D9CB8 /* OpalineVoiceLibrary.cpp */; };
@@ -78,6 +79,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		1B2C3D4E5F60718293A4B5C6 /* ChipVoiceImport.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = ChipVoiceImport.cpp; sourceTree = "<group>"; };
+		2C3D4E5F60718293A4B5C6D7 /* ChipVoiceImport.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ChipVoiceImport.h; sourceTree = "<group>"; };
 		088E23054CBB93FC18B638A4 /* MobileMIDIInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileMIDIInput.swift; sourceTree = "<group>"; };
 		0B5C7D9F3241AC96C261F17D /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
 		0EB99C4C1E83AE9B2A63540E /* OpalineEngine.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = OpalineEngine.cpp; sourceTree = "<group>"; };
@@ -245,6 +248,8 @@
 		D76027F26CBF8B242E2FEF71 /* SharedEngine */ = {
 			isa = PBXGroup;
 			children = (
+				1B2C3D4E5F60718293A4B5C6 /* ChipVoiceImport.cpp */,
+				2C3D4E5F60718293A4B5C6D7 /* ChipVoiceImport.h */,
 				581B9A7850E0096FBB5982FD /* OpalineChipEnvelope.cpp */,
 				9FF60955BCDE164EE9967081 /* OpalineChipEnvelope.h */,
 				0EB99C4C1E83AE9B2A63540E /* OpalineEngine.cpp */,
@@ -440,6 +445,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0A1B2C3D4E5F60718293A4B5 /* ChipVoiceImport.cpp in Sources */,
 				A172A983B9F3D4A01A0B29D2 /* EditView.swift in Sources */,
 				5AB572F11FB47C7FAC4F5641 /* LibraryView.swift in Sources */,
 				D0110150938D2648D93235FB /* MobileAudioEngine.swift in Sources */,
@@ -479,7 +485,7 @@
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				DEVELOPMENT_TEAM = 8H7SC722UJ;
 				HEADER_SEARCH_PATHS = (
 					../../Source,
@@ -492,7 +498,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.5;
+				MARKETING_VERSION = 1.0.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.hidekikonishi.opalinefm.mobile.auv3;
 				PRODUCT_MODULE_NAME = OpalineFMAUv3Extension;
 				PRODUCT_NAME = OpalineFMAUv3Extension;
@@ -508,7 +514,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				DEVELOPMENT_TEAM = 8H7SC722UJ;
 				HEADER_SEARCH_PATHS = (
 					../../Source,
@@ -520,7 +526,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.5;
+				MARKETING_VERSION = 1.0.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.hidekikonishi.opalinefm.mobile;
 				PRODUCT_NAME = "Opaline FM";
 				SDKROOT = iphoneos;
@@ -538,7 +544,7 @@
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				DEVELOPMENT_TEAM = 8H7SC722UJ;
 				HEADER_SEARCH_PATHS = (
 					../../Source,
@@ -551,7 +557,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.5;
+				MARKETING_VERSION = 1.0.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.hidekikonishi.opalinefm.mobile.auv3;
 				PRODUCT_MODULE_NAME = OpalineFMAUv3Extension;
 				PRODUCT_NAME = OpalineFMAUv3Extension;
@@ -630,7 +636,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				DEVELOPMENT_TEAM = 8H7SC722UJ;
 				HEADER_SEARCH_PATHS = (
 					../../Source,
@@ -642,7 +648,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.5;
+				MARKETING_VERSION = 1.0.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.hidekikonishi.opalinefm.mobile;
 				PRODUCT_NAME = "Opaline FM";
 				SDKROOT = iphoneos;

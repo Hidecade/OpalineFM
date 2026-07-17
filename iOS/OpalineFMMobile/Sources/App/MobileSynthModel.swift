@@ -393,7 +393,7 @@ final class MobileSynthModel: ObservableObject {
     }
 
     func loadSingleVoice(data: Data, fileName: String) -> Bool {
-        let loaded = engine.loadSingleVoiceXMLData(data, fallbackName: fileName)
+        let loaded = engine.loadSingleVoiceData(data, fileName: fileName)
         if loaded {
             refreshVoiceName()
             refreshEditValues()

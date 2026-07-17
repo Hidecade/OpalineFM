@@ -12,10 +12,6 @@ constexpr double kEgIndexMax = 1023.0;
 constexpr double kEgIndexDbRange = 128.0;
 constexpr double kQuietDb = 96.0;
 constexpr double kOpalineEgTickHz = 3579545.0 / 64.0 / 3.0;
-constexpr double kAttackRateScale = 2.2;
-constexpr double kDecayRateScale = 1.85;
-constexpr double kReleaseRateScale = 3.75;
-constexpr double kReleaseRateBias = 2.0;
 constexpr int kEgRateSteps = 8;
 
 constexpr std::array<int, 152> kEgInc {
@@ -61,16 +57,15 @@ int opmStyleKeyScaleValue(const int note, const int rateScale)
 double opalineEgRate(const int rate, const int note, const int rateScale, const OpalineChipEnvelope::Stage stage)
 {
     const bool release = stage == OpalineChipEnvelope::Stage::Release;
-    const int value = clampInt(release ? rate + 1 : rate, 0, release ? 15 : 31);
+    const int value = clampInt(rate, 0, release ? 15 : 31);
     if (!release && value <= 0)
         return 0.0;
 
     const double ksv = static_cast<double>(opmStyleKeyScaleValue(note, rateScale));
     if (release)
-        return clampDouble(static_cast<double>(value) * kReleaseRateScale + kReleaseRateBias + ksv, 0.0, 63.0);
+        return clampDouble(static_cast<double>(value * 4 + 2) + ksv, 0.0, 63.0);
 
-    const double scale = stage == OpalineChipEnvelope::Stage::Attack ? kAttackRateScale : kDecayRateScale;
-    return clampDouble(static_cast<double>(value) * scale + ksv, 0.0, 63.0);
+    return clampDouble(static_cast<double>(value * 2) + ksv, 0.0, 63.0);
 }
 
 EgRateInfo egRateInfo(const double rate, const OpalineChipEnvelope::Stage stage)
@@ -151,11 +146,12 @@ int OpalineChipEnvelope::egIncrement(const int rate, const Stage stage) const
 
 double OpalineChipEnvelope::decay1TargetIndex() const
 {
-    if (currentParams.decay1Level >= 15)
+    const int sustainLevel = 15 - clampInt(currentParams.decay1Level, 0, 15);
+    if (sustainLevel <= 0)
         return 0.0;
 
-    const double targetDb = static_cast<double>(15 - currentParams.decay1Level) * 3.0;
-    return clampDouble(targetDb, 0.0, kEgIndexDbRange) * kEgIndexMax / kEgIndexDbRange;
+    const int chipSustainLevel = sustainLevel >= 15 ? 31 : sustainLevel;
+    return static_cast<double>(chipSustainLevel * 32);
 }
 
 void OpalineChipEnvelope::advanceAttack()

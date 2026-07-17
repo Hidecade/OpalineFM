@@ -1,6 +1,7 @@
 #import "OpalineMobileEngineBridge.h"
 #import "OpalineMobileVoiceLibraryXML.h"
 
+#include "Engine/ChipVoiceImport.h"
 #include "Engine/OpalineEngine.h"
 #include "Engine/OpalineSysex.h"
 #include "Engine/OpalineTables.h"
@@ -516,6 +517,42 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
     currentVoiceName = voiceName != nil && voiceName.length > 0 ? std::string(voiceName.UTF8String) : "INIT VOICE";
     [self applyCurrentPatchNoLock];
     return YES;
+}
+
+- (BOOL)loadSingleVoiceData:(NSData*)data fileName:(NSString*)fileName
+{
+    if (data == nil || data.length == 0 || fileName == nil)
+        return NO;
+
+    NSString* extension = fileName.pathExtension.lowercaseString;
+    NSString* fallbackName = fileName.stringByDeletingPathExtension;
+    if ([extension isEqualToString:@"opalinevoice"])
+        return [self loadSingleVoiceXMLData:data fallbackName:fallbackName];
+
+    try
+    {
+        const auto* first = static_cast<const std::uint8_t*>(data.bytes);
+        std::vector<std::uint8_t> bytes(first, first + data.length);
+        const auto imported = opaline::importChipVoices(bytes,
+                                                        std::string(extension.UTF8String),
+                                                        std::string(fallbackName.UTF8String));
+        if (imported.voices.empty())
+            return NO;
+
+        const auto& voice = imported.voices.front();
+        std::lock_guard<std::mutex> lock(engineMutex);
+        engine->panic();
+        engineB->panic();
+        currentPatch = opaline::normalizePatch(voice.patch);
+        currentVoiceName = voice.name;
+        effectsEnabled = NO;
+        [self applyCurrentPatchNoLock];
+        return YES;
+    }
+    catch (...)
+    {
+        return NO;
+    }
 }
 
 - (void)initializeCurrentVoice

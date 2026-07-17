@@ -2,6 +2,7 @@
 
 #include "App/OpalineStateSerialization.h"
 #include "App/OpalineVoiceLibraryXml.h"
+#include "Engine/ChipVoiceImport.h"
 #include "Engine/OpalineTables.h"
 #include "OpalineBinaryData.h"
 
@@ -2960,22 +2961,76 @@ void MainComponent::loadVoiceLibraryFromFile(const juce::File& file)
 
 void MainComponent::loadSingleVoiceFromFile(const juce::File& file)
 {
-    const auto xml = juce::parseXML(file.loadFileAsString());
-    opaline::OpalinePatch loadedPatch;
-    juce::String loadedName;
-    if (xml == nullptr || !singleVoiceFromXml(*xml, loadedPatch, loadedName))
+    if (file.hasFileExtension(".opalinevoice"))
     {
-        statusLabel.setText("Single voice load failed: invalid file", juce::dontSendNotification);
+        const auto xml = juce::parseXML(file.loadFileAsString());
+        opaline::OpalinePatch loadedPatch;
+        juce::String loadedName;
+        if (xml == nullptr || !singleVoiceFromXml(*xml, loadedPatch, loadedName))
+        {
+            statusLabel.setText("Single voice load failed: invalid file", juce::dontSendNotification);
+            return;
+        }
+
+        allNotesOff();
+        currentPatch = loadedPatch;
+        currentVoiceName = loadedName.isNotEmpty() ? loadedName : file.getFileNameWithoutExtension().substring(0, 10);
+        refreshCurrentVoiceNameDisplay();
+        syncUiFromPatch();
+        applyPatchToEngine();
+        statusLabel.setText("Single voice loaded", juce::dontSendNotification);
         return;
     }
 
+    try
+    {
+        const auto bytes = readBinaryFile(file);
+        if (bytes.empty())
+            throw std::runtime_error("empty file");
+        auto imported = opaline::importChipVoices(bytes,
+                                                  file.getFileExtension().toStdString(),
+                                                  file.getFileNameWithoutExtension().toStdString());
+        const auto warning = imported.warnings.empty() ? juce::String {} : " (some parameters were approximated)";
+        if (imported.voices.size() == 1)
+        {
+            applyImportedSingleVoice(imported.voices.front(), "Chip voice loaded" + warning);
+            return;
+        }
+
+        juce::PopupMenu menu;
+        for (std::size_t index = 0; index < imported.voices.size(); ++index)
+        {
+            const auto& voice = imported.voices[index];
+            menu.addItem(static_cast<int>(index + 1),
+                         juce::String(static_cast<int>(index + 1)) + " " + juce::String(voice.name));
+        }
+        const juce::Component::SafePointer<MainComponent> safeThis(this);
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&loadSingleVoiceButton),
+                           [safeThis, voices = std::move(imported.voices), warning](const int selected)
+                           {
+                               if (safeThis == nullptr || selected <= 0 || selected > static_cast<int>(voices.size()))
+                                   return;
+                               safeThis->applyImportedSingleVoice(voices[static_cast<std::size_t>(selected - 1)],
+                                                                  "OPM voice loaded" + warning);
+                           });
+    }
+    catch (const std::exception& e)
+    {
+        statusLabel.setText("Single voice load failed: " + juce::String(e.what()), juce::dontSendNotification);
+    }
+}
+
+void MainComponent::applyImportedSingleVoice(const opaline::OpalinePatchWithMetadata& voice, const juce::String& status)
+{
     allNotesOff();
-    currentPatch = loadedPatch;
-    currentVoiceName = loadedName.isNotEmpty() ? loadedName : file.getFileNameWithoutExtension().substring(0, 10);
+    currentPatch = voice.patch;
+    currentVoiceName = juce::String(voice.name).substring(0, 10);
+    effectsEnabled = false;
+    effectsEnableButton.setToggleState(false, juce::dontSendNotification);
     refreshCurrentVoiceNameDisplay();
     syncUiFromPatch();
     applyPatchToEngine();
-    statusLabel.setText("Single voice loaded", juce::dontSendNotification);
+    statusLabel.setText(status, juce::dontSendNotification);
 }
 
 void MainComponent::saveSingleVoiceToFile(const juce::File& file)
@@ -4554,9 +4609,9 @@ void MainComponent::buttonClicked(juce::Button* button)
     {
         const auto initialDirectory = rememberedFileChooserDirectory(
             juce::File::getSpecialLocation(juce::File::userDocumentsDirectory));
-        fileChooser = std::make_unique<juce::FileChooser>("Load single Opaline voice",
+        fileChooser = std::make_unique<juce::FileChooser>("Load single voice",
                                                           initialDirectory,
-                                                          "*.opalinevoice");
+                                                          "*.opalinevoice;*.opm;*.tfi;*.vgi;*.dmp");
         fileChooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
                                  [this](const juce::FileChooser& chooser)
                                  {
