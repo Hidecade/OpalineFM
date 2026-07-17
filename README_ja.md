@@ -239,28 +239,6 @@ Windows開発用インストーラーにはInno Setup 6または7が必要です
 
 生成したインストーラーは`dist/`へ出力されます。
 
-## iPhone版のApp Store公開
-
-iPhone版は`iOS/OpalineFMMobile`にある別アプリとして開発します。App Storeへ公開する場合は、まず実機での演奏、MIDI入力、ファイル読み書き、横画面レイアウトを確認し、その後XcodeからApp Store Connectへアップロードします。
-
-基本手順:
-
-1. Apple Developer Programのメンバーシップが有効であることを確認する。
-2. Xcodeで`OpalineFMMobile`ターゲットを開き、**Signing & Capabilities**で有料開発チームを選ぶ。
-3. Bundle Identifierを固定する。例: `jp.hidecade.opalinefm.mobile`。
-4. バージョン番号とビルド番号を更新する。
-5. 実機iPhoneで動作確認する。
-6. App Store Connectで同じBundle Identifierのアプリレコードを作成する。
-7. Xcodeの**Product > Archive**からアーカイブし、OrganizerでApp Store Connectへアップロードする。
-8. TestFlightで内部テストを行う。
-9. スクリーンショット、説明文、サポートURL、プライバシーポリシー、年齢制限、価格、配信地域を設定する。
-10. App PrivacyとExport Complianceを入力する。
-11. ビルドを選択してApp Reviewへ提出する。
-
-iPhone版は無料アプリとして公開し、広告は表示しません。アプリ内課金も、将来意図的に有料機能を追加するまでは使用しません。サポート窓口はGitHub Issues、専用サポートページ、またはサポート用メールアドレスを用意します。プライバシーポリシーには、広告を表示しないこと、現時点では個人情報を意図的に収集しないこと、音声/MIDI/ファイル機能のために必要な権限を使うことを明記します。
-
-詳細なチェックリストは[iOS/OpalineFMMobile/README.md](iOS/OpalineFMMobile/README.md)を参照してください。
-
 ## ファイル形式
 
 | 拡張子 | 用途 |
