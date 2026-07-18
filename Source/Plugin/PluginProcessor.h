@@ -11,6 +11,7 @@
 
 #include <array>
 #include <atomic>
+#include <cstdint>
 #include <vector>
 
 class OpalineAudioProcessor final : public juce::AudioProcessor,
@@ -56,11 +57,24 @@ public:
     double getCurrentModWheel() const;
     std::array<int, 128> getMidiUiVelocities() const;
     std::array<float, 4096> getScopeSamples() const;
+    void setScopeCaptureEnabled(bool enabled) noexcept;
     void startWavRecording();
     void stopWavRecording();
     bool stopWavRecordingAndSaveToFile(const juce::File& file);
 
 private:
+    enum ParameterChangeBits : std::uint32_t
+    {
+        masterVolumeChanged = 1U << 0,
+        pitchBendRangeChanged = 1U << 1,
+        portamentoChanged = 1U << 2,
+        modWheelRangesChanged = 1U << 3,
+        effectsEnabledChanged = 1U << 4,
+        patchChanged = 1U << 5,
+        transposeChanged = 1U << 6,
+        allParametersChanged = (1U << 7) - 1U
+    };
+
     enum class RealtimeCommandType
     {
         noteOn,
@@ -135,8 +149,10 @@ private:
     void handleMidiMessage(const juce::MidiMessageMetadata& message) noexcept;
     void cacheParameterPointers();
     void applyAudioStateToEngine();
-    void applyParametersToState(opalineapp::SynthState& targetState) const noexcept;
-    void applyParametersToAudioState();
+    void applyParametersToState(opalineapp::SynthState& targetState,
+                                std::uint32_t changes = allParametersChanged) const noexcept;
+    void applyParametersToAudioState(std::uint32_t changes);
+    void applyParameterChangesToEngine(std::uint32_t changes);
     void publishStateUpdate();
     void enqueueRealtimeCommand(const RealtimeCommand& command) noexcept;
     void applyRealtimeCommands();
@@ -156,7 +172,7 @@ private:
     opalineapp::SynthState audioState;
     juce::AudioProcessorValueTreeState parameters;
     ParameterPointers parameterPointers;
-    std::atomic<bool> parametersDirty { true };
+    std::atomic<std::uint32_t> dirtyParameterBits { allParametersChanged };
     std::atomic<double> currentSampleRate { 44100.0 };
     std::atomic<double> currentPitchBend { 0.0 };
     std::atomic<double> currentModWheel { 0.0 };
@@ -167,6 +183,7 @@ private:
     mutable opaline::RealtimeScopeBuffer scopeBuffer;
     mutable std::array<float, opaline::RealtimeScopeBuffer::historySize> scopeHistory {};
     mutable std::size_t scopeHistoryWriteIndex = 0;
+    std::atomic<bool> scopeCaptureEnabled { false };
     opaline::RealtimeAudioRecorder wavRecorder;
     opaline::RealtimeCommandQueue<RealtimeCommand, 1024> realtimeCommands;
     std::atomic<bool> realtimeCommandOverflowed { false };

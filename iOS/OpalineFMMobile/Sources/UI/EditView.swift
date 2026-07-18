@@ -69,13 +69,9 @@ struct EditView: View {
             AuditionKeyRow()
                 .frame(width: 336, height: 52)
 
-            Spacer(minLength: 0)
-
-            Text(String(format: "%2d %@", synth.voiceIndex + 1, synth.voiceName))
-                .font(.system(size: 13, weight: .bold, design: .monospaced))
-                .foregroundStyle(EditSkin.lcdOn)
-                .lineLimit(1)
-                .minimumScaleFactor(0.65)
+            EditScopeView(samples: synth.scopeSamples)
+                .frame(minWidth: 120, maxWidth: 220)
+                .frame(height: 52)
         }
         .frame(height: 56)
     }
@@ -100,6 +96,22 @@ struct EditView: View {
 
     private var tabBar: some View {
         VStack(spacing: 4) {
+            Text(String(format: "%2d %@", synth.voiceIndex + 1, synth.voiceName))
+                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .foregroundStyle(EditSkin.lcdOn)
+                .lineLimit(1)
+                .minimumScaleFactor(0.58)
+                .frame(maxWidth: .infinity, minHeight: 26)
+                .padding(.horizontal, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(Color(hexValue: 0x071423))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 3)
+                        .stroke(Color(hexValue: 0x2462ad), lineWidth: 1)
+                )
+
             ForEach(EditTab.allCases) { tab in
                 Button(tab.title) {
                     selectedTab = tab
@@ -114,6 +126,45 @@ struct EditView: View {
 
     private func waveName(_ index: Int) -> String {
         ["SAW UP", "SQUARE", "TRIANGLE", "S/H"][max(0, min(3, index))]
+    }
+}
+
+private struct EditScopeView: View {
+    let samples: [Float]
+
+    var body: some View {
+        Canvas { context, size in
+            guard size.width > 0, size.height > 0 else { return }
+
+            let window = CGRect(origin: .zero, size: size)
+            context.fill(Path(roundedRect: window, cornerRadius: 4), with: .linearGradient(
+                Gradient(colors: [Color(hexValue: 0x0b2037), Color(hexValue: 0x03101f)]),
+                startPoint: CGPoint(x: window.midX, y: window.minY),
+                endPoint: CGPoint(x: window.midX, y: window.maxY)
+            ))
+            context.stroke(Path(roundedRect: window.insetBy(dx: 0.5, dy: 0.5), cornerRadius: 4),
+                           with: .color(Color(hexValue: 0x2462ad)),
+                           lineWidth: 1)
+
+            guard samples.count > 1 else { return }
+
+            let rect = window.insetBy(dx: 6, dy: 6)
+            var path = Path()
+            for index in samples.indices {
+                let x = rect.minX + rect.width * CGFloat(index) / CGFloat(samples.count - 1)
+                let value = max(-1, min(1, CGFloat(samples[index])))
+                let y = rect.midY - value * rect.height * 0.44
+                if index == samples.startIndex {
+                    path.move(to: CGPoint(x: x, y: y))
+                } else {
+                    path.addLine(to: CGPoint(x: x, y: y))
+                }
+            }
+
+            context.stroke(path, with: .color(EditSkin.lcdOn.opacity(0.30)), lineWidth: 4.2)
+            context.stroke(path, with: .color(EditSkin.lcdOn.opacity(0.95)), lineWidth: 1.7)
+        }
+        .accessibilityHidden(true)
     }
 }
 

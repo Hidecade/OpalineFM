@@ -261,6 +261,14 @@ void OpalineEngine::updateEffectParameters()
     effectChorusPhaseIncrement = (0.18 + effectChorus * 0.58) / currentSampleRate;
     effectChorusDelay = effectChorus <= 0.001 ? 0.0 : 0.006 + effectChorus * 0.012;
     effectChorusDepth = effectChorus * 0.006;
+    effectWetParametersZero = fx.reverb == 0
+        && fx.mix == 0
+        && fx.echoMix == 0
+        && fx.chorus == 0
+        && fx.delay == 0;
+    effectOutputDryOnly = effectReverbWetGain == 0.0
+        && effectEchoWetGain == 0.0
+        && effectChorus == 0.0;
 }
 
 double OpalineEngine::readDelay(const std::vector<double>& buffer, const int writeIndex, const double delaySamples) const
@@ -336,10 +344,12 @@ StereoSample OpalineEngine::processEffects(const double input)
         index = (index + 1) % static_cast<int>(leftBuffer.size());
     }
 
-    const double reverbOutLeft = (reverbTapsLeft[0] + reverbTapsLeft[1]
-        - reverbTapsLeft[2] + reverbTapsLeft[3]) * 0.32 * effectReverb;
-    const double reverbOutRight = (reverbTapsRight[0] - reverbTapsRight[1]
-        + reverbTapsRight[2] + reverbTapsRight[3]) * 0.32 * effectReverb;
+    const double reverbOutLeft = effectWetParametersZero ? 0.0
+        : (reverbTapsLeft[0] + reverbTapsLeft[1]
+           - reverbTapsLeft[2] + reverbTapsLeft[3]) * 0.32 * effectReverb;
+    const double reverbOutRight = effectWetParametersZero ? 0.0
+        : (reverbTapsRight[0] - reverbTapsRight[1]
+           + reverbTapsRight[2] + reverbTapsRight[3]) * 0.32 * effectReverb;
 
     const double wetInLeft = input + reverbOutLeft * 0.35;
     const double wetInRight = input + reverbOutRight * 0.35;
@@ -359,13 +369,16 @@ StereoSample OpalineEngine::processEffects(const double input)
     if (chorusPhase >= 1.0)
         chorusPhase -= std::floor(chorusPhase);
 
-    const double lfo = std::sin(2.0 * kPi * chorusPhase);
-    const double chorusLeft = effectChorusDelay > 0.0
-        ? readDelay(chorusBufferLeft, chorusWriteIndex, (effectChorusDelay + lfo * effectChorusDepth) * currentSampleRate)
-        : 0.0;
-    const double chorusRight = effectChorusDelay > 0.0
-        ? readDelay(chorusBufferRight, chorusWriteIndex, (effectChorusDelay * 1.17 - lfo * effectChorusDepth * 0.85) * currentSampleRate)
-        : 0.0;
+    double chorusLeft = 0.0;
+    double chorusRight = 0.0;
+    if (effectChorusDelay > 0.0)
+    {
+        const double lfo = std::sin(2.0 * kPi * chorusPhase);
+        chorusLeft = readDelay(chorusBufferLeft, chorusWriteIndex,
+                               (effectChorusDelay + lfo * effectChorusDepth) * currentSampleRate);
+        chorusRight = readDelay(chorusBufferRight, chorusWriteIndex,
+                                (effectChorusDelay * 1.17 - lfo * effectChorusDepth * 0.85) * currentSampleRate);
+    }
     if (!chorusBufferLeft.empty())
     {
         chorusBufferLeft[static_cast<std::size_t>(chorusWriteIndex)] = input;
@@ -373,8 +386,12 @@ StereoSample OpalineEngine::processEffects(const double input)
         chorusWriteIndex = (chorusWriteIndex + 1) % static_cast<int>(chorusBufferLeft.size());
     }
 
-    const double left = input * effectDryGain + reverbOutLeft * effectReverbWetGain + toneLeft * effectEchoWetGain + chorusLeft * effectChorus * 0.34;
-    const double right = input * effectDryGain + reverbOutRight * effectReverbWetGain + toneRight * effectEchoWetGain + chorusRight * effectChorus * 0.34;
+    const double left = effectOutputDryOnly ? input
+        : input * effectDryGain + reverbOutLeft * effectReverbWetGain
+            + toneLeft * effectEchoWetGain + chorusLeft * effectChorus * 0.34;
+    const double right = effectOutputDryOnly ? input
+        : input * effectDryGain + reverbOutRight * effectReverbWetGain
+            + toneRight * effectEchoWetGain + chorusRight * effectChorus * 0.34;
     const double limitedLeft = softLimit(left);
     const double limitedRight = softLimit(right);
     lastLeft += clampDouble(limitedLeft - lastLeft, -0.42, 0.42);

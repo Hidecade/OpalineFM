@@ -122,9 +122,26 @@ OpalineAudioProcessor::~OpalineAudioProcessor()
     }
 }
 
-void OpalineAudioProcessor::parameterChanged(const juce::String&, float)
+void OpalineAudioProcessor::parameterChanged(const juce::String& parameterID, float)
 {
-    parametersDirty.store(true, std::memory_order_release);
+    std::uint32_t changes = patchChanged;
+    if (parameterID == param_ids::masterVolume)
+        changes = masterVolumeChanged;
+    else if (parameterID == param_ids::pitchBendRange)
+        changes = pitchBendRangeChanged;
+    else if (parameterID == param_ids::portamento)
+        changes = portamentoChanged;
+    else if (parameterID == param_ids::modWheelPitchRange
+             || parameterID == param_ids::modWheelAmpRange)
+        changes = modWheelRangesChanged;
+    else if (parameterID == param_ids::effectsEnabled)
+        changes = effectsEnabledChanged;
+    else if (parameterID == param_ids::transpose)
+        changes = transposeChanged;
+    else if (parameterID == param_ids::renderModel)
+        return;
+
+    dirtyParameterBits.fetch_or(changes, std::memory_order_release);
 }
 
 void OpalineAudioProcessor::cacheParameterPointers()
@@ -193,7 +210,7 @@ void OpalineAudioProcessor::prepareToPlay(const double sampleRate, int)
     performanceEngineB.prepare(safeSampleRate, 4);
     opalineapp::SynthState discardedState;
     while (stateUpdates.consume(discardedState)) {}
-    parametersDirty.store(false, std::memory_order_release);
+    dirtyParameterBits.store(0, std::memory_order_release);
     applyAudioStateToEngine();
 }
 
@@ -276,8 +293,9 @@ void OpalineAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
         audioState = updatedState;
         applyAudioStateToEngine();
     }
-    if (parametersDirty.exchange(false, std::memory_order_acq_rel))
-        applyParametersToAudioState();
+    const auto parameterChanges = dirtyParameterBits.exchange(0, std::memory_order_acq_rel);
+    if (parameterChanges != 0)
+        applyParametersToAudioState(parameterChanges);
     applyRealtimeCommands();
 
     const int numChannels = buffer.getNumChannels();
@@ -323,7 +341,8 @@ void OpalineAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
     if (leftOutput != nullptr)
     {
         const auto* right = rightOutput != nullptr ? rightOutput : leftOutput;
-        scopeBuffer.push(leftOutput, numSamples);
+        if (scopeCaptureEnabled.load(std::memory_order_relaxed))
+            scopeBuffer.push(leftOutput, numSamples);
         wavRecorder.push(leftOutput, right, numSamples);
     }
 
@@ -505,6 +524,11 @@ std::array<float, 4096> OpalineAudioProcessor::getScopeSamples() const
     }
 
     return samples;
+}
+
+void OpalineAudioProcessor::setScopeCaptureEnabled(const bool enabled) noexcept
+{
+    scopeCaptureEnabled.store(enabled, std::memory_order_release);
 }
 
 void OpalineAudioProcessor::startWavRecording()
@@ -713,73 +737,124 @@ void OpalineAudioProcessor::setModWheelOnEngines()
     performanceEngineB.setModWheel(modWheel);
 }
 
-void OpalineAudioProcessor::applyParametersToState(opalineapp::SynthState& targetState) const noexcept
+void OpalineAudioProcessor::applyParametersToState(opalineapp::SynthState& targetState,
+                                                   const std::uint32_t changes) const noexcept
 {
-    targetState.masterVolume = juce::jlimit(0.0f, 1.0f,
-        parameterFloat(parameterPointers.masterVolume, targetState.masterVolume));
-    targetState.pitchBendRange = juce::jlimit(0, 12,
-        parameterInt(parameterPointers.pitchBendRange, targetState.pitchBendRange));
-    targetState.portamento = juce::jlimit(0, 99,
-        parameterInt(parameterPointers.portamento, targetState.portamento));
-    targetState.modWheelPitchRange = juce::jlimit(0, 99,
-        parameterInt(parameterPointers.modWheelPitchRange, targetState.modWheelPitchRange));
-    targetState.modWheelAmpRange = juce::jlimit(0, 99,
-        parameterInt(parameterPointers.modWheelAmpRange, targetState.modWheelAmpRange));
-    targetState.effectsEnabled = parameterBool(parameterPointers.effectsEnabled, targetState.effectsEnabled);
+    if ((changes & masterVolumeChanged) != 0)
+    {
+        targetState.masterVolume = juce::jlimit(0.0f, 1.0f,
+            parameterFloat(parameterPointers.masterVolume, targetState.masterVolume));
+    }
+    if ((changes & pitchBendRangeChanged) != 0)
+    {
+        targetState.pitchBendRange = juce::jlimit(0, 12,
+            parameterInt(parameterPointers.pitchBendRange, targetState.pitchBendRange));
+    }
+    if ((changes & portamentoChanged) != 0)
+    {
+        targetState.portamento = juce::jlimit(0, 99,
+            parameterInt(parameterPointers.portamento, targetState.portamento));
+    }
+    if ((changes & modWheelRangesChanged) != 0)
+    {
+        targetState.modWheelPitchRange = juce::jlimit(0, 99,
+            parameterInt(parameterPointers.modWheelPitchRange, targetState.modWheelPitchRange));
+        targetState.modWheelAmpRange = juce::jlimit(0, 99,
+            parameterInt(parameterPointers.modWheelAmpRange, targetState.modWheelAmpRange));
+    }
+    if ((changes & effectsEnabledChanged) != 0)
+        targetState.effectsEnabled = parameterBool(parameterPointers.effectsEnabled, targetState.effectsEnabled);
     targetState.renderModel = opaline::OpalineRenderModel::TypeB;
 
-    auto patch = targetState.patch;
-    patch.algorithm = parameterInt(parameterPointers.algorithm, patch.algorithm);
-    patch.feedback = parameterInt(parameterPointers.feedback, patch.feedback);
-    patch.transpose = parameterInt(parameterPointers.transpose, patch.transpose);
-    patch.lfo.wave = parameterInt(parameterPointers.lfoWave, patch.lfo.wave);
-    patch.lfo.sync = parameterBool(parameterPointers.lfoSync, patch.lfo.sync);
-    patch.lfo.speed = parameterInt(parameterPointers.lfoSpeed, patch.lfo.speed);
-    patch.lfo.delay = parameterInt(parameterPointers.lfoDelay, patch.lfo.delay);
-    patch.lfo.pitchDepth = parameterInt(parameterPointers.lfoPitchDepth, patch.lfo.pitchDepth);
-    patch.lfo.ampDepth = parameterInt(parameterPointers.lfoAmpDepth, patch.lfo.ampDepth);
-    patch.lfo.pitchSensitivity = parameterInt(parameterPointers.lfoPitchSensitivity, patch.lfo.pitchSensitivity);
-    patch.lfo.ampSensitivity = parameterInt(parameterPointers.lfoAmpSensitivity, patch.lfo.ampSensitivity);
-    patch.pitchEnvelope.rate1 = parameterInt(parameterPointers.pegRate1, patch.pitchEnvelope.rate1);
-    patch.pitchEnvelope.rate2 = parameterInt(parameterPointers.pegRate2, patch.pitchEnvelope.rate2);
-    patch.pitchEnvelope.rate3 = parameterInt(parameterPointers.pegRate3, patch.pitchEnvelope.rate3);
-    patch.pitchEnvelope.level1 = parameterInt(parameterPointers.pegLevel1, patch.pitchEnvelope.level1);
-    patch.pitchEnvelope.level2 = parameterInt(parameterPointers.pegLevel2, patch.pitchEnvelope.level2);
-    patch.pitchEnvelope.level3 = parameterInt(parameterPointers.pegLevel3, patch.pitchEnvelope.level3);
-    patch.effects.reverb = parameterInt(parameterPointers.effectReverb, patch.effects.reverb);
-    patch.effects.mix = parameterInt(parameterPointers.effectMix, patch.effects.mix);
-    patch.effects.echoMix = parameterInt(parameterPointers.effectEchoMix, patch.effects.echoMix);
-    patch.effects.tone = parameterInt(parameterPointers.effectTone, patch.effects.tone);
-    patch.effects.chorus = parameterInt(parameterPointers.effectChorus, patch.effects.chorus);
-    patch.effects.delay = parameterInt(parameterPointers.effectDelay, patch.effects.delay);
+    const bool updatePatch = (changes & patchChanged) != 0;
+    const bool updateTranspose = (changes & transposeChanged) != 0;
+    if (!updatePatch && !updateTranspose)
+        return;
 
-    for (int opIndex = 0; opIndex < opaline::kOperatorCount; ++opIndex)
+    auto patch = targetState.patch;
+    if (updatePatch)
     {
-        const auto index = static_cast<std::size_t>(opIndex);
-        auto& op = patch.operators[index];
-        const auto& values = parameterPointers.operators[index];
-        op.enabled = parameterBool(values.enabled, op.enabled);
-        op.ampModEnable = parameterBool(values.ampMod, op.ampModEnable);
-        op.ratioIndex = parameterInt(values.ratio, op.ratioIndex);
-        op.detune = parameterInt(values.detune, op.detune);
-        op.level = parameterInt(values.level, op.level);
-        op.rateScale = parameterInt(values.rateScale, op.rateScale);
-        op.levelScale = parameterInt(values.levelScale, op.levelScale);
-        op.velocity = parameterInt(values.velocity, op.velocity);
-        op.envelope.attackRate = parameterInt(values.attackRate, op.envelope.attackRate);
-        op.envelope.decay1Rate = parameterInt(values.decay1Rate, op.envelope.decay1Rate);
-        op.envelope.decay1Level = parameterInt(values.decay1Level, op.envelope.decay1Level);
-        op.envelope.decay2Rate = parameterInt(values.decay2Rate, op.envelope.decay2Rate);
-        op.envelope.releaseRate = parameterInt(values.releaseRate, op.envelope.releaseRate);
+        patch.algorithm = parameterInt(parameterPointers.algorithm, patch.algorithm);
+        patch.feedback = parameterInt(parameterPointers.feedback, patch.feedback);
+        patch.lfo.wave = parameterInt(parameterPointers.lfoWave, patch.lfo.wave);
+        patch.lfo.sync = parameterBool(parameterPointers.lfoSync, patch.lfo.sync);
+        patch.lfo.speed = parameterInt(parameterPointers.lfoSpeed, patch.lfo.speed);
+        patch.lfo.delay = parameterInt(parameterPointers.lfoDelay, patch.lfo.delay);
+        patch.lfo.pitchDepth = parameterInt(parameterPointers.lfoPitchDepth, patch.lfo.pitchDepth);
+        patch.lfo.ampDepth = parameterInt(parameterPointers.lfoAmpDepth, patch.lfo.ampDepth);
+        patch.lfo.pitchSensitivity = parameterInt(parameterPointers.lfoPitchSensitivity, patch.lfo.pitchSensitivity);
+        patch.lfo.ampSensitivity = parameterInt(parameterPointers.lfoAmpSensitivity, patch.lfo.ampSensitivity);
+        patch.pitchEnvelope.rate1 = parameterInt(parameterPointers.pegRate1, patch.pitchEnvelope.rate1);
+        patch.pitchEnvelope.rate2 = parameterInt(parameterPointers.pegRate2, patch.pitchEnvelope.rate2);
+        patch.pitchEnvelope.rate3 = parameterInt(parameterPointers.pegRate3, patch.pitchEnvelope.rate3);
+        patch.pitchEnvelope.level1 = parameterInt(parameterPointers.pegLevel1, patch.pitchEnvelope.level1);
+        patch.pitchEnvelope.level2 = parameterInt(parameterPointers.pegLevel2, patch.pitchEnvelope.level2);
+        patch.pitchEnvelope.level3 = parameterInt(parameterPointers.pegLevel3, patch.pitchEnvelope.level3);
+        patch.effects.reverb = parameterInt(parameterPointers.effectReverb, patch.effects.reverb);
+        patch.effects.mix = parameterInt(parameterPointers.effectMix, patch.effects.mix);
+        patch.effects.echoMix = parameterInt(parameterPointers.effectEchoMix, patch.effects.echoMix);
+        patch.effects.tone = parameterInt(parameterPointers.effectTone, patch.effects.tone);
+        patch.effects.chorus = parameterInt(parameterPointers.effectChorus, patch.effects.chorus);
+        patch.effects.delay = parameterInt(parameterPointers.effectDelay, patch.effects.delay);
+
+        for (int opIndex = 0; opIndex < opaline::kOperatorCount; ++opIndex)
+        {
+            const auto index = static_cast<std::size_t>(opIndex);
+            auto& op = patch.operators[index];
+            const auto& values = parameterPointers.operators[index];
+            op.enabled = parameterBool(values.enabled, op.enabled);
+            op.ampModEnable = parameterBool(values.ampMod, op.ampModEnable);
+            op.ratioIndex = parameterInt(values.ratio, op.ratioIndex);
+            op.detune = parameterInt(values.detune, op.detune);
+            op.level = parameterInt(values.level, op.level);
+            op.rateScale = parameterInt(values.rateScale, op.rateScale);
+            op.levelScale = parameterInt(values.levelScale, op.levelScale);
+            op.velocity = parameterInt(values.velocity, op.velocity);
+            op.envelope.attackRate = parameterInt(values.attackRate, op.envelope.attackRate);
+            op.envelope.decay1Rate = parameterInt(values.decay1Rate, op.envelope.decay1Rate);
+            op.envelope.decay1Level = parameterInt(values.decay1Level, op.envelope.decay1Level);
+            op.envelope.decay2Rate = parameterInt(values.decay2Rate, op.envelope.decay2Rate);
+            op.envelope.releaseRate = parameterInt(values.releaseRate, op.envelope.releaseRate);
+        }
     }
+    if (updateTranspose)
+        patch.transpose = parameterInt(parameterPointers.transpose, patch.transpose);
 
     targetState.patch = opaline::normalizePatch(patch);
 }
 
-void OpalineAudioProcessor::applyParametersToAudioState()
+void OpalineAudioProcessor::applyParametersToAudioState(const std::uint32_t changes)
 {
-    applyParametersToState(audioState);
-    applyAudioStateToEngine();
+    applyParametersToState(audioState, changes);
+    applyParameterChangesToEngine(changes);
+}
+
+void OpalineAudioProcessor::applyParameterChangesToEngine(const std::uint32_t changes)
+{
+    if ((changes & (patchChanged | transposeChanged)) != 0)
+        engine.setPatch(audioState.patch);
+    if ((changes & transposeChanged) != 0)
+        performanceEngineB.setPatch(patchForVoiceIndex(audioState.performance.voiceBIndex, audioState));
+    if ((changes & pitchBendRangeChanged) != 0)
+    {
+        engine.setPitchBendRange(audioState.pitchBendRange);
+        performanceEngineB.setPitchBendRange(audioState.pitchBendRange);
+    }
+    if ((changes & portamentoChanged) != 0)
+    {
+        engine.setPortamento(audioState.portamento);
+        performanceEngineB.setPortamento(audioState.portamento);
+    }
+    if ((changes & modWheelRangesChanged) != 0)
+    {
+        engine.setModWheelRanges(audioState.modWheelPitchRange, audioState.modWheelAmpRange);
+        performanceEngineB.setModWheelRanges(audioState.modWheelPitchRange, audioState.modWheelAmpRange);
+    }
+    if ((changes & effectsEnabledChanged) != 0)
+    {
+        engine.setEffectsEnabled(audioState.effectsEnabled);
+        performanceEngineB.setEffectsEnabled(audioState.effectsEnabled);
+    }
 }
 
 void OpalineAudioProcessor::publishStateUpdate()

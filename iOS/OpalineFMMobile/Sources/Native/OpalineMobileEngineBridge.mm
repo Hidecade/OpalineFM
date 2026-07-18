@@ -108,6 +108,67 @@ struct MobileEngineState
     bool monoB = false;
 };
 
+bool envelopesEqual(const opaline::OpalineEnvelopeParams& lhs,
+                    const opaline::OpalineEnvelopeParams& rhs)
+{
+    return lhs.attackRate == rhs.attackRate
+        && lhs.decay1Rate == rhs.decay1Rate
+        && lhs.decay1Level == rhs.decay1Level
+        && lhs.decay2Rate == rhs.decay2Rate
+        && lhs.releaseRate == rhs.releaseRate;
+}
+
+bool operatorsEqual(const opaline::OpalineOperator& lhs,
+                    const opaline::OpalineOperator& rhs)
+{
+    return lhs.ratioIndex == rhs.ratioIndex
+        && lhs.detune == rhs.detune
+        && lhs.level == rhs.level
+        && lhs.rateScale == rhs.rateScale
+        && lhs.levelScale == rhs.levelScale
+        && lhs.velocity == rhs.velocity
+        && lhs.ampModEnable == rhs.ampModEnable
+        && lhs.enabled == rhs.enabled
+        && envelopesEqual(lhs.envelope, rhs.envelope);
+}
+
+bool patchesEqual(const opaline::OpalinePatch& lhs, const opaline::OpalinePatch& rhs)
+{
+    if (lhs.algorithm != rhs.algorithm
+        || lhs.feedback != rhs.feedback
+        || lhs.transpose != rhs.transpose
+        || lhs.lfo.speed != rhs.lfo.speed
+        || lhs.lfo.delay != rhs.lfo.delay
+        || lhs.lfo.pitchDepth != rhs.lfo.pitchDepth
+        || lhs.lfo.ampDepth != rhs.lfo.ampDepth
+        || lhs.lfo.pitchSensitivity != rhs.lfo.pitchSensitivity
+        || lhs.lfo.ampSensitivity != rhs.lfo.ampSensitivity
+        || lhs.lfo.sync != rhs.lfo.sync
+        || lhs.lfo.wave != rhs.lfo.wave
+        || lhs.pitchEnvelope.rate1 != rhs.pitchEnvelope.rate1
+        || lhs.pitchEnvelope.rate2 != rhs.pitchEnvelope.rate2
+        || lhs.pitchEnvelope.rate3 != rhs.pitchEnvelope.rate3
+        || lhs.pitchEnvelope.level1 != rhs.pitchEnvelope.level1
+        || lhs.pitchEnvelope.level2 != rhs.pitchEnvelope.level2
+        || lhs.pitchEnvelope.level3 != rhs.pitchEnvelope.level3
+        || lhs.effects.reverb != rhs.effects.reverb
+        || lhs.effects.mix != rhs.effects.mix
+        || lhs.effects.echoMix != rhs.effects.echoMix
+        || lhs.effects.tone != rhs.effects.tone
+        || lhs.effects.chorus != rhs.effects.chorus
+        || lhs.effects.delay != rhs.effects.delay)
+    {
+        return false;
+    }
+
+    for (std::size_t index = 0; index < lhs.operators.size(); ++index)
+    {
+        if (!operatorsEqual(lhs.operators[index], rhs.operators[index]))
+            return false;
+    }
+    return true;
+}
+
 constexpr std::size_t kRealtimeCommandCapacity = 1024;
 
 void enqueueRealtimeCommand(opaline::RealtimeCommandQueue<RealtimeCommand, kRealtimeCommandCapacity>& queue,
@@ -138,6 +199,7 @@ void enqueueRealtimeCommand(opaline::RealtimeCommandQueue<RealtimeCommand, kReal
     std::size_t scopeHistoryWriteIndex;
     std::atomic<int> scopeTriggerNote;
     std::atomic<double> scopeSampleRate;
+    std::atomic<bool> scopeCaptureEnabled;
     std::array<int, 128> scopeHeldNoteCounts;
     int scopeHeldNoteTotal;
     std::array<float, 128> scopeSmoothedDisplay;
@@ -177,7 +239,7 @@ void enqueueRealtimeCommand(opaline::RealtimeCommandQueue<RealtimeCommand, kReal
 - (void)applyCurrentPatchNoLock;
 - (MobileEngineState)captureEngineStateNoLock;
 - (void)publishEngineStateNoLock;
-- (void)applyEngineStateNoLock:(const MobileEngineState&)state;
+- (void)applyEngineStateNoLock:(const MobileEngineState&)state force:(BOOL)force;
 - (void)syncCurrentVoiceToLibraryNoLock;
 - (void)mixEngineBNoLockLeft:(float*)left right:(float*)right frames:(int)frames;
 - (void)pushScopeSamplesNoLock:(const float*)left frames:(int)frames;
@@ -339,6 +401,7 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
         scopeHistoryWriteIndex = 0;
         scopeTriggerNote.store(-1, std::memory_order_relaxed);
         scopeSampleRate.store(currentSampleRate, std::memory_order_relaxed);
+        scopeCaptureEnabled.store(false, std::memory_order_relaxed);
         scopeHeldNoteCounts.fill(0);
         scopeHeldNoteTotal = 0;
         scopeSmoothedDisplay.fill(0.0f);
@@ -364,8 +427,8 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
 
     MobileEngineState discardedState;
     (void) engineStateUpdates.consume(discardedState);
-    audioEngineState = [self captureEngineStateNoLock];
-    [self applyEngineStateNoLock:audioEngineState];
+    const auto initialState = [self captureEngineStateNoLock];
+    [self applyEngineStateNoLock:initialState force:YES];
 }
 
 - (void)selectVoiceBank:(int)bank voice:(int)voice
@@ -1289,8 +1352,9 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
 
     MobileEngineState updatedState;
     if (engineStateUpdates.consume(updatedState))
-        [self applyEngineStateNoLock:updatedState];
+        [self applyEngineStateNoLock:updatedState force:NO];
     [self applyRealtimeCommandsNoLock];
+
     for (int offset = 0; offset < frames; offset += kPreparedScratchFrames)
     {
         const int chunkFrames = std::min(frames - offset, kPreparedScratchFrames);
@@ -1315,8 +1379,34 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
     const auto bufferCount = audioBufferList->mNumberBuffers;
     MobileEngineState updatedState;
     if (engineStateUpdates.consume(updatedState))
-        [self applyEngineStateNoLock:updatedState];
+        [self applyEngineStateNoLock:updatedState force:NO];
     [self applyRealtimeCommandsNoLock];
+    if (bufferCount == 0)
+        return;
+
+    if (bufferCount >= 2)
+    {
+        auto* leftBase = static_cast<float*>(audioBufferList->mBuffers[0].mData);
+        auto* rightBase = static_cast<float*>(audioBufferList->mBuffers[1].mData);
+        if (leftBase == nullptr || rightBase == nullptr)
+            return;
+
+        for (int offset = 0; offset < frames; offset += kPreparedScratchFrames)
+        {
+            const int chunkFrames = std::min(frames - offset, kPreparedScratchFrames);
+            auto* left = leftBase + offset;
+            auto* right = rightBase + offset;
+            engine->renderBlock(left, right, chunkFrames);
+            if (audioEngineState.performanceMode != 0)
+            {
+                engineB->renderBlock(scratchBLeft.data(), scratchBRight.data(), chunkFrames);
+                [self mixEngineBNoLockLeft:left right:right frames:chunkFrames];
+            }
+            [self pushScopeSamplesNoLock:left frames:chunkFrames];
+        }
+        return;
+    }
+
     for (int offset = 0; offset < frames; offset += kPreparedScratchFrames)
     {
         const int chunkFrames = std::min(frames - offset, kPreparedScratchFrames);
@@ -1332,6 +1422,8 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
         {
             auto& buffer = audioBufferList->mBuffers[0];
             auto* samples = static_cast<float*>(buffer.mData);
+            if (samples == nullptr)
+                return;
             const auto channelCount = std::max<UInt32>(1, buffer.mNumberChannels);
             for (int frame = 0; frame < chunkFrames; ++frame)
             {
@@ -1340,13 +1432,6 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
                 if (channelCount > 1)
                     samples[outputFrame * channelCount + 1] = scratchRight[static_cast<std::size_t>(frame)];
             }
-        }
-        else if (bufferCount >= 2)
-        {
-            auto* left = static_cast<float*>(audioBufferList->mBuffers[0].mData) + offset;
-            auto* right = static_cast<float*>(audioBufferList->mBuffers[1].mData) + offset;
-            std::copy_n(scratchLeft.data(), chunkFrames, left);
-            std::copy_n(scratchRight.data(), chunkFrames, right);
         }
     }
 
@@ -1397,9 +1482,13 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
                                      idealCentre - searchRadius);
     const int searchEnd = std::min(std::min(historySize - slopeSpan - 1, maximumCentre),
                                    idealCentre + searchRadius);
-    int centreCrossing = -1;
+    double centreCrossing = -1.0;
     int closestDistance = std::numeric_limits<int>::max();
     float closestRise = 0.0f;
+    float bestCorrelation = -2.0f;
+    const bool canMatchPrevious = note >= 0
+        && note == scopeSmoothedNote
+        && scopeHasSmoothedDisplay;
     const float minimumRise = peak * 0.025f;
     for (int i = searchStart; i <= searchEnd; ++i)
     {
@@ -1409,18 +1498,57 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
             const float rise = history[static_cast<std::size_t>(i + slopeSpan)]
                 - history[static_cast<std::size_t>(i - slopeSpan)];
             const int distance = std::abs(i - idealCentre);
-            if (rise >= minimumRise
-                && (distance < closestDistance || (distance == closestDistance && rise > closestRise)))
+            if (rise < minimumRise)
+                continue;
+
+            const float before = history[static_cast<std::size_t>(i - 1)];
+            const float after = history[static_cast<std::size_t>(i)];
+            const float crossingFraction = after != before ? -before / (after - before) : 1.0f;
+            const double crossing = static_cast<double>(i - 1) + crossingFraction;
+
+            float correlation = -2.0f;
+            if (canMatchPrevious)
             {
-                closestDistance = distance;
-                closestRise = rise;
-                centreCrossing = i;
+                float dot = 0.0f;
+                float candidateEnergy = 0.0f;
+                float referenceEnergy = 0.0f;
+                for (int point = 0; point < displaySize; point += 4)
+                {
+                    const double position = crossing - static_cast<double>(viewSamples) * 0.5
+                        + static_cast<double>(viewSamples) * static_cast<double>(point)
+                            / static_cast<double>(displaySize - 1);
+                    const int index = std::max(0, std::min(historySize - 2, static_cast<int>(position)));
+                    const float fraction = static_cast<float>(position - static_cast<double>(index));
+                    const float candidate = history[static_cast<std::size_t>(index)]
+                        + (history[static_cast<std::size_t>(index + 1)]
+                            - history[static_cast<std::size_t>(index)]) * fraction;
+                    const float reference = scopeSmoothedDisplay[static_cast<std::size_t>(point)];
+                    dot += candidate * reference;
+                    candidateEnergy += candidate * candidate;
+                    referenceEnergy += reference * reference;
+                }
+                if (candidateEnergy > 1.0e-8f && referenceEnergy > 1.0e-8f)
+                    correlation = dot / std::sqrt(candidateEnergy * referenceEnergy);
             }
+
+            const bool betterPhase = canMatchPrevious
+                && (correlation > bestCorrelation + 1.0e-4f
+                    || (std::abs(correlation - bestCorrelation) <= 1.0e-4f
+                        && distance < closestDistance));
+            const bool betterInitialCrossing = !canMatchPrevious
+                && (distance < closestDistance || (distance == closestDistance && rise > closestRise));
+            if (!betterPhase && !betterInitialCrossing)
+                continue;
+
+            closestDistance = distance;
+            closestRise = rise;
+            bestCorrelation = correlation;
+            centreCrossing = crossing;
         }
     }
 
     const double windowStart = note >= 0 && peak > 1.0e-4f && centreCrossing >= 0
-        ? static_cast<double>(centreCrossing) - static_cast<double>(viewSamples) * 0.5
+        ? centreCrossing - static_cast<double>(viewSamples) * 0.5
         : static_cast<double>(historySize - viewSamples);
     std::array<float, displaySize> display {};
     float displayPeak = 0.0f;
@@ -1462,6 +1590,11 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
         snapshot[i] = std::max(-1.0f, std::min(1.0f, scopeSmoothedDisplay[i]));
 
     return [NSData dataWithBytes:snapshot.data() length:sizeof(snapshot)];
+}
+
+- (void)setScopeCaptureEnabled:(BOOL)enabled
+{
+    scopeCaptureEnabled.store(enabled, std::memory_order_release);
 }
 
 - (void)loadBundledFactoryBank
@@ -1540,13 +1673,22 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
     engineStateUpdates.publish([self captureEngineStateNoLock]);
 }
 
-- (void)applyEngineStateNoLock:(const MobileEngineState&)state
+- (void)applyEngineStateNoLock:(const MobileEngineState&)state force:(BOOL)force
 {
-    const bool performanceModeChanged = audioEngineState.performanceMode != state.performanceMode;
-    const bool monoAChanged = audioEngineState.monoA != state.monoA;
-    const bool monoBChanged = audioEngineState.monoB != state.monoB;
-    const bool portamentoModeAChanged = audioEngineState.portamentoModeA != state.portamentoModeA;
-    const bool portamentoModeBChanged = audioEngineState.portamentoModeB != state.portamentoModeB;
+    const bool performanceModeChanged = force || audioEngineState.performanceMode != state.performanceMode;
+    const bool patchAChanged = force || !patchesEqual(audioEngineState.patchA, state.patchA);
+    const bool patchBChanged = force || !patchesEqual(audioEngineState.patchB, state.patchB);
+    const bool monoAChanged = force || audioEngineState.monoA != state.monoA;
+    const bool monoBChanged = force || audioEngineState.monoB != state.monoB;
+    const bool portamentoModeAChanged = force || audioEngineState.portamentoModeA != state.portamentoModeA;
+    const bool portamentoModeBChanged = force || audioEngineState.portamentoModeB != state.portamentoModeB;
+    const bool pitchBendRangeChanged = force || audioEngineState.pitchBendRange != state.pitchBendRange;
+    const bool portamentoChanged = force || audioEngineState.portamento != state.portamento;
+    const bool modWheelRangesChanged = force
+        || audioEngineState.modWheelPitchRange != state.modWheelPitchRange
+        || audioEngineState.modWheelAmpRange != state.modWheelAmpRange;
+    const bool effectsEnabledChanged = force || audioEngineState.effectsEnabled != state.effectsEnabled;
+    const bool dualDetuneChanged = force || audioEngineState.dualDetune != state.dualDetune;
 
     if (performanceModeChanged)
     {
@@ -1565,27 +1707,45 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
     }
 
     audioEngineState = state;
-    engine->setVoiceLimit(state.performanceMode == 0 ? 8 : 4);
-    engineB->setVoiceLimit(4);
-    engine->setPatch(state.patchA);
-    engineB->setPatch(state.patchB);
-    engine->setPitchBendRange(state.pitchBendRange);
-    engineB->setPitchBendRange(state.pitchBendRange);
-    engine->setPortamento(state.portamento);
-    engineB->setPortamento(state.portamento);
-    engine->setPortamentoMode(state.portamentoModeA);
-    engineB->setPortamentoMode(state.portamentoModeB);
-    engine->setModWheelRanges(state.modWheelPitchRange, state.modWheelAmpRange);
-    engineB->setModWheelRanges(state.modWheelPitchRange, state.modWheelAmpRange);
-    engine->setEffectsEnabled(state.effectsEnabled);
-    engineB->setEffectsEnabled(state.effectsEnabled);
-    engine->setMonoMode(state.monoA);
-    engineB->setMonoMode(state.monoB);
-
-    const double modWheel = currentModWheel.load(std::memory_order_acquire);
-    engine->setModWheel(modWheel);
-    engineB->setModWheel(modWheel);
-    [self applyPitchBendNoLock];
+    if (performanceModeChanged)
+    {
+        engine->setVoiceLimit(state.performanceMode == 0 ? 8 : 4);
+        engineB->setVoiceLimit(4);
+    }
+    if (patchAChanged)
+        engine->setPatch(state.patchA);
+    if (patchBChanged)
+        engineB->setPatch(state.patchB);
+    if (pitchBendRangeChanged)
+    {
+        engine->setPitchBendRange(state.pitchBendRange);
+        engineB->setPitchBendRange(state.pitchBendRange);
+    }
+    if (portamentoChanged)
+    {
+        engine->setPortamento(state.portamento);
+        engineB->setPortamento(state.portamento);
+    }
+    if (portamentoModeAChanged)
+        engine->setPortamentoMode(state.portamentoModeA);
+    if (portamentoModeBChanged)
+        engineB->setPortamentoMode(state.portamentoModeB);
+    if (modWheelRangesChanged)
+    {
+        engine->setModWheelRanges(state.modWheelPitchRange, state.modWheelAmpRange);
+        engineB->setModWheelRanges(state.modWheelPitchRange, state.modWheelAmpRange);
+    }
+    if (effectsEnabledChanged)
+    {
+        engine->setEffectsEnabled(state.effectsEnabled);
+        engineB->setEffectsEnabled(state.effectsEnabled);
+    }
+    if (monoAChanged)
+        engine->setMonoMode(state.monoA);
+    if (monoBChanged)
+        engineB->setMonoMode(state.monoB);
+    if (dualDetuneChanged)
+        [self applyPitchBendNoLock];
 }
 
 - (void)mixEngineBNoLockLeft:(float*)left right:(float*)right frames:(int)frames
@@ -1605,7 +1765,8 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
 
 - (void)pushScopeSamplesNoLock:(const float*)left frames:(int)frames
 {
-    if (left == nullptr || frames <= 0)
+    if (left == nullptr || frames <= 0
+        || !scopeCaptureEnabled.load(std::memory_order_relaxed))
         return;
 
     scopeBuffer.push(left, frames);

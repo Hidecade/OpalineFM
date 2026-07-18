@@ -97,5 +97,7 @@ private:
     double effectChorusPhaseIncrement = 0.0;
     double effectChorusDelay = 0.0;
     double effectChorusDepth = 0.0;
+    bool effectWetParametersZero = true;
+    bool effectOutputDryOnly = true;
 };
 } // namespace opaline

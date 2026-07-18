@@ -56,6 +56,7 @@ OpalineAudioProcessorEditor::OpalineAudioProcessorEditor(OpalineAudioProcessor& 
     mainComponent.applySynthState(audioProcessor.getSynthState(), true);
     audioProcessor.setSynthStateFromEditor(mainComponent.captureSynthState());
     audioProcessor.setProgramNameFromEditor(mainComponent.currentProgramName());
+    audioProcessor.setScopeCaptureEnabled(true);
     addAndMakeVisible(mainComponent);
     setSize(1024, 668);
     startTimerHz(60);
@@ -64,6 +65,7 @@ OpalineAudioProcessorEditor::OpalineAudioProcessorEditor(OpalineAudioProcessor& 
 OpalineAudioProcessorEditor::~OpalineAudioProcessorEditor()
 {
     stopTimer();
+    audioProcessor.setScopeCaptureEnabled(false);
 }
 
 void OpalineAudioProcessorEditor::resized()
@@ -71,8 +73,16 @@ void OpalineAudioProcessorEditor::resized()
     mainComponent.setBounds(getLocalBounds());
 }
 
+void OpalineAudioProcessorEditor::visibilityChanged()
+{
+    audioProcessor.setScopeCaptureEnabled(isShowing());
+}
+
 void OpalineAudioProcessorEditor::timerCallback()
 {
+    if (!isShowing())
+        return;
+
     if (auto* modalManager = juce::ModalComponentManager::getInstanceWithoutCreating())
     {
         if (modalManager->getNumModalComponents() > 0)

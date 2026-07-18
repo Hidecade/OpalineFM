@@ -63,7 +63,15 @@ final class MobileSynthModel: ObservableObject {
         }
     }
 
-    @Published var screen: Screen = .play
+    @Published var screen: Screen = .play {
+        didSet {
+            let captureScope = screen == .play || screen == .edit
+            engine.setScopeCaptureEnabled(captureScope)
+            if !captureScope {
+                scopeSamples = Array(repeating: 0, count: scopeSamples.count)
+            }
+        }
+    }
     @Published var bankName: String = "Factory"
     @Published var voiceName: String = "Init Voice"
     @Published var voiceBName: String = "Init Voice"
@@ -116,6 +124,7 @@ final class MobileSynthModel: ObservableObject {
     init() {
         audioOutput = MobileAudioEngine(engineBridge: engine)
         engine.prepare(sampleRate: 44100, maxVoices: 16)
+        engine.setScopeCaptureEnabled(true)
         loadPersistedVoiceLibrary()
         engine.reloadBundledFactoryBank()
         saveVoiceLibraryState()
@@ -560,6 +569,7 @@ final class MobileSynthModel: ObservableObject {
         scopeTimer?.invalidate()
         scopeTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 20.0, repeats: true) { [weak self] _ in
             guard let self else { return }
+            guard self.screen == .play || self.screen == .edit else { return }
             let samples = self.engine.scopeSnapshotData().withUnsafeBytes { bytes in
                 Array(bytes.bindMemory(to: Float.self))
             }
