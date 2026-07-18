@@ -94,6 +94,9 @@ void OpalineEngine::noteOn(const int note, const int velocity)
                                 [safeNote](const OpalineVoice& voice) { return voice.note() == safeNote; }),
                  voices.end());
 
+    if (static_cast<int>(voices.size()) >= maxVoiceCount)
+        voices.erase(voices.begin());
+
     OpalineVoice voice;
     const bool usePortamento = fullPortamento || fingeredPortamento;
     const int fromNote = usePortamento ? lastPlayedNote : -1;
@@ -101,9 +104,6 @@ void OpalineEngine::noteOn(const int note, const int velocity)
                 fromNote, portamentoSecondsForValue(portamento));
     lastPlayedNote = safeNote;
     voices.push_back(voice);
-
-    while (static_cast<int>(voices.size()) > maxVoiceCount)
-        voices.erase(voices.begin());
 
     if (patch.lfo.sync)
         globalLfoAge = 0.0;

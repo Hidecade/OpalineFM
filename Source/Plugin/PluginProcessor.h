@@ -3,11 +3,13 @@
 #include "App/OpalineAppState.h"
 #include "Engine/OpalineEngine.h"
 #include "Engine/RealtimeAudioRecorder.h"
+#include "Engine/RealtimeCommandQueue.h"
 #include "Engine/OpalineVoiceLibrary.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include <array>
+#include <atomic>
 #include <vector>
 
 class OpalineAudioProcessor final : public juce::AudioProcessor,
@@ -58,14 +60,87 @@ public:
     bool stopWavRecordingAndSaveToFile(const juce::File& file);
 
 private:
+    enum class RealtimeCommandType
+    {
+        noteOn,
+        noteOff,
+        panic,
+        pitchBend,
+        modWheel
+    };
+
+    struct RealtimeCommand
+    {
+        RealtimeCommandType type = RealtimeCommandType::panic;
+        int value1 = 0;
+        int value2 = 0;
+        double normalizedValue = 0.0;
+    };
+
+    struct OperatorParameterPointers
+    {
+        std::atomic<float>* enabled = nullptr;
+        std::atomic<float>* ampMod = nullptr;
+        std::atomic<float>* ratio = nullptr;
+        std::atomic<float>* detune = nullptr;
+        std::atomic<float>* level = nullptr;
+        std::atomic<float>* rateScale = nullptr;
+        std::atomic<float>* levelScale = nullptr;
+        std::atomic<float>* velocity = nullptr;
+        std::atomic<float>* attackRate = nullptr;
+        std::atomic<float>* decay1Rate = nullptr;
+        std::atomic<float>* decay1Level = nullptr;
+        std::atomic<float>* decay2Rate = nullptr;
+        std::atomic<float>* releaseRate = nullptr;
+    };
+
+    struct ParameterPointers
+    {
+        std::atomic<float>* masterVolume = nullptr;
+        std::atomic<float>* pitchBendRange = nullptr;
+        std::atomic<float>* portamento = nullptr;
+        std::atomic<float>* modWheelPitchRange = nullptr;
+        std::atomic<float>* modWheelAmpRange = nullptr;
+        std::atomic<float>* effectsEnabled = nullptr;
+        std::atomic<float>* algorithm = nullptr;
+        std::atomic<float>* feedback = nullptr;
+        std::atomic<float>* transpose = nullptr;
+        std::atomic<float>* lfoWave = nullptr;
+        std::atomic<float>* lfoSync = nullptr;
+        std::atomic<float>* lfoSpeed = nullptr;
+        std::atomic<float>* lfoDelay = nullptr;
+        std::atomic<float>* lfoPitchDepth = nullptr;
+        std::atomic<float>* lfoAmpDepth = nullptr;
+        std::atomic<float>* lfoPitchSensitivity = nullptr;
+        std::atomic<float>* lfoAmpSensitivity = nullptr;
+        std::atomic<float>* pegRate1 = nullptr;
+        std::atomic<float>* pegRate2 = nullptr;
+        std::atomic<float>* pegRate3 = nullptr;
+        std::atomic<float>* pegLevel1 = nullptr;
+        std::atomic<float>* pegLevel2 = nullptr;
+        std::atomic<float>* pegLevel3 = nullptr;
+        std::atomic<float>* effectReverb = nullptr;
+        std::atomic<float>* effectMix = nullptr;
+        std::atomic<float>* effectEchoMix = nullptr;
+        std::atomic<float>* effectTone = nullptr;
+        std::atomic<float>* effectChorus = nullptr;
+        std::atomic<float>* effectDelay = nullptr;
+        std::array<OperatorParameterPointers, opaline::kOperatorCount> operators {};
+    };
+
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     void parameterChanged(const juce::String& parameterID, float newValue) override;
-    void handleMidiMessage(const juce::MidiMessage& message);
-    void applyStateToEngine();
-    void applyParametersToState();
+    void handleMidiMessage(const juce::MidiMessageMetadata& message) noexcept;
+    void cacheParameterPointers();
+    void applyAudioStateToEngine();
+    void applyParametersToState(opalineapp::SynthState& targetState) const noexcept;
+    void applyParametersToAudioState();
+    void publishStateUpdate();
+    void enqueueRealtimeCommand(const RealtimeCommand& command) noexcept;
+    void applyRealtimeCommands();
     void loadFactoryPrograms();
-    opaline::OpalinePatch patchForVoiceIndex(int index) const;
+    opaline::OpalinePatch patchForVoiceIndex(int index, const opalineapp::SynthState& targetState) const;
     void performNoteOn(int note, int velocity);
     void performNoteOff(int note);
     void panicEngines();
@@ -77,12 +152,13 @@ private:
     opaline::OpalineEngine engine;
     opaline::OpalineEngine performanceEngineB;
     opalineapp::SynthState state;
-    opaline::OpalineRenderModel renderModel = opaline::OpalineRenderModel::TypeB;
+    opalineapp::SynthState audioState;
     juce::AudioProcessorValueTreeState parameters;
+    ParameterPointers parameterPointers;
     std::atomic<bool> parametersDirty { true };
-    double currentSampleRate = 44100.0;
-    double currentPitchBend = 0.0;
-    double currentModWheel = 0.0;
+    std::atomic<double> currentSampleRate { 44100.0 };
+    std::atomic<double> currentPitchBend { 0.0 };
+    std::atomic<double> currentModWheel { 0.0 };
     opalineapp::PerformanceMode preparedPerformanceMode = opalineapp::PerformanceMode::Single;
     juce::String currentProgramName { "Opaline FM" };
     std::vector<opaline::OpalinePatchWithMetadata> factoryPrograms;
@@ -90,7 +166,10 @@ private:
     std::array<std::atomic<float>, 4096> scopeSamples {};
     std::atomic<int> scopeWriteIndex { 0 };
     opaline::RealtimeAudioRecorder wavRecorder;
-    mutable juce::CriticalSection engineLock;
+    opaline::RealtimeCommandQueue<RealtimeCommand, 1024> realtimeCommands;
+    std::atomic<bool> realtimeCommandOverflowed { false };
+    opaline::RealtimeStateMailbox<opalineapp::SynthState> stateUpdates;
+    mutable juce::CriticalSection stateLock;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(OpalineAudioProcessor)
 };

@@ -48,25 +48,25 @@ double pitchWheelToUnitBend(const int pitchWheelValue)
     return opaline::clampDouble((static_cast<double>(pitchWheelValue) - 8192.0) / 8192.0, -1.0, 1.0);
 }
 
-int parameterInt(juce::AudioProcessorValueTreeState& parameters, const juce::StringRef id, const int fallback)
+int parameterInt(const std::atomic<float>* const value, const int fallback) noexcept
 {
-    if (auto* value = parameters.getRawParameterValue(id))
+    if (value != nullptr)
         return static_cast<int>(std::round(value->load()));
 
     return fallback;
 }
 
-float parameterFloat(juce::AudioProcessorValueTreeState& parameters, const juce::StringRef id, const float fallback)
+float parameterFloat(const std::atomic<float>* const value, const float fallback) noexcept
 {
-    if (auto* value = parameters.getRawParameterValue(id))
+    if (value != nullptr)
         return value->load();
 
     return fallback;
 }
 
-bool parameterBool(juce::AudioProcessorValueTreeState& parameters, const juce::StringRef id, const bool fallback)
+bool parameterBool(const std::atomic<float>* const value, const bool fallback) noexcept
 {
-    return parameterInt(parameters, id, fallback ? 1 : 0) != 0;
+    return parameterInt(value, fallback ? 1 : 0) != 0;
 }
 
 juce::String opParamId(const int opIndex, const char* suffix)
@@ -100,7 +100,9 @@ OpalineAudioProcessor::OpalineAudioProcessor()
     }
 
     state.patch = opaline::normalizePatch(state.patch);
-    state.renderModel = renderModel;
+    state.renderModel = opaline::OpalineRenderModel::TypeB;
+    audioState = state;
+    cacheParameterPointers();
     syncParametersFromState();
 
     for (auto* parameter : getParameters())
@@ -125,19 +127,78 @@ void OpalineAudioProcessor::parameterChanged(const juce::String&, float)
     parametersDirty.store(true, std::memory_order_release);
 }
 
+void OpalineAudioProcessor::cacheParameterPointers()
+{
+    const auto get = [this](const juce::StringRef id)
+    {
+        return parameters.getRawParameterValue(id);
+    };
+
+    parameterPointers.masterVolume = get(param_ids::masterVolume);
+    parameterPointers.pitchBendRange = get(param_ids::pitchBendRange);
+    parameterPointers.portamento = get(param_ids::portamento);
+    parameterPointers.modWheelPitchRange = get(param_ids::modWheelPitchRange);
+    parameterPointers.modWheelAmpRange = get(param_ids::modWheelAmpRange);
+    parameterPointers.effectsEnabled = get(param_ids::effectsEnabled);
+    parameterPointers.algorithm = get(param_ids::algorithm);
+    parameterPointers.feedback = get(param_ids::feedback);
+    parameterPointers.transpose = get(param_ids::transpose);
+    parameterPointers.lfoWave = get(param_ids::lfoWave);
+    parameterPointers.lfoSync = get(param_ids::lfoSync);
+    parameterPointers.lfoSpeed = get(param_ids::lfoSpeed);
+    parameterPointers.lfoDelay = get(param_ids::lfoDelay);
+    parameterPointers.lfoPitchDepth = get(param_ids::lfoPitchDepth);
+    parameterPointers.lfoAmpDepth = get(param_ids::lfoAmpDepth);
+    parameterPointers.lfoPitchSensitivity = get(param_ids::lfoPitchSensitivity);
+    parameterPointers.lfoAmpSensitivity = get(param_ids::lfoAmpSensitivity);
+    parameterPointers.pegRate1 = get(param_ids::pegRate1);
+    parameterPointers.pegRate2 = get(param_ids::pegRate2);
+    parameterPointers.pegRate3 = get(param_ids::pegRate3);
+    parameterPointers.pegLevel1 = get(param_ids::pegLevel1);
+    parameterPointers.pegLevel2 = get(param_ids::pegLevel2);
+    parameterPointers.pegLevel3 = get(param_ids::pegLevel3);
+    parameterPointers.effectReverb = get(param_ids::effectReverb);
+    parameterPointers.effectMix = get(param_ids::effectMix);
+    parameterPointers.effectEchoMix = get(param_ids::effectEchoMix);
+    parameterPointers.effectTone = get(param_ids::effectTone);
+    parameterPointers.effectChorus = get(param_ids::effectChorus);
+    parameterPointers.effectDelay = get(param_ids::effectDelay);
+
+    for (int opIndex = 0; opIndex < opaline::kOperatorCount; ++opIndex)
+    {
+        auto& op = parameterPointers.operators[static_cast<std::size_t>(opIndex)];
+        op.enabled = get(opParamId(opIndex, "Enabled"));
+        op.ampMod = get(opParamId(opIndex, "AmpMod"));
+        op.ratio = get(opParamId(opIndex, "Ratio"));
+        op.detune = get(opParamId(opIndex, "Detune"));
+        op.level = get(opParamId(opIndex, "Level"));
+        op.rateScale = get(opParamId(opIndex, "RateScale"));
+        op.levelScale = get(opParamId(opIndex, "LevelScale"));
+        op.velocity = get(opParamId(opIndex, "Velocity"));
+        op.attackRate = get(opParamId(opIndex, "AR"));
+        op.decay1Rate = get(opParamId(opIndex, "D1R"));
+        op.decay1Level = get(opParamId(opIndex, "D1L"));
+        op.decay2Rate = get(opParamId(opIndex, "D2R"));
+        op.releaseRate = get(opParamId(opIndex, "RR"));
+    }
+}
+
 void OpalineAudioProcessor::prepareToPlay(const double sampleRate, int)
 {
-    const juce::ScopedLock lock(engineLock);
-    currentSampleRate = sampleRate > 0.0 ? sampleRate : 44100.0;
-    preparedPerformanceMode = state.performance.mode;
-    engine.prepare(currentSampleRate, preparedPerformanceMode == opalineapp::PerformanceMode::Single ? 8 : 4);
-    performanceEngineB.prepare(currentSampleRate, 4);
-    applyStateToEngine();
+    const double safeSampleRate = sampleRate > 0.0 ? sampleRate : 44100.0;
+    currentSampleRate.store(safeSampleRate, std::memory_order_release);
+    audioState = getSynthState();
+    preparedPerformanceMode = audioState.performance.mode;
+    engine.prepare(safeSampleRate, 8);
+    performanceEngineB.prepare(safeSampleRate, 4);
+    opalineapp::SynthState discardedState;
+    while (stateUpdates.consume(discardedState)) {}
+    parametersDirty.store(false, std::memory_order_release);
+    applyAudioStateToEngine();
 }
 
 void OpalineAudioProcessor::releaseResources()
 {
-    const juce::ScopedLock lock(engineLock);
     panicEngines();
 }
 
@@ -209,9 +270,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout OpalineAudioProcessor::creat
 void OpalineAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
     juce::ScopedNoDenormals noDenormals;
-    const juce::ScopedLock lock(engineLock);
+    opalineapp::SynthState updatedState;
+    if (stateUpdates.consume(updatedState))
+    {
+        audioState = updatedState;
+        applyAudioStateToEngine();
+    }
     if (parametersDirty.exchange(false, std::memory_order_acq_rel))
-        applyParametersToState();
+        applyParametersToAudioState();
+    applyRealtimeCommands();
 
     for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
         buffer.clear(channel, 0, buffer.getNumSamples());
@@ -223,23 +290,23 @@ void OpalineAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
     {
         while (midi != midiEnd && (*midi).samplePosition <= sample)
         {
-            handleMidiMessage((*midi).getMessage());
+            handleMidiMessage(*midi);
             ++midi;
         }
 
         const auto outputA = engine.renderSample();
         auto output = outputA;
-        if (state.performance.mode != opalineapp::PerformanceMode::Single)
+        if (audioState.performance.mode != opalineapp::PerformanceMode::Single)
         {
             const auto outputB = performanceEngineB.renderSample();
-            const float balance = static_cast<float>(juce::jlimit(-100, 100, state.performance.abBalance)) / 100.0f;
+            const float balance = static_cast<float>(juce::jlimit(-100, 100, audioState.performance.abBalance)) / 100.0f;
             const float gainA = balance >= 0.0f ? 1.0f : 1.0f + balance;
             const float gainB = balance <= 0.0f ? 1.0f : 1.0f - balance;
-            const float mixGain = state.performance.mode == opalineapp::PerformanceMode::Dual ? 0.50f : 0.82f;
+            const float mixGain = audioState.performance.mode == opalineapp::PerformanceMode::Dual ? 0.50f : 0.82f;
             output.left = (outputA.left * gainA + outputB.left * gainB) * mixGain;
             output.right = (outputA.right * gainA + outputB.right * gainB) * mixGain;
         }
-        const float gain = state.masterVolume;
+        const float gain = audioState.masterVolume;
         const float left = output.left * gain;
         const float right = output.right * gain;
         if (buffer.getNumChannels() > 0)
@@ -273,13 +340,13 @@ int OpalineAudioProcessor::getNumPrograms()
 
 int OpalineAudioProcessor::getCurrentProgram()
 {
-    const juce::ScopedLock lock(engineLock);
+    const juce::ScopedLock lock(stateLock);
     return juce::jlimit(0, getNumPrograms() - 1, state.performance.voiceAIndex);
 }
 
 void OpalineAudioProcessor::setCurrentProgram(const int index)
 {
-    const juce::ScopedLock lock(engineLock);
+    const juce::ScopedLock lock(stateLock);
     if (factoryPrograms.empty())
         return;
 
@@ -289,13 +356,14 @@ void OpalineAudioProcessor::setCurrentProgram(const int index)
     state.patch = opaline::normalizePatch(selectedProgram.patch);
     state.effectsEnabled = selectedProgram.effectsEnabled;
     currentProgramName = factoryProgramName(safeIndex);
-    applyStateToEngine();
+    state.patch = opaline::normalizePatch(state.patch);
+    publishStateUpdate();
     syncParametersFromState();
 }
 
 const juce::String OpalineAudioProcessor::getProgramName(const int index)
 {
-    const juce::ScopedLock lock(engineLock);
+    const juce::ScopedLock lock(stateLock);
     if (index < 0)
         return currentProgramName;
 
@@ -304,8 +372,7 @@ const juce::String OpalineAudioProcessor::getProgramName(const int index)
 
 void OpalineAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
-    const juce::ScopedLock lock(engineLock);
-    const auto tree = opalineapp::synthStateToValueTree(state);
+    const auto tree = opalineapp::synthStateToValueTree(getSynthState());
     if (auto xml = tree.createXml())
         copyXmlToBinary(*xml, destData);
 }
@@ -315,43 +382,52 @@ void OpalineAudioProcessor::setStateInformation(const void* data, const int size
     if (auto xml = getXmlFromBinary(data, sizeInBytes))
     {
         const auto tree = juce::ValueTree::fromXml(*xml);
-        const juce::ScopedLock lock(engineLock);
+        const juce::ScopedLock lock(stateLock);
         state = opalineapp::synthStateFromValueTree(tree, state);
         if (!factoryPrograms.empty())
         {
             const int maxVoiceIndex = static_cast<int>(factoryPrograms.size()) - 1;
             state.performance.voiceAIndex = juce::jlimit(0, maxVoiceIndex, state.performance.voiceAIndex);
             state.performance.voiceBIndex = juce::jlimit(0, maxVoiceIndex, state.performance.voiceBIndex);
-            state.patch = patchForVoiceIndex(state.performance.voiceAIndex);
+            state.patch = patchForVoiceIndex(state.performance.voiceAIndex, state);
         }
+        state.patch = opaline::normalizePatch(state.patch);
+        state.renderModel = opaline::OpalineRenderModel::TypeB;
         currentProgramName = factoryProgramName(state.performance.voiceAIndex);
-        applyStateToEngine();
+        publishStateUpdate();
         syncParametersFromState();
     }
 }
 
 opalineapp::SynthState OpalineAudioProcessor::getSynthState() const
 {
-    const juce::ScopedLock lock(engineLock);
-    return state;
+    opalineapp::SynthState snapshot;
+    {
+        const juce::ScopedLock lock(stateLock);
+        snapshot = state;
+    }
+    applyParametersToState(snapshot);
+    snapshot.patch = opaline::normalizePatch(snapshot.patch);
+    snapshot.renderModel = opaline::OpalineRenderModel::TypeB;
+    return snapshot;
 }
 
 void OpalineAudioProcessor::setSynthStateFromEditor(const opalineapp::SynthState& newState)
 {
-    const juce::ScopedLock lock(engineLock);
+    const juce::ScopedLock lock(stateLock);
     state = newState;
-    applyStateToEngine();
+    state.patch = opaline::normalizePatch(state.patch);
+    state.renderModel = opaline::OpalineRenderModel::TypeB;
+    publishStateUpdate();
     syncParametersFromState();
 }
 
 void OpalineAudioProcessor::setRenderModelFromEditor(const opaline::OpalineRenderModel newRenderModel)
 {
     (void) newRenderModel;
-    const juce::ScopedLock lock(engineLock);
-    renderModel = opaline::OpalineRenderModel::TypeB;
-    state.renderModel = renderModel;
-    engine.setRenderModel(renderModel);
-    performanceEngineB.setRenderModel(renderModel);
+    const juce::ScopedLock lock(stateLock);
+    state.renderModel = opaline::OpalineRenderModel::TypeB;
+    publishStateUpdate();
 }
 
 void OpalineAudioProcessor::noteOnFromEditor(const int note, const int velocity)
@@ -360,8 +436,7 @@ void OpalineAudioProcessor::noteOnFromEditor(const int note, const int velocity)
         midiUiVelocities[static_cast<std::size_t>(note)].store(juce::jlimit(1, 127, velocity),
                                                                std::memory_order_relaxed);
 
-    const juce::ScopedLock lock(engineLock);
-    performNoteOn(note, velocity);
+    enqueueRealtimeCommand({ RealtimeCommandType::noteOn, note, velocity });
 }
 
 void OpalineAudioProcessor::noteOffFromEditor(const int note)
@@ -369,48 +444,44 @@ void OpalineAudioProcessor::noteOffFromEditor(const int note)
     if (juce::isPositiveAndBelow(note, static_cast<int>(midiUiVelocities.size())))
         midiUiVelocities[static_cast<std::size_t>(note)].store(0, std::memory_order_relaxed);
 
-    const juce::ScopedLock lock(engineLock);
-    performNoteOff(note);
+    enqueueRealtimeCommand({ RealtimeCommandType::noteOff, note });
 }
 
 void OpalineAudioProcessor::allNotesOffFromEditor()
 {
-    const juce::ScopedLock lock(engineLock);
-    panicEngines();
+    enqueueRealtimeCommand({ RealtimeCommandType::panic });
     for (auto& velocity : midiUiVelocities)
         velocity.store(0, std::memory_order_relaxed);
 }
 
 void OpalineAudioProcessor::setPitchBendFromEditor(const double value)
 {
-    const juce::ScopedLock lock(engineLock);
-    currentPitchBend = opaline::clampDouble(value, -1.0, 1.0);
-    setPitchBendOnEngines();
+    const double safeValue = opaline::clampDouble(value, -1.0, 1.0);
+    currentPitchBend.store(safeValue, std::memory_order_relaxed);
+    enqueueRealtimeCommand({ RealtimeCommandType::pitchBend, 0, 0, safeValue });
 }
 
 void OpalineAudioProcessor::setModWheelFromEditor(const double value)
 {
-    const juce::ScopedLock lock(engineLock);
-    currentModWheel = opaline::clampDouble(value, 0.0, 1.0);
-    setModWheelOnEngines();
+    const double safeValue = opaline::clampDouble(value, 0.0, 1.0);
+    currentModWheel.store(safeValue, std::memory_order_relaxed);
+    enqueueRealtimeCommand({ RealtimeCommandType::modWheel, 0, 0, safeValue });
 }
 
 void OpalineAudioProcessor::setProgramNameFromEditor(const juce::String& name)
 {
-    const juce::ScopedLock lock(engineLock);
+    const juce::ScopedLock lock(stateLock);
     currentProgramName = name.isNotEmpty() ? name : "Opaline FM";
 }
 
 double OpalineAudioProcessor::getCurrentPitchBend() const
 {
-    const juce::ScopedLock lock(engineLock);
-    return currentPitchBend;
+    return currentPitchBend.load(std::memory_order_relaxed);
 }
 
 double OpalineAudioProcessor::getCurrentModWheel() const
 {
-    const juce::ScopedLock lock(engineLock);
-    return currentModWheel;
+    return currentModWheel.load(std::memory_order_relaxed);
 }
 
 std::array<int, 128> OpalineAudioProcessor::getMidiUiVelocities() const
@@ -437,7 +508,7 @@ std::array<float, 4096> OpalineAudioProcessor::getScopeSamples() const
 
 void OpalineAudioProcessor::startWavRecording()
 {
-    wavRecorder.start(currentSampleRate);
+    wavRecorder.start(currentSampleRate.load(std::memory_order_acquire));
 }
 
 void OpalineAudioProcessor::stopWavRecording()
@@ -477,28 +548,36 @@ bool OpalineAudioProcessor::stopWavRecordingAndSaveToFile(const juce::File& file
     return writer != nullptr && writer->writeFromAudioSampleBuffer(audio, 0, sampleCount);
 }
 
-void OpalineAudioProcessor::handleMidiMessage(const juce::MidiMessage& message)
+void OpalineAudioProcessor::handleMidiMessage(const juce::MidiMessageMetadata& message) noexcept
 {
-    if (message.isNoteOn())
+    if (message.data == nullptr || message.numBytes <= 0)
+        return;
+
+    const auto status = static_cast<unsigned int>(message.data[0]);
+    const auto type = status & 0xf0U;
+    const auto data1 = message.numBytes > 1 ? static_cast<int>(message.data[1] & 0x7fU) : 0;
+    const auto data2 = message.numBytes > 2 ? static_cast<int>(message.data[2] & 0x7fU) : 0;
+
+    if (type == 0x90U && data2 > 0)
     {
-        const int note = message.getNoteNumber();
-        const int velocity = juce::jlimit(1, 127, static_cast<int>(message.getVelocity()));
+        const int note = data1;
+        const int velocity = data2;
         if (juce::isPositiveAndBelow(note, static_cast<int>(midiUiVelocities.size())))
             midiUiVelocities[static_cast<std::size_t>(note)].store(velocity, std::memory_order_relaxed);
         performNoteOn(note, velocity);
         return;
     }
 
-    if (message.isNoteOff())
+    if (type == 0x80U || (type == 0x90U && data2 == 0))
     {
-        const int note = message.getNoteNumber();
+        const int note = data1;
         if (juce::isPositiveAndBelow(note, static_cast<int>(midiUiVelocities.size())))
             midiUiVelocities[static_cast<std::size_t>(note)].store(0, std::memory_order_relaxed);
         performNoteOff(note);
         return;
     }
 
-    if (message.isAllNotesOff() || message.isAllSoundOff())
+    if (type == 0xb0U && (data1 == 120 || data1 == 123))
     {
         panicEngines();
         for (auto& velocity : midiUiVelocities)
@@ -506,86 +585,87 @@ void OpalineAudioProcessor::handleMidiMessage(const juce::MidiMessage& message)
         return;
     }
 
-    if (message.isPitchWheel())
+    if (type == 0xe0U && message.numBytes >= 3)
     {
-        currentPitchBend = pitchWheelToUnitBend(message.getPitchWheelValue());
+        currentPitchBend.store(pitchWheelToUnitBend(data1 | (data2 << 7)), std::memory_order_relaxed);
         setPitchBendOnEngines();
         return;
     }
 
-    if (message.isController() && message.getControllerNumber() == 1)
+    if (type == 0xb0U && data1 == 1)
     {
-        currentModWheel = opaline::clampDouble(static_cast<double>(message.getControllerValue()) / 127.0, 0.0, 1.0);
+        currentModWheel.store(opaline::clampDouble(static_cast<double>(data2) / 127.0, 0.0, 1.0),
+                              std::memory_order_relaxed);
         setModWheelOnEngines();
         return;
     }
 
-    if (message.isController() && message.getControllerNumber() == 64)
+    if (type == 0xb0U && data1 == 64)
     {
-        const bool pedalDown = message.getControllerValue() >= 64;
+        const bool pedalDown = data2 >= 64;
         engine.setSustainPedal(pedalDown);
         performanceEngineB.setSustainPedal(pedalDown);
         return;
     }
 
-    if (message.isController() && message.getControllerNumber() == 65)
+    if (type == 0xb0U && data1 == 65)
     {
-        const bool pedalDown = message.getControllerValue() >= 64;
+        const bool pedalDown = data2 >= 64;
         engine.setPortamentoFootSwitch(pedalDown);
         performanceEngineB.setPortamentoFootSwitch(pedalDown);
     }
 }
 
-void OpalineAudioProcessor::applyStateToEngine()
+void OpalineAudioProcessor::applyAudioStateToEngine()
 {
-    state.patch = opaline::normalizePatch(state.patch);
-    state.masterVolume = juce::jlimit(0.0f, 1.0f, state.masterVolume);
-    state.pitchBendRange = juce::jlimit(0, 12, state.pitchBendRange);
-    state.portamento = juce::jlimit(0, 99, state.portamento);
-    state.modWheelPitchRange = juce::jlimit(0, 99, state.modWheelPitchRange);
-    state.modWheelAmpRange = juce::jlimit(0, 99, state.modWheelAmpRange);
-    state.renderModel = opaline::OpalineRenderModel::TypeB;
-    renderModel = state.renderModel;
-    if (preparedPerformanceMode != state.performance.mode)
+    audioState.patch = opaline::normalizePatch(audioState.patch);
+    audioState.masterVolume = juce::jlimit(0.0f, 1.0f, audioState.masterVolume);
+    audioState.pitchBendRange = juce::jlimit(0, 12, audioState.pitchBendRange);
+    audioState.portamento = juce::jlimit(0, 99, audioState.portamento);
+    audioState.modWheelPitchRange = juce::jlimit(0, 99, audioState.modWheelPitchRange);
+    audioState.modWheelAmpRange = juce::jlimit(0, 99, audioState.modWheelAmpRange);
+    audioState.renderModel = opaline::OpalineRenderModel::TypeB;
+    if (preparedPerformanceMode != audioState.performance.mode)
     {
-        preparedPerformanceMode = state.performance.mode;
-        engine.prepare(currentSampleRate, preparedPerformanceMode == opalineapp::PerformanceMode::Single ? 8 : 4);
-        performanceEngineB.prepare(currentSampleRate, 4);
+        preparedPerformanceMode = audioState.performance.mode;
+        engine.setVoiceLimit(preparedPerformanceMode == opalineapp::PerformanceMode::Single ? 8 : 4);
+        performanceEngineB.setVoiceLimit(4);
     }
-    engine.setRenderModel(renderModel);
-    performanceEngineB.setRenderModel(renderModel);
-    engine.setPatch(state.patch);
-    performanceEngineB.setPatch(patchForVoiceIndex(state.performance.voiceBIndex));
-    engine.setPitchBendRange(state.pitchBendRange);
-    performanceEngineB.setPitchBendRange(state.pitchBendRange);
-    engine.setPortamento(state.portamento);
-    performanceEngineB.setPortamento(state.portamento);
-    engine.setModWheelRanges(state.modWheelPitchRange, state.modWheelAmpRange);
-    performanceEngineB.setModWheelRanges(state.modWheelPitchRange, state.modWheelAmpRange);
-    engine.setEffectsEnabled(state.effectsEnabled);
-    performanceEngineB.setEffectsEnabled(state.effectsEnabled);
-    engine.setMonoMode(state.performance.monoA);
-    performanceEngineB.setMonoMode(state.performance.monoB);
-    engine.setPortamentoMode(static_cast<int>(state.performance.portamentoModeA));
-    performanceEngineB.setPortamentoMode(static_cast<int>(state.performance.portamentoModeB));
+    engine.setRenderModel(opaline::OpalineRenderModel::TypeB);
+    performanceEngineB.setRenderModel(opaline::OpalineRenderModel::TypeB);
+    engine.setPatch(audioState.patch);
+    performanceEngineB.setPatch(patchForVoiceIndex(audioState.performance.voiceBIndex, audioState));
+    engine.setPitchBendRange(audioState.pitchBendRange);
+    performanceEngineB.setPitchBendRange(audioState.pitchBendRange);
+    engine.setPortamento(audioState.portamento);
+    performanceEngineB.setPortamento(audioState.portamento);
+    engine.setModWheelRanges(audioState.modWheelPitchRange, audioState.modWheelAmpRange);
+    performanceEngineB.setModWheelRanges(audioState.modWheelPitchRange, audioState.modWheelAmpRange);
+    engine.setEffectsEnabled(audioState.effectsEnabled);
+    performanceEngineB.setEffectsEnabled(audioState.effectsEnabled);
+    engine.setMonoMode(audioState.performance.monoA);
+    performanceEngineB.setMonoMode(audioState.performance.monoB);
+    engine.setPortamentoMode(static_cast<int>(audioState.performance.portamentoModeA));
+    performanceEngineB.setPortamentoMode(static_cast<int>(audioState.performance.portamentoModeB));
     setPitchBendOnEngines();
     setModWheelOnEngines();
 }
 
-opaline::OpalinePatch OpalineAudioProcessor::patchForVoiceIndex(const int index) const
+opaline::OpalinePatch OpalineAudioProcessor::patchForVoiceIndex(
+    const int index, const opalineapp::SynthState& targetState) const
 {
     if (factoryPrograms.empty())
-        return state.patch;
+        return targetState.patch;
 
     const int safeIndex = juce::jlimit(0, static_cast<int>(factoryPrograms.size()) - 1, index);
     auto patch = factoryPrograms[static_cast<std::size_t>(safeIndex)].patch;
-    patch.transpose = state.patch.transpose;
+    patch.transpose = targetState.patch.transpose;
     return opaline::normalizePatch(patch);
 }
 
 void OpalineAudioProcessor::performNoteOn(const int note, const int velocity)
 {
-    switch (state.performance.mode)
+    switch (audioState.performance.mode)
     {
         case opalineapp::PerformanceMode::Single:
             engine.noteOn(note, velocity);
@@ -597,7 +677,7 @@ void OpalineAudioProcessor::performNoteOn(const int note, const int velocity)
             break;
 
         case opalineapp::PerformanceMode::Split:
-            if (note <= state.performance.splitPoint)
+            if (note <= audioState.performance.splitPoint)
                 engine.noteOn(note, velocity);
             else
                 performanceEngineB.noteOn(note, velocity);
@@ -619,71 +699,140 @@ void OpalineAudioProcessor::panicEngines()
 
 void OpalineAudioProcessor::setPitchBendOnEngines()
 {
-    engine.setPitchBend(currentPitchBend);
-    performanceEngineB.setPitchBend(juce::jlimit(-1.0, 1.0, currentPitchBend + static_cast<double>(state.performance.dualDetune) / 64.0));
+    const double pitchBend = currentPitchBend.load(std::memory_order_relaxed);
+    engine.setPitchBend(pitchBend);
+    performanceEngineB.setPitchBend(juce::jlimit(-1.0, 1.0,
+        pitchBend + static_cast<double>(audioState.performance.dualDetune) / 64.0));
 }
 
 void OpalineAudioProcessor::setModWheelOnEngines()
 {
-    engine.setModWheel(currentModWheel);
-    performanceEngineB.setModWheel(currentModWheel);
+    const double modWheel = currentModWheel.load(std::memory_order_relaxed);
+    engine.setModWheel(modWheel);
+    performanceEngineB.setModWheel(modWheel);
 }
 
-void OpalineAudioProcessor::applyParametersToState()
+void OpalineAudioProcessor::applyParametersToState(opalineapp::SynthState& targetState) const noexcept
 {
-    state.masterVolume = juce::jlimit(0.0f, 1.0f, parameterFloat(parameters, param_ids::masterVolume, state.masterVolume));
-    state.pitchBendRange = juce::jlimit(0, 12, parameterInt(parameters, param_ids::pitchBendRange, state.pitchBendRange));
-    state.portamento = juce::jlimit(0, 99, parameterInt(parameters, param_ids::portamento, state.portamento));
-    state.modWheelPitchRange = juce::jlimit(0, 99, parameterInt(parameters, param_ids::modWheelPitchRange, state.modWheelPitchRange));
-    state.modWheelAmpRange = juce::jlimit(0, 99, parameterInt(parameters, param_ids::modWheelAmpRange, state.modWheelAmpRange));
-    state.effectsEnabled = parameterBool(parameters, param_ids::effectsEnabled, state.effectsEnabled);
-    state.renderModel = opaline::OpalineRenderModel::TypeB;
+    targetState.masterVolume = juce::jlimit(0.0f, 1.0f,
+        parameterFloat(parameterPointers.masterVolume, targetState.masterVolume));
+    targetState.pitchBendRange = juce::jlimit(0, 12,
+        parameterInt(parameterPointers.pitchBendRange, targetState.pitchBendRange));
+    targetState.portamento = juce::jlimit(0, 99,
+        parameterInt(parameterPointers.portamento, targetState.portamento));
+    targetState.modWheelPitchRange = juce::jlimit(0, 99,
+        parameterInt(parameterPointers.modWheelPitchRange, targetState.modWheelPitchRange));
+    targetState.modWheelAmpRange = juce::jlimit(0, 99,
+        parameterInt(parameterPointers.modWheelAmpRange, targetState.modWheelAmpRange));
+    targetState.effectsEnabled = parameterBool(parameterPointers.effectsEnabled, targetState.effectsEnabled);
+    targetState.renderModel = opaline::OpalineRenderModel::TypeB;
 
-    auto patch = state.patch;
-    patch.algorithm = parameterInt(parameters, param_ids::algorithm, patch.algorithm);
-    patch.feedback = parameterInt(parameters, param_ids::feedback, patch.feedback);
-    patch.transpose = parameterInt(parameters, param_ids::transpose, patch.transpose);
-    patch.lfo.wave = parameterInt(parameters, param_ids::lfoWave, patch.lfo.wave);
-    patch.lfo.sync = parameterBool(parameters, param_ids::lfoSync, patch.lfo.sync);
-    patch.lfo.speed = parameterInt(parameters, param_ids::lfoSpeed, patch.lfo.speed);
-    patch.lfo.delay = parameterInt(parameters, param_ids::lfoDelay, patch.lfo.delay);
-    patch.lfo.pitchDepth = parameterInt(parameters, param_ids::lfoPitchDepth, patch.lfo.pitchDepth);
-    patch.lfo.ampDepth = parameterInt(parameters, param_ids::lfoAmpDepth, patch.lfo.ampDepth);
-    patch.lfo.pitchSensitivity = parameterInt(parameters, param_ids::lfoPitchSensitivity, patch.lfo.pitchSensitivity);
-    patch.lfo.ampSensitivity = parameterInt(parameters, param_ids::lfoAmpSensitivity, patch.lfo.ampSensitivity);
-    patch.pitchEnvelope.rate1 = parameterInt(parameters, param_ids::pegRate1, patch.pitchEnvelope.rate1);
-    patch.pitchEnvelope.rate2 = parameterInt(parameters, param_ids::pegRate2, patch.pitchEnvelope.rate2);
-    patch.pitchEnvelope.rate3 = parameterInt(parameters, param_ids::pegRate3, patch.pitchEnvelope.rate3);
-    patch.pitchEnvelope.level1 = parameterInt(parameters, param_ids::pegLevel1, patch.pitchEnvelope.level1);
-    patch.pitchEnvelope.level2 = parameterInt(parameters, param_ids::pegLevel2, patch.pitchEnvelope.level2);
-    patch.pitchEnvelope.level3 = parameterInt(parameters, param_ids::pegLevel3, patch.pitchEnvelope.level3);
-    patch.effects.reverb = parameterInt(parameters, param_ids::effectReverb, patch.effects.reverb);
-    patch.effects.mix = parameterInt(parameters, param_ids::effectMix, patch.effects.mix);
-    patch.effects.echoMix = parameterInt(parameters, param_ids::effectEchoMix, patch.effects.echoMix);
-    patch.effects.tone = parameterInt(parameters, param_ids::effectTone, patch.effects.tone);
-    patch.effects.chorus = parameterInt(parameters, param_ids::effectChorus, patch.effects.chorus);
-    patch.effects.delay = parameterInt(parameters, param_ids::effectDelay, patch.effects.delay);
+    auto patch = targetState.patch;
+    patch.algorithm = parameterInt(parameterPointers.algorithm, patch.algorithm);
+    patch.feedback = parameterInt(parameterPointers.feedback, patch.feedback);
+    patch.transpose = parameterInt(parameterPointers.transpose, patch.transpose);
+    patch.lfo.wave = parameterInt(parameterPointers.lfoWave, patch.lfo.wave);
+    patch.lfo.sync = parameterBool(parameterPointers.lfoSync, patch.lfo.sync);
+    patch.lfo.speed = parameterInt(parameterPointers.lfoSpeed, patch.lfo.speed);
+    patch.lfo.delay = parameterInt(parameterPointers.lfoDelay, patch.lfo.delay);
+    patch.lfo.pitchDepth = parameterInt(parameterPointers.lfoPitchDepth, patch.lfo.pitchDepth);
+    patch.lfo.ampDepth = parameterInt(parameterPointers.lfoAmpDepth, patch.lfo.ampDepth);
+    patch.lfo.pitchSensitivity = parameterInt(parameterPointers.lfoPitchSensitivity, patch.lfo.pitchSensitivity);
+    patch.lfo.ampSensitivity = parameterInt(parameterPointers.lfoAmpSensitivity, patch.lfo.ampSensitivity);
+    patch.pitchEnvelope.rate1 = parameterInt(parameterPointers.pegRate1, patch.pitchEnvelope.rate1);
+    patch.pitchEnvelope.rate2 = parameterInt(parameterPointers.pegRate2, patch.pitchEnvelope.rate2);
+    patch.pitchEnvelope.rate3 = parameterInt(parameterPointers.pegRate3, patch.pitchEnvelope.rate3);
+    patch.pitchEnvelope.level1 = parameterInt(parameterPointers.pegLevel1, patch.pitchEnvelope.level1);
+    patch.pitchEnvelope.level2 = parameterInt(parameterPointers.pegLevel2, patch.pitchEnvelope.level2);
+    patch.pitchEnvelope.level3 = parameterInt(parameterPointers.pegLevel3, patch.pitchEnvelope.level3);
+    patch.effects.reverb = parameterInt(parameterPointers.effectReverb, patch.effects.reverb);
+    patch.effects.mix = parameterInt(parameterPointers.effectMix, patch.effects.mix);
+    patch.effects.echoMix = parameterInt(parameterPointers.effectEchoMix, patch.effects.echoMix);
+    patch.effects.tone = parameterInt(parameterPointers.effectTone, patch.effects.tone);
+    patch.effects.chorus = parameterInt(parameterPointers.effectChorus, patch.effects.chorus);
+    patch.effects.delay = parameterInt(parameterPointers.effectDelay, patch.effects.delay);
 
     for (int opIndex = 0; opIndex < opaline::kOperatorCount; ++opIndex)
     {
-        auto& op = patch.operators[static_cast<std::size_t>(opIndex)];
-        op.enabled = parameterBool(parameters, opParamId(opIndex, "Enabled"), op.enabled);
-        op.ampModEnable = parameterBool(parameters, opParamId(opIndex, "AmpMod"), op.ampModEnable);
-        op.ratioIndex = parameterInt(parameters, opParamId(opIndex, "Ratio"), op.ratioIndex);
-        op.detune = parameterInt(parameters, opParamId(opIndex, "Detune"), op.detune);
-        op.level = parameterInt(parameters, opParamId(opIndex, "Level"), op.level);
-        op.rateScale = parameterInt(parameters, opParamId(opIndex, "RateScale"), op.rateScale);
-        op.levelScale = parameterInt(parameters, opParamId(opIndex, "LevelScale"), op.levelScale);
-        op.velocity = parameterInt(parameters, opParamId(opIndex, "Velocity"), op.velocity);
-        op.envelope.attackRate = parameterInt(parameters, opParamId(opIndex, "AR"), op.envelope.attackRate);
-        op.envelope.decay1Rate = parameterInt(parameters, opParamId(opIndex, "D1R"), op.envelope.decay1Rate);
-        op.envelope.decay1Level = parameterInt(parameters, opParamId(opIndex, "D1L"), op.envelope.decay1Level);
-        op.envelope.decay2Rate = parameterInt(parameters, opParamId(opIndex, "D2R"), op.envelope.decay2Rate);
-        op.envelope.releaseRate = parameterInt(parameters, opParamId(opIndex, "RR"), op.envelope.releaseRate);
+        const auto index = static_cast<std::size_t>(opIndex);
+        auto& op = patch.operators[index];
+        const auto& values = parameterPointers.operators[index];
+        op.enabled = parameterBool(values.enabled, op.enabled);
+        op.ampModEnable = parameterBool(values.ampMod, op.ampModEnable);
+        op.ratioIndex = parameterInt(values.ratio, op.ratioIndex);
+        op.detune = parameterInt(values.detune, op.detune);
+        op.level = parameterInt(values.level, op.level);
+        op.rateScale = parameterInt(values.rateScale, op.rateScale);
+        op.levelScale = parameterInt(values.levelScale, op.levelScale);
+        op.velocity = parameterInt(values.velocity, op.velocity);
+        op.envelope.attackRate = parameterInt(values.attackRate, op.envelope.attackRate);
+        op.envelope.decay1Rate = parameterInt(values.decay1Rate, op.envelope.decay1Rate);
+        op.envelope.decay1Level = parameterInt(values.decay1Level, op.envelope.decay1Level);
+        op.envelope.decay2Rate = parameterInt(values.decay2Rate, op.envelope.decay2Rate);
+        op.envelope.releaseRate = parameterInt(values.releaseRate, op.envelope.releaseRate);
     }
 
-    state.patch = opaline::normalizePatch(patch);
-    applyStateToEngine();
+    targetState.patch = opaline::normalizePatch(patch);
+}
+
+void OpalineAudioProcessor::applyParametersToAudioState()
+{
+    applyParametersToState(audioState);
+    applyAudioStateToEngine();
+}
+
+void OpalineAudioProcessor::publishStateUpdate()
+{
+    stateUpdates.publish(state);
+}
+
+void OpalineAudioProcessor::enqueueRealtimeCommand(const RealtimeCommand& command) noexcept
+{
+    if (!realtimeCommands.push(command))
+        realtimeCommandOverflowed.store(true, std::memory_order_release);
+}
+
+void OpalineAudioProcessor::applyRealtimeCommands()
+{
+    RealtimeCommand command;
+    if (realtimeCommandOverflowed.exchange(false, std::memory_order_acq_rel))
+    {
+        while (realtimeCommands.pop(command)) {}
+        panicEngines();
+        return;
+    }
+
+    while (realtimeCommands.pop(command))
+    {
+        switch (command.type)
+        {
+            case RealtimeCommandType::noteOn:
+                performNoteOn(command.value1, command.value2);
+                break;
+            case RealtimeCommandType::noteOff:
+                performNoteOff(command.value1);
+                break;
+            case RealtimeCommandType::panic:
+                panicEngines();
+                break;
+            case RealtimeCommandType::pitchBend:
+                engine.setPitchBend(command.normalizedValue);
+                performanceEngineB.setPitchBend(juce::jlimit(-1.0, 1.0,
+                    command.normalizedValue
+                        + static_cast<double>(audioState.performance.dualDetune) / 64.0));
+                break;
+            case RealtimeCommandType::modWheel:
+                engine.setModWheel(command.normalizedValue);
+                performanceEngineB.setModWheel(command.normalizedValue);
+                break;
+        }
+    }
+
+    if (realtimeCommandOverflowed.exchange(false, std::memory_order_acq_rel))
+    {
+        while (realtimeCommands.pop(command)) {}
+        panicEngines();
+    }
 }
 
 void OpalineAudioProcessor::syncParametersFromState()
