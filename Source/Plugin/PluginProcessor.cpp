@@ -285,7 +285,6 @@ void OpalineAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
 
     auto midi = midiMessages.cbegin();
     const auto midiEnd = midiMessages.cend();
-    const int scopeStart = scopeWriteIndex.load(std::memory_order_relaxed) & 4095;
     for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
     {
         while (midi != midiEnd && (*midi).samplePosition <= sample)
@@ -313,15 +312,13 @@ void OpalineAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
             buffer.setSample(0, sample, left);
         if (buffer.getNumChannels() > 1)
             buffer.setSample(1, sample, right);
-        const int scopeIndex = (scopeStart + sample) & 4095;
-        scopeSamples[static_cast<std::size_t>(scopeIndex)].store(left, std::memory_order_relaxed);
     }
-    scopeWriteIndex.store((scopeStart + buffer.getNumSamples()) & 4095, std::memory_order_release);
 
     if (buffer.getNumChannels() > 0)
     {
         const auto* left = buffer.getReadPointer(0);
         const auto* right = buffer.getNumChannels() > 1 ? buffer.getReadPointer(1) : left;
+        scopeBuffer.push(left, buffer.getNumSamples());
         wavRecorder.push(left, right, buffer.getNumSamples());
     }
 
@@ -495,12 +492,11 @@ std::array<int, 128> OpalineAudioProcessor::getMidiUiVelocities() const
 std::array<float, 4096> OpalineAudioProcessor::getScopeSamples() const
 {
     std::array<float, 4096> samples {};
-    const int newest = scopeWriteIndex.load(std::memory_order_acquire);
-    for (int i = 0; i < static_cast<int>(samples.size()); ++i)
+    scopeBuffer.drain(scopeHistory, scopeHistoryWriteIndex);
+    for (std::size_t i = 0; i < samples.size(); ++i)
     {
-        const int index = (newest - static_cast<int>(samples.size()) + i) & 4095;
-        samples[static_cast<std::size_t>(i)] =
-            scopeSamples[static_cast<std::size_t>(index)].load(std::memory_order_relaxed);
+        const auto index = (scopeHistoryWriteIndex + i) & (scopeHistory.size() - 1);
+        samples[i] = scopeHistory[index];
     }
 
     return samples;

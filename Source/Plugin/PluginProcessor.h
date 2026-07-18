@@ -4,6 +4,7 @@
 #include "Engine/OpalineEngine.h"
 #include "Engine/RealtimeAudioRecorder.h"
 #include "Engine/RealtimeCommandQueue.h"
+#include "Engine/RealtimeScopeBuffer.h"
 #include "Engine/OpalineVoiceLibrary.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -163,8 +164,9 @@ private:
     juce::String currentProgramName { "Opaline FM" };
     std::vector<opaline::OpalinePatchWithMetadata> factoryPrograms;
     std::array<std::atomic<int>, 128> midiUiVelocities {};
-    std::array<std::atomic<float>, 4096> scopeSamples {};
-    std::atomic<int> scopeWriteIndex { 0 };
+    mutable opaline::RealtimeScopeBuffer scopeBuffer;
+    mutable std::array<float, opaline::RealtimeScopeBuffer::historySize> scopeHistory {};
+    mutable std::size_t scopeHistoryWriteIndex = 0;
     opaline::RealtimeAudioRecorder wavRecorder;
     opaline::RealtimeCommandQueue<RealtimeCommand, 1024> realtimeCommands;
     std::atomic<bool> realtimeCommandOverflowed { false };

@@ -1276,23 +1276,20 @@ void MainComponent::AlgorithmComponent::paint(juce::Graphics& g)
 
 MainComponent::ScopeComponent::ScopeComponent()
 {
-    for (auto& sample : samples)
-        sample.store(0.0f, std::memory_order_relaxed);
     startTimerHz(60);
 }
 
-void MainComponent::ScopeComponent::pushSample(const float sample)
+void MainComponent::ScopeComponent::pushSamples(const float* const newSamples, const int numSamples)
 {
-    const int index = writeIndex.fetch_add(1, std::memory_order_relaxed) & 4095;
-    samples[static_cast<std::size_t>(index)].store(juce::jlimit(-1.0f, 1.0f, sample), std::memory_order_relaxed);
+    realtimeSamples.push(newSamples, numSamples);
 }
 
 void MainComponent::ScopeComponent::setSamples(const std::array<float, 4096>& newSamples)
 {
     for (std::size_t i = 0; i < samples.size(); ++i)
-        samples[i].store(juce::jlimit(-1.0f, 1.0f, newSamples[i]), std::memory_order_relaxed);
+        samples[i] = juce::jlimit(-1.0f, 1.0f, newSamples[i]);
 
-    writeIndex.store(0, std::memory_order_relaxed);
+    writeIndex = 0;
 }
 
 void MainComponent::ScopeComponent::setTrigger(const int midiNote, const double sampleRate)
@@ -1310,13 +1307,14 @@ void MainComponent::ScopeComponent::paint(juce::Graphics& g)
     g.drawRoundedRectangle(area, 4.0f, 1.0f);
 
     std::array<float, 4096> history {};
-    const int newest = writeIndex.load(std::memory_order_relaxed);
+    realtimeSamples.drain(samples, writeIndex);
+    const auto newest = writeIndex;
     float average = 0.0f;
     float peak = 0.0f;
     for (int i = 0; i < static_cast<int>(history.size()); ++i)
     {
-        const int readIndex = (newest + i) & 4095;
-        const float value = samples[static_cast<std::size_t>(readIndex)].load(std::memory_order_relaxed);
+        const auto readIndex = (newest + static_cast<std::size_t>(i)) & (samples.size() - 1);
+        const float value = samples[readIndex];
         history[static_cast<std::size_t>(i)] = value;
         average += value;
         peak = juce::jmax(peak, std::abs(value));
@@ -2493,8 +2491,9 @@ void MainComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo& buffer
 
         left[i] = sample.left * outputGain;
         right[i] = sample.right * outputGain;
-        scope.pushSample(left[i]);
     }
+
+    scope.pushSamples(left, bufferToFill.numSamples);
 
     if (wavRecording.load(std::memory_order_relaxed))
         wavRecorder.push(left, right, bufferToFill.numSamples);

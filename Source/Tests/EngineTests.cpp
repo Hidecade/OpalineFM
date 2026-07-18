@@ -5,6 +5,7 @@
 #include "Engine/OpalinePitchEnvelope.h"
 #include "Engine/RealtimeAudioRecorder.h"
 #include "Engine/RealtimeCommandQueue.h"
+#include "Engine/RealtimeScopeBuffer.h"
 #include "Engine/OpalineSysex.h"
 #include "Engine/OpalineTables.h"
 #include "Engine/OpalineVoiceLibrary.h"
@@ -133,6 +134,28 @@ void testRealtimeStateMailbox()
     expect(received.revision == 20, "state mailbox keeps the latest revision");
     expect(received.patch.algorithm == 20, "state mailbox copies the complete state");
     expect(!mailbox.consume(received), "state mailbox consumes each revision once");
+}
+
+void testRealtimeScopeBuffer()
+{
+    opaline::RealtimeScopeBuffer buffer;
+    std::array<float, opaline::RealtimeScopeBuffer::historySize> history {};
+    std::size_t writeIndex = 0;
+
+    const std::array<float, 5> first { -2.0f, -0.5f, 0.0f, 0.5f, 2.0f };
+    buffer.push(first.data(), static_cast<int>(first.size()));
+    expect(buffer.drain(history, writeIndex), "scope buffer drains published samples");
+    expect(writeIndex == first.size(), "scope buffer advances history position");
+    expect(history[0] == -1.0f && history[4] == 1.0f, "scope buffer clamps display samples");
+    expect(!buffer.drain(history, writeIndex), "scope buffer drains each block once");
+
+    std::array<float, 5000> wrapped {};
+    for (std::size_t i = 0; i < wrapped.size(); ++i)
+        wrapped[i] = static_cast<float>(i) / static_cast<float>(wrapped.size());
+    buffer.push(wrapped.data(), static_cast<int>(wrapped.size()));
+    expect(buffer.drain(history, writeIndex), "scope buffer accepts multi-block writes");
+    expect(writeIndex == (first.size() + wrapped.size()) % history.size(),
+           "scope buffer wraps the display history");
 }
 
 void testEnvelope()
@@ -974,6 +997,7 @@ int main()
     testTables();
     testPatchNormalization();
     testRealtimeStateMailbox();
+    testRealtimeScopeBuffer();
     testEnvelope();
     testFastAttackTiming();
     testD1L15SkipsToDecay2();

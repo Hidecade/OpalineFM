@@ -4,6 +4,7 @@
 #include "Engine/ChipVoiceImport.h"
 #include "Engine/OpalineEngine.h"
 #include "Engine/RealtimeCommandQueue.h"
+#include "Engine/RealtimeScopeBuffer.h"
 #include "Engine/OpalineSysex.h"
 #include "Engine/OpalineTables.h"
 #include "Engine/OpalineVoiceLibrary.h"
@@ -132,8 +133,9 @@ void enqueueRealtimeCommand(opaline::RealtimeCommandQueue<RealtimeCommand, kReal
     std::vector<float> scratchRight;
     std::vector<float> scratchBLeft;
     std::vector<float> scratchBRight;
-    std::array<std::atomic<float>, 4096> scopeSamples;
-    std::atomic<int> scopeWriteIndex;
+    opaline::RealtimeScopeBuffer scopeBuffer;
+    std::array<float, opaline::RealtimeScopeBuffer::historySize> scopeHistory;
+    std::size_t scopeHistoryWriteIndex;
     std::atomic<int> scopeTriggerNote;
     std::atomic<double> scopeSampleRate;
     std::array<int, 128> scopeHeldNoteCounts;
@@ -333,7 +335,8 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
         monoB = NO;
         hasCopiedPatch = NO;
         didLoadInitialFactoryBank = NO;
-        scopeWriteIndex.store(0, std::memory_order_relaxed);
+        scopeHistory.fill(0.0f);
+        scopeHistoryWriteIndex = 0;
         scopeTriggerNote.store(-1, std::memory_order_relaxed);
         scopeSampleRate.store(currentSampleRate, std::memory_order_relaxed);
         scopeHeldNoteCounts.fill(0);
@@ -342,8 +345,6 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
         scopeSmoothedNote = -1;
         scopeHasSmoothedDisplay = NO;
         realtimeCommandOverflowed.store(false, std::memory_order_relaxed);
-        for (auto& sample : scopeSamples)
-            sample.store(0.0f, std::memory_order_relaxed);
     }
     return self;
 }
@@ -1357,13 +1358,14 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
     constexpr int displaySize = 128;
 
     std::array<float, historySize> history {};
-    const int newest = scopeWriteIndex.load(std::memory_order_acquire);
+    scopeBuffer.drain(scopeHistory, scopeHistoryWriteIndex);
+    const auto newest = scopeHistoryWriteIndex;
     float average = 0.0f;
     float peak = 0.0f;
     for (int i = 0; i < historySize; ++i)
     {
-        const int readIndex = (newest + i) & (historySize - 1);
-        const float value = scopeSamples[static_cast<std::size_t>(readIndex)].load(std::memory_order_relaxed);
+        const auto readIndex = (newest + static_cast<std::size_t>(i)) & (historySize - 1);
+        const float value = scopeHistory[readIndex];
         history[static_cast<std::size_t>(i)] = value;
         average += value;
         peak = std::max(peak, std::abs(value));
@@ -1606,14 +1608,7 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
     if (left == nullptr || frames <= 0)
         return;
 
-    const int scopeStart = scopeWriteIndex.load(std::memory_order_relaxed) & 4095;
-    for (int frame = 0; frame < frames; ++frame)
-    {
-        const int index = (scopeStart + frame) & 4095;
-        const float sample = std::max(-1.0f, std::min(1.0f, left[static_cast<std::size_t>(frame)]));
-        scopeSamples[static_cast<std::size_t>(index)].store(sample, std::memory_order_relaxed);
-    }
-    scopeWriteIndex.store((scopeStart + frames) & 4095, std::memory_order_release);
+    scopeBuffer.push(left, frames);
 }
 
 @end

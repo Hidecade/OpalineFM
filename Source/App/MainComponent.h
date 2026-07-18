@@ -4,6 +4,7 @@
 #include "Engine/OpalineEngine.h"
 #include "Engine/RealtimeAudioRecorder.h"
 #include "Engine/RealtimeCommandQueue.h"
+#include "Engine/RealtimeScopeBuffer.h"
 #include "Engine/OpalineSysex.h"
 #include "Engine/OpalineVoiceLibrary.h"
 
@@ -151,7 +152,7 @@ private:
     {
     public:
         ScopeComponent();
-        void pushSample(float sample);
+        void pushSamples(const float* samples, int numSamples);
         void setSamples(const std::array<float, 4096>& newSamples);
         void setTrigger(int midiNote, double sampleRate);
         void paint(juce::Graphics& g) override;
@@ -159,8 +160,9 @@ private:
     private:
         void timerCallback() override { repaint(); }
 
-        std::array<std::atomic<float>, 4096> samples {};
-        std::atomic<int> writeIndex { 0 };
+        opaline::RealtimeScopeBuffer realtimeSamples;
+        std::array<float, opaline::RealtimeScopeBuffer::historySize> samples {};
+        std::size_t writeIndex = 0;
         std::atomic<int> triggerMidiNote { -1 };
         std::atomic<double> scopeSampleRate { 44100.0 };
         std::array<float, 256> smoothedDisplaySamples {};
