@@ -7,15 +7,22 @@ struct MobileAudioDevice: Identifiable, Equatable {
 }
 
 final class MobileAudioEngine {
-    private let audioEngine = AVAudioEngine()
+    private var audioEngine = AVAudioEngine()
     private let engineBridge: OpalineMobileEngineBridge
     private var sourceNode: AVAudioSourceNode?
+    private var outputVolume: Float = 0.8
+
+    var isRunning: Bool {
+        audioEngine.isRunning
+    }
 
     init(engineBridge: OpalineMobileEngineBridge) {
         self.engineBridge = engineBridge
     }
 
     func start() throws {
+        tearDownGraph()
+
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
         try session.setPreferredSampleRate(44_100)
@@ -33,18 +40,34 @@ final class MobileAudioEngine {
 
         audioEngine.attach(node)
         audioEngine.connect(node, to: audioEngine.mainMixerNode, format: format)
+        audioEngine.mainMixerNode.outputVolume = outputVolume
         sourceNode = node
 
-        try audioEngine.start()
+        do {
+            try audioEngine.start()
+        } catch {
+            tearDownGraph()
+            throw error
+        }
+    }
+
+    func suspend() {
+        audioEngine.stop()
     }
 
     func stop() {
-        audioEngine.stop()
-        try? AVAudioSession.sharedInstance().setActive(false)
+        tearDownGraph()
+        try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+    }
+
+    func resetAfterMediaServicesReset() {
+        sourceNode = nil
+        audioEngine = AVAudioEngine()
     }
 
     func setOutputVolume(_ value: Double) {
-        audioEngine.mainMixerNode.outputVolume = Float(max(0, min(1, value)))
+        outputVolume = Float(max(0, min(1, value)))
+        audioEngine.mainMixerNode.outputVolume = outputVolume
     }
 
     func currentOutputDevices() -> [MobileAudioDevice] {
@@ -72,5 +95,15 @@ final class MobileAudioEngine {
 
         let input = session.availableInputs?.first { $0.uid == id }
         try? session.setPreferredInput(input)
+    }
+
+    private func tearDownGraph() {
+        audioEngine.stop()
+        if let sourceNode {
+            audioEngine.disconnectNodeOutput(sourceNode)
+            audioEngine.detach(sourceNode)
+            self.sourceNode = nil
+        }
+        audioEngine.reset()
     }
 }

@@ -105,7 +105,11 @@ final class MobileSynthModel: ObservableObject {
     private var midiInput: MobileMIDIInput?
     private var scopeTimer: Timer?
     private var libraryAutosaveTimer: Timer?
-    private var audioRouteObserver: NSObjectProtocol?
+    private var audioObservers: [NSObjectProtocol] = []
+    private var audioRecoveryWorkItem: DispatchWorkItem?
+    private var resumeAudioAfterInterruption = false
+    private var resumeAudioOnForeground = false
+    private var isAppInForeground = true
     private var activeTransposedNotes: [Int: [Int]] = [:]
     private var externalNoteCounts: [Int: Int] = [:]
 
@@ -129,16 +133,18 @@ final class MobileSynthModel: ObservableObject {
         }
         refreshMIDISettings()
         refreshAudioDevices()
-        observeAudioRouteChanges()
+        observeAudioSession()
         startScopeUpdates()
     }
 
     deinit {
         scopeTimer?.invalidate()
         libraryAutosaveTimer?.invalidate()
-        if let audioRouteObserver {
-            NotificationCenter.default.removeObserver(audioRouteObserver)
+        audioRecoveryWorkItem?.cancel()
+        for observer in audioObservers {
+            NotificationCenter.default.removeObserver(observer)
         }
+        audioOutput.stop()
     }
 
     func selectVoice(bank: Int, voice: Int) {
@@ -277,6 +283,21 @@ final class MobileSynthModel: ObservableObject {
         selectedAudioInputID = id
         audioOutput.setPreferredInputDevice(id: id)
         refreshAudioDevices()
+    }
+
+    func applicationDidEnterBackground() {
+        isAppInForeground = false
+        resumeAudioOnForeground = true
+        audioRecoveryWorkItem?.cancel()
+        audioOutput.stop()
+        audioStatus = "Audio paused"
+    }
+
+    func applicationDidBecomeActive() {
+        isAppInForeground = true
+        guard resumeAudioOnForeground, !resumeAudioAfterInterruption else { return }
+        resumeAudioOnForeground = false
+        scheduleAudioRecovery(after: 0.05)
     }
 
     func setPitchBendRange(_ value: Int) {
@@ -549,13 +570,92 @@ final class MobileSynthModel: ObservableObject {
         }
     }
 
-    private func observeAudioRouteChanges() {
-        audioRouteObserver = NotificationCenter.default.addObserver(
+    private func observeAudioSession() {
+        let center = NotificationCenter.default
+        audioObservers.append(center.addObserver(
             forName: AVAudioSession.routeChangeNotification,
             object: AVAudioSession.sharedInstance(),
             queue: .main
+        ) { [weak self] notification in
+            self?.handleAudioRouteChange(notification)
+        })
+        audioObservers.append(center.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: .main
+        ) { [weak self] notification in
+            self?.handleAudioInterruption(notification)
+        })
+        audioObservers.append(center.addObserver(
+            forName: AVAudioSession.mediaServicesWereResetNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: .main
         ) { [weak self] _ in
-            self?.refreshAudioDevices()
+            guard let self else { return }
+            self.audioRecoveryWorkItem?.cancel()
+            self.audioOutput.resetAfterMediaServicesReset()
+            if self.resumeAudioAfterInterruption {
+                return
+            } else if self.isAppInForeground {
+                self.scheduleAudioRecovery(after: 0.1)
+            } else {
+                self.resumeAudioOnForeground = true
+            }
+        })
+    }
+
+    private func handleAudioInterruption(_ notification: Notification) {
+        guard let rawType = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: rawType) else { return }
+
+        switch type {
+        case .began:
+            resumeAudioAfterInterruption = isAppInForeground
+            audioRecoveryWorkItem?.cancel()
+            audioOutput.suspend()
+            audioStatus = "Audio interrupted"
+
+        case .ended:
+            let rawOptions = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+            let options = AVAudioSession.InterruptionOptions(rawValue: rawOptions)
+            let shouldResume = resumeAudioAfterInterruption && options.contains(.shouldResume)
+            resumeAudioAfterInterruption = false
+            guard shouldResume else { return }
+            if isAppInForeground {
+                resumeAudioOnForeground = false
+                scheduleAudioRecovery(after: 0.05)
+            } else {
+                resumeAudioOnForeground = true
+            }
+
+        @unknown default:
+            break
         }
+    }
+
+    private func handleAudioRouteChange(_ notification: Notification) {
+        refreshAudioDevices()
+        guard let rawReason = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
+              let reason = AVAudioSession.RouteChangeReason(rawValue: rawReason) else { return }
+
+        switch reason {
+        case .newDeviceAvailable, .oldDeviceUnavailable, .wakeFromSleep, .noSuitableRouteForCategory:
+            if isAppInForeground && !resumeAudioAfterInterruption {
+                scheduleAudioRecovery(after: 0.15)
+            }
+        default:
+            break
+        }
+    }
+
+    private func scheduleAudioRecovery(after delay: TimeInterval) {
+        audioRecoveryWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self, self.isAppInForeground else { return }
+            self.startAudio()
+            self.refreshAudioDevices()
+        }
+        audioRecoveryWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
     }
 }
