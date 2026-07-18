@@ -36,7 +36,17 @@ enum class RealtimeCommandType
     operatorParameter,
     operatorEnabled,
     operatorAmpModEnabled,
-    effectsEnabled
+    effectsEnabled,
+    pitchBendRange,
+    portamento,
+    portamentoModeA,
+    portamentoModeB,
+    modWheelRanges,
+    monoModeA,
+    monoModeB,
+    dualDetune,
+    splitPoint,
+    abBalance
 };
 
 enum class PatchParameterId
@@ -994,22 +1004,20 @@ static OperatorParameterId operatorParameterId(NSString* parameter)
 
 - (void)setDualDetune:(int)value
 {
-    std::lock_guard<std::mutex> lock(engineMutex);
-    [self applyRealtimeCommandsNoLock];
-    dualDetune = std::max(-16, std::min(value, 16));
-    [self applyPitchBendNoLock];
+    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
+                           { RealtimeCommandType::dualDetune, value });
 }
 
 - (void)setSplitPoint:(int)value
 {
-    std::lock_guard<std::mutex> lock(engineMutex);
-    splitPoint = std::max(0, std::min(value, 127));
+    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
+                           { RealtimeCommandType::splitPoint, value });
 }
 
 - (void)setABBalance:(int)value
 {
-    std::lock_guard<std::mutex> lock(engineMutex);
-    abBalance = std::max(-100, std::min(value, 100));
+    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
+                           { RealtimeCommandType::abBalance, value });
 }
 
 - (void)noteOn:(int)note velocity:(int)velocity
@@ -1034,38 +1042,26 @@ static OperatorParameterId operatorParameterId(NSString* parameter)
 
 - (void)setPitchBendRange:(int)value
 {
-    std::lock_guard<std::mutex> lock(engineMutex);
-    [self applyRealtimeCommandsNoLock];
-    pitchBendRange = std::max(0, std::min(value, 12));
-    engine->setPitchBendRange(pitchBendRange);
-    engineB->setPitchBendRange(pitchBendRange);
+    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
+                           { RealtimeCommandType::pitchBendRange, value });
 }
 
 - (void)setPortamento:(int)value
 {
-    std::lock_guard<std::mutex> lock(engineMutex);
-    [self applyRealtimeCommandsNoLock];
-    portamento = std::max(0, std::min(value, 99));
-    engine->setPortamento(portamento);
-    engineB->setPortamento(portamento);
+    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
+                           { RealtimeCommandType::portamento, value });
 }
 
 - (void)setPortamentoModeA:(int)mode
 {
-    std::lock_guard<std::mutex> lock(engineMutex);
-    [self applyRealtimeCommandsNoLock];
-    portamentoModeA = std::max(0, std::min(mode, 2));
-    engine->panic();
-    engine->setPortamentoMode(portamentoModeA);
+    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
+                           { RealtimeCommandType::portamentoModeA, mode });
 }
 
 - (void)setPortamentoModeB:(int)mode
 {
-    std::lock_guard<std::mutex> lock(engineMutex);
-    [self applyRealtimeCommandsNoLock];
-    portamentoModeB = std::max(0, std::min(mode, 2));
-    engineB->panic();
-    engineB->setPortamentoMode(portamentoModeB);
+    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
+                           { RealtimeCommandType::portamentoModeB, mode });
 }
 
 - (void)setPortamentoFootSwitch:(BOOL)down
@@ -1082,12 +1078,8 @@ static OperatorParameterId operatorParameterId(NSString* parameter)
 
 - (void)setModWheelPitchRange:(int)value ampRange:(int)ampRange
 {
-    std::lock_guard<std::mutex> lock(engineMutex);
-    [self applyRealtimeCommandsNoLock];
-    modWheelPitchRange = std::max(0, std::min(value, 99));
-    modWheelAmpRange = std::max(0, std::min(ampRange, 99));
-    engine->setModWheelRanges(modWheelPitchRange, modWheelAmpRange);
-    engineB->setModWheelRanges(modWheelPitchRange, modWheelAmpRange);
+    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
+                           { RealtimeCommandType::modWheelRanges, value, ampRange });
 }
 
 - (void)setModWheel:(double)value
@@ -1100,26 +1092,14 @@ static OperatorParameterId operatorParameterId(NSString* parameter)
 
 - (void)setMonoMode:(BOOL)enabled
 {
-    std::lock_guard<std::mutex> lock(engineMutex);
-    [self applyRealtimeCommandsNoLock];
-    monoA = enabled;
-    if (!monoA && portamentoModeA == 2)
-        portamentoModeA = 1;
-    engine->panic();
-    engine->setMonoMode(enabled);
-    engine->setPortamentoMode(portamentoModeA);
+    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
+                           { RealtimeCommandType::monoModeA, enabled ? 1 : 0 });
 }
 
 - (void)setMonoModeB:(BOOL)enabled
 {
-    std::lock_guard<std::mutex> lock(engineMutex);
-    [self applyRealtimeCommandsNoLock];
-    monoB = enabled;
-    if (!monoB && portamentoModeB == 2)
-        portamentoModeB = 1;
-    engineB->panic();
-    engineB->setMonoMode(enabled);
-    engineB->setPortamentoMode(portamentoModeB);
+    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
+                           { RealtimeCommandType::monoModeB, enabled ? 1 : 0 });
 }
 
 - (void)applyRealtimeCommandsNoLock
@@ -1228,6 +1208,68 @@ static OperatorParameterId operatorParameterId(NSString* parameter)
             case RealtimeCommandType::portamentoFootSwitch:
                 engine->setPortamentoFootSwitch(command.value1 != 0);
                 engineB->setPortamentoFootSwitch(command.value1 != 0);
+                break;
+
+            case RealtimeCommandType::pitchBendRange:
+                pitchBendRange = clamp(command.value1, 0, 12);
+                engine->setPitchBendRange(pitchBendRange);
+                engineB->setPitchBendRange(pitchBendRange);
+                break;
+
+            case RealtimeCommandType::portamento:
+                portamento = clamp(command.value1, 0, 99);
+                engine->setPortamento(portamento);
+                engineB->setPortamento(portamento);
+                break;
+
+            case RealtimeCommandType::portamentoModeA:
+                portamentoModeA = clamp(command.value1, 0, 2);
+                engine->panic();
+                engine->setPortamentoMode(portamentoModeA);
+                break;
+
+            case RealtimeCommandType::portamentoModeB:
+                portamentoModeB = clamp(command.value1, 0, 2);
+                engineB->panic();
+                engineB->setPortamentoMode(portamentoModeB);
+                break;
+
+            case RealtimeCommandType::modWheelRanges:
+                modWheelPitchRange = clamp(command.value1, 0, 99);
+                modWheelAmpRange = clamp(command.value2, 0, 99);
+                engine->setModWheelRanges(modWheelPitchRange, modWheelAmpRange);
+                engineB->setModWheelRanges(modWheelPitchRange, modWheelAmpRange);
+                break;
+
+            case RealtimeCommandType::monoModeA:
+                monoA = command.value1 != 0;
+                if (!monoA && portamentoModeA == 2)
+                    portamentoModeA = 1;
+                engine->panic();
+                engine->setMonoMode(monoA);
+                engine->setPortamentoMode(portamentoModeA);
+                break;
+
+            case RealtimeCommandType::monoModeB:
+                monoB = command.value1 != 0;
+                if (!monoB && portamentoModeB == 2)
+                    portamentoModeB = 1;
+                engineB->panic();
+                engineB->setMonoMode(monoB);
+                engineB->setPortamentoMode(portamentoModeB);
+                break;
+
+            case RealtimeCommandType::dualDetune:
+                dualDetune = clamp(command.value1, -16, 16);
+                [self applyPitchBendNoLock];
+                break;
+
+            case RealtimeCommandType::splitPoint:
+                splitPoint = clamp(command.value1, 0, 127);
+                break;
+
+            case RealtimeCommandType::abBalance:
+                abBalance = clamp(command.value1, -100, 100);
                 break;
 
             case RealtimeCommandType::patchParameter:
