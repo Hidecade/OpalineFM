@@ -13,14 +13,14 @@ namespace opaline
 {
 struct Algorithm;
 
-// 1オペレータの出力。audioは最終音声、modulationは次段へ送る位相変調量。
+// Per-operator audio and phase-modulation bus outputs.
 struct OperatorRender
 {
     double audio = 0.0;
     double modulation = 0.0;
 };
 
-// 1音分のFMボイス。OLD/NEWの状態を持ち、renderModelで鳴らし分ける。
+// One FM voice with independent phase, envelope, and feedback state.
 class OpalineVoice
 {
 public:
@@ -55,7 +55,7 @@ private:
     double nextPitchModulation(double pitchLfo);
     std::pair<double, double> nextSampleAndHoldLfoShape(double phase);
 
-    // 発音ごとの状態。位相、EG、フィードバック履歴はボイス単位で独立する。
+    // State that must remain independent for each active voice.
     int midiNote = 60;
     int noteVelocity = 100;
     double currentSampleRate = 44100.0;
@@ -65,6 +65,8 @@ private:
     std::array<double, kOperatorCount> phases {};
     std::array<double, kOperatorCount> operatorOppTlUnits {};
     std::array<double, kOperatorCount> operatorTlAccumulators {};
+    std::array<double, 8> carrierVelocityFactors {};
+    std::array<double, 8> modulatorVelocityFactors {};
     std::array<OpalineEnvelope, kOperatorCount> envelopes {};
     std::array<OpalineChipEnvelope, kOperatorCount> chipEnvelopes {};
     OpalinePitchEnvelope pitchEnvelope;

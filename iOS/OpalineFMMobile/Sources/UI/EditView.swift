@@ -863,6 +863,8 @@ private struct SettingEditPage: View {
                     VStack(alignment: .leading, spacing: 10) {
                         settingValue(title: "OUTPUT", value: audioOutputName)
 
+                        settingValue(title: "VERSION", value: appVersion)
+
                         HStack(spacing: 7) {
                             Text("ROUTE")
                                 .font(.system(size: 12, weight: .bold))
@@ -956,6 +958,10 @@ private struct SettingEditPage: View {
                 .background(RoundedRectangle(cornerRadius: 3).fill(Color(hexValue: 0x070806)))
                 .overlay(RoundedRectangle(cornerRadius: 3).stroke(EditSkin.panelBorder, lineWidth: 1))
         }
+    }
+
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "-"
     }
 
     private func options(for picker: SettingPicker) -> [String] {

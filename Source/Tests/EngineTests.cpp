@@ -3,6 +3,7 @@
 #include "Engine/OpalineEngine.h"
 #include "Engine/OpalineEnvelope.h"
 #include "Engine/OpalinePitchEnvelope.h"
+#include "Engine/RealtimeAudioRecorder.h"
 #include "Engine/OpalineSysex.h"
 #include "Engine/OpalineTables.h"
 #include "Engine/OpalineVoiceLibrary.h"
@@ -398,6 +399,47 @@ void testEngineRendering()
         engine.renderSample();
 
     expect(engine.activeVoiceCount() == 0, "released voice is removed");
+}
+
+void testRealtimeAudioRecorder()
+{
+    opaline::RealtimeAudioRecorder recorder;
+    recorder.start(48000.0);
+
+    const std::array<float, 4> leftA { 0.1f, 0.2f, 0.3f, 0.4f };
+    const std::array<float, 4> rightA { -0.1f, -0.2f, -0.3f, -0.4f };
+    const std::array<float, 3> leftB { 0.5f, 0.6f, 0.7f };
+    const std::array<float, 3> rightB { -0.5f, -0.6f, -0.7f };
+
+    recorder.push(leftA.data(), rightA.data(), static_cast<int>(leftA.size()));
+    recorder.push(leftB.data(), rightB.data(), static_cast<int>(leftB.size()));
+    recorder.stop();
+
+    expectNear(recorder.sampleRate(), 48000.0, 0.0, "recorder retains sample rate");
+    expect(recorder.recordedFrameCount() == 7, "recorder collects every frame");
+    expect(recorder.droppedFrameCount() == 0, "recorder does not drop normal input");
+
+    auto samples = recorder.takeRecordedSamples();
+    expect(samples.size() == 14, "recorder produces stereo interleaved samples");
+    for (std::size_t frame = 0; frame < 7 && samples.size() == 14; ++frame)
+    {
+        const auto expectedLeft = frame < leftA.size() ? leftA[frame] : leftB[frame - leftA.size()];
+        const auto expectedRight = frame < rightA.size() ? rightA[frame] : rightB[frame - rightA.size()];
+        expectNear(samples[frame * 2], expectedLeft, 0.0, "recorder preserves left sample order");
+        expectNear(samples[frame * 2 + 1], expectedRight, 0.0, "recorder preserves right sample order");
+    }
+
+    recorder.start(44100.0);
+    recorder.push(leftB.data(), nullptr, static_cast<int>(leftB.size()));
+    recorder.stop();
+    samples = recorder.takeRecordedSamples();
+
+    expect(samples.size() == 6, "new recording replaces the previous session");
+    for (std::size_t frame = 0; frame < leftB.size() && samples.size() == 6; ++frame)
+    {
+        expectNear(samples[frame * 2], leftB[frame], 0.0, "mono recording preserves left samples");
+        expectNear(samples[frame * 2 + 1], leftB[frame], 0.0, "mono recording duplicates the left channel");
+    }
 }
 
 void testVoiceLimit()
@@ -835,6 +877,7 @@ int main()
     testChipEnvelopeSustainLevels();
     testPitchEnvelope();
     testEngineRendering();
+    testRealtimeAudioRecorder();
     testVoiceLimit();
     testEngineEffectsRendering();
     testSysexBulkParsing();

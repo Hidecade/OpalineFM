@@ -43,6 +43,7 @@ add_library(opaline_engine STATIC
     Source/Engine/OpalineEnvelope.cpp
     Source/Engine/OpalineEngine.cpp
     Source/Engine/OpalinePitchEnvelope.cpp
+    Source/Engine/RealtimeAudioRecorder.cpp
     Source/Engine/OpalineTables.cpp
     Source/Engine/OpalineTypes.cpp
     Source/Engine/OpalineSysex.cpp

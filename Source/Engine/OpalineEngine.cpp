@@ -7,7 +7,7 @@ namespace opaline
 {
 namespace
 {
-// 最終段の余裕を残すための全体ゲインと、簡易エフェクト用の最大ディレイ長。
+// Global output trim and maximum delay lengths used by the effects.
 constexpr double kOutputGain = 0.38;
 constexpr double kLimiterThreshold = 0.86;
 constexpr double kLimiterCeiling = 0.96;
@@ -39,7 +39,7 @@ void OpalineEngine::prepare(const double sampleRate, const int maxVoices)
     currentSampleRate = sampleRate > 0.0 ? sampleRate : 44100.0;
     maxVoiceCount = clampInt(maxVoices, 1, 32);
 
-    // サンプルレート変更時はエフェクト用リングバッファを作り直す。
+    // Rebuild effect buffers when the sample rate changes.
     delayBufferLeft.assign(static_cast<std::size_t>(std::ceil(currentSampleRate * kMaxDelaySeconds)) + 4, 0.0);
     delayBufferRight.assign(delayBufferLeft.size(), 0.0);
     chorusBufferLeft.assign(static_cast<std::size_t>(std::ceil(currentSampleRate * kMaxChorusSeconds)) + 4, 0.0);
@@ -53,12 +53,14 @@ void OpalineEngine::prepare(const double sampleRate, const int maxVoices)
     }
     voices.clear();
     voices.reserve(static_cast<std::size_t>(maxVoiceCount));
+    updateEffectParameters();
     panic();
 }
 
 void OpalineEngine::setPatch(const OpalinePatch& newPatch)
 {
     patch = normalizePatch(newPatch);
+    updateEffectParameters();
 }
 
 void OpalineEngine::noteOn(const int note, const int velocity)
@@ -226,6 +228,33 @@ void OpalineEngine::resetEffects()
     toneRight = 0.0;
 }
 
+void OpalineEngine::updateEffectParameters()
+{
+    const auto& fx = patch.effects;
+    effectReverb = static_cast<double>(fx.reverb) / 99.0;
+    effectReverbMix = static_cast<double>(fx.mix) / 99.0;
+    effectEchoMix = static_cast<double>(fx.echoMix) / 99.0;
+    effectTone = static_cast<double>(fx.tone) / 99.0;
+    effectChorus = static_cast<double>(fx.chorus) / 99.0;
+    effectDelay = static_cast<double>(fx.delay) / 99.0;
+
+    const double wetAmount = clampDouble(effectReverbMix + effectEchoMix * 0.75 + effectChorus * 0.25, 0.0, 1.0);
+    effectDryGain = 1.0 - wetAmount * 0.55;
+    effectReverbWetGain = effectReverbMix * (0.18 + effectReverb * 0.82);
+    effectEchoWetGain = effectEchoMix * (0.18 + effectDelay * 0.82);
+    effectReverbFeedback = 0.48 + effectReverb * 0.40;
+    effectReverbDamping = 0.08 + effectTone * 0.30;
+    effectDelaySamples = effectDelay * 0.52 * currentSampleRate;
+    effectDelayFeedback = effectDelaySamples > 1.0 ? 0.10 + effectDelay * 0.50 : 0.0;
+
+    const double cutoff = 900.0 + effectTone * 11200.0;
+    const double toneCoeff = 1.0 - std::exp(-2.0 * kPi * cutoff / currentSampleRate);
+    effectToneCoeff = clampDouble(toneCoeff, 0.0, 1.0);
+    effectChorusPhaseIncrement = (0.18 + effectChorus * 0.58) / currentSampleRate;
+    effectChorusDelay = effectChorus <= 0.001 ? 0.0 : 0.006 + effectChorus * 0.012;
+    effectChorusDepth = effectChorus * 0.006;
+}
+
 double OpalineEngine::readDelay(const std::vector<double>& buffer, const int writeIndex, const double delaySamples) const
 {
     if (buffer.empty())
@@ -249,21 +278,6 @@ StereoSample OpalineEngine::processEffects(const double input)
     if (!effectsEnabled)
         return { static_cast<float>(input), static_cast<float>(input) };
 
-    const auto& fx = patch.effects;
-    const double reverb = static_cast<double>(fx.reverb) / 99.0;
-    const double reverbMix = static_cast<double>(fx.mix) / 99.0;
-    const double echoMix = static_cast<double>(fx.echoMix) / 99.0;
-    const double tone = static_cast<double>(fx.tone) / 99.0;
-    const double chorus = static_cast<double>(fx.chorus) / 99.0;
-    const double delay = static_cast<double>(fx.delay) / 99.0;
-
-    const double wetAmount = clampDouble(reverbMix + echoMix * 0.75 + chorus * 0.25, 0.0, 1.0);
-    const double dryGain = 1.0 - wetAmount * 0.55;
-    const double reverbWetGain = reverbMix * (0.18 + reverb * 0.82);
-    const double echoWetGain = echoMix * (0.18 + delay * 0.82);
-
-    const double reverbFeedback = 0.48 + reverb * 0.40;
-    const double reverbDamping = 0.08 + tone * 0.30;
     std::array<double, 4> reverbTapsLeft {};
     std::array<double, 4> reverbTapsRight {};
     for (int i = 0; i < 4; ++i)
@@ -277,8 +291,8 @@ StereoSample OpalineEngine::processEffects(const double input)
         int& index = reverbWriteIndices[line];
         index %= static_cast<int>(leftBuffer.size());
         const auto bufferIndex = static_cast<std::size_t>(index);
-        reverbDampingLeft[line] += (leftBuffer[bufferIndex] - reverbDampingLeft[line]) * reverbDamping;
-        reverbDampingRight[line] += (rightBuffer[bufferIndex] - reverbDampingRight[line]) * reverbDamping;
+        reverbDampingLeft[line] += (leftBuffer[bufferIndex] - reverbDampingLeft[line]) * effectReverbDamping;
+        reverbDampingRight[line] += (rightBuffer[bufferIndex] - reverbDampingRight[line]) * effectReverbDamping;
         reverbTapsLeft[line] = reverbDampingLeft[line];
         reverbTapsRight[line] = reverbDampingRight[line];
     }
@@ -308,47 +322,41 @@ StereoSample OpalineEngine::processEffects(const double input)
         const auto bufferIndex = static_cast<std::size_t>(index);
         const auto crossLine = static_cast<std::size_t>((i + 1) % 4);
         leftBuffer[bufferIndex] = input * kInputLeft[line]
-            + reverbFeedback * (diffusedLeft[line] * 0.88 + diffusedRight[crossLine] * 0.12);
+            + effectReverbFeedback * (diffusedLeft[line] * 0.88 + diffusedRight[crossLine] * 0.12);
         rightBuffer[bufferIndex] = input * kInputRight[line]
-            + reverbFeedback * (diffusedRight[line] * 0.88 + diffusedLeft[crossLine] * 0.12);
+            + effectReverbFeedback * (diffusedRight[line] * 0.88 + diffusedLeft[crossLine] * 0.12);
         index = (index + 1) % static_cast<int>(leftBuffer.size());
     }
 
     const double reverbOutLeft = (reverbTapsLeft[0] + reverbTapsLeft[1]
-        - reverbTapsLeft[2] + reverbTapsLeft[3]) * 0.32 * reverb;
+        - reverbTapsLeft[2] + reverbTapsLeft[3]) * 0.32 * effectReverb;
     const double reverbOutRight = (reverbTapsRight[0] - reverbTapsRight[1]
-        + reverbTapsRight[2] + reverbTapsRight[3]) * 0.32 * reverb;
+        + reverbTapsRight[2] + reverbTapsRight[3]) * 0.32 * effectReverb;
 
-    const double delaySamples = delay * 0.52 * currentSampleRate;
     const double wetInLeft = input + reverbOutLeft * 0.35;
     const double wetInRight = input + reverbOutRight * 0.35;
-    const double delayedLeft = delaySamples > 1.0 ? readDelay(delayBufferLeft, delayWriteIndex, delaySamples) : 0.0;
-    const double delayedRight = delaySamples > 1.0 ? readDelay(delayBufferRight, delayWriteIndex, delaySamples) : 0.0;
-    const double delayFeedback = delaySamples > 1.0 ? 0.10 + delay * 0.50 : 0.0;
+    const double delayedLeft = effectDelaySamples > 1.0 ? readDelay(delayBufferLeft, delayWriteIndex, effectDelaySamples) : 0.0;
+    const double delayedRight = effectDelaySamples > 1.0 ? readDelay(delayBufferRight, delayWriteIndex, effectDelaySamples) : 0.0;
     if (!delayBufferLeft.empty())
     {
-        delayBufferLeft[static_cast<std::size_t>(delayWriteIndex)] = wetInLeft + toneRight * delayFeedback;
-        delayBufferRight[static_cast<std::size_t>(delayWriteIndex)] = wetInRight + toneLeft * delayFeedback;
+        delayBufferLeft[static_cast<std::size_t>(delayWriteIndex)] = wetInLeft + toneRight * effectDelayFeedback;
+        delayBufferRight[static_cast<std::size_t>(delayWriteIndex)] = wetInRight + toneLeft * effectDelayFeedback;
         delayWriteIndex = (delayWriteIndex + 1) % static_cast<int>(delayBufferLeft.size());
     }
 
-    const double cutoff = 900.0 + tone * 11200.0;
-    const double toneCoeff = 1.0 - std::exp(-2.0 * kPi * cutoff / currentSampleRate);
-    toneLeft += (delayedLeft - toneLeft) * clampDouble(toneCoeff, 0.0, 1.0);
-    toneRight += (delayedRight - toneRight) * clampDouble(toneCoeff, 0.0, 1.0);
+    toneLeft += (delayedLeft - toneLeft) * effectToneCoeff;
+    toneRight += (delayedRight - toneRight) * effectToneCoeff;
 
-    chorusPhase += (0.18 + chorus * 0.58) / currentSampleRate;
+    chorusPhase += effectChorusPhaseIncrement;
     if (chorusPhase >= 1.0)
         chorusPhase -= std::floor(chorusPhase);
 
-    const double chorusDelay = chorus <= 0.001 ? 0.0 : 0.006 + chorus * 0.012;
-    const double chorusDepth = chorus * 0.006;
     const double lfo = std::sin(2.0 * kPi * chorusPhase);
-    const double chorusLeft = chorusDelay > 0.0
-        ? readDelay(chorusBufferLeft, chorusWriteIndex, (chorusDelay + lfo * chorusDepth) * currentSampleRate)
+    const double chorusLeft = effectChorusDelay > 0.0
+        ? readDelay(chorusBufferLeft, chorusWriteIndex, (effectChorusDelay + lfo * effectChorusDepth) * currentSampleRate)
         : 0.0;
-    const double chorusRight = chorusDelay > 0.0
-        ? readDelay(chorusBufferRight, chorusWriteIndex, (chorusDelay * 1.17 - lfo * chorusDepth * 0.85) * currentSampleRate)
+    const double chorusRight = effectChorusDelay > 0.0
+        ? readDelay(chorusBufferRight, chorusWriteIndex, (effectChorusDelay * 1.17 - lfo * effectChorusDepth * 0.85) * currentSampleRate)
         : 0.0;
     if (!chorusBufferLeft.empty())
     {
@@ -357,8 +365,8 @@ StereoSample OpalineEngine::processEffects(const double input)
         chorusWriteIndex = (chorusWriteIndex + 1) % static_cast<int>(chorusBufferLeft.size());
     }
 
-    const double left = input * dryGain + reverbOutLeft * reverbWetGain + toneLeft * echoWetGain + chorusLeft * chorus * 0.34;
-    const double right = input * dryGain + reverbOutRight * reverbWetGain + toneRight * echoWetGain + chorusRight * chorus * 0.34;
+    const double left = input * effectDryGain + reverbOutLeft * effectReverbWetGain + toneLeft * effectEchoWetGain + chorusLeft * effectChorus * 0.34;
+    const double right = input * effectDryGain + reverbOutRight * effectReverbWetGain + toneRight * effectEchoWetGain + chorusRight * effectChorus * 0.34;
     const double limitedLeft = softLimit(left);
     const double limitedRight = softLimit(right);
     lastLeft += clampDouble(limitedLeft - lastLeft, -0.42, 0.42);

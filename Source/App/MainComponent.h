@@ -2,6 +2,7 @@
 
 #include "App/OpalineAppState.h"
 #include "Engine/OpalineEngine.h"
+#include "Engine/RealtimeAudioRecorder.h"
 #include "Engine/OpalineSysex.h"
 #include "Engine/OpalineVoiceLibrary.h"
 
@@ -503,9 +504,7 @@ private:
     std::unique_ptr<juce::FileChooser> fileChooser;
     std::vector<std::unique_ptr<juce::MidiInput>> midiInputs;
     std::mutex engineMutex;
-    std::mutex recordingMutex;
-    std::vector<float> wavRecordingInterleaved;
-    double wavRecordingSampleRate = 44100.0;
+    opaline::RealtimeAudioRecorder wavRecorder;
     std::atomic<bool> wavRecording { false };
     std::array<bool, 128> pcKeyboardHeldNotes {};
     std::array<int, 128> pcKeyboardHeldVelocities {};

@@ -8,7 +8,7 @@
 
 namespace opaline
 {
-// パッチ、発音中ボイス、グローバルLFO、簡易エフェクトを束ねる音源本体。
+// Shared synth engine for patches, voices, global LFO, and effects.
 class OpalineEngine
 {
 public:
@@ -40,6 +40,7 @@ private:
     StereoSample processEffects(double input);
     double readDelay(const std::vector<double>& buffer, int writeIndex, double delaySamples) const;
     void resetEffects();
+    void updateEffectParameters();
 
     OpalinePatch patch;
     std::vector<OpalineVoice> voices;
@@ -78,5 +79,22 @@ private:
     double lastOutput = 0.0;
     double lastLeft = 0.0;
     double lastRight = 0.0;
+    double effectReverb = 0.0;
+    double effectReverbMix = 0.0;
+    double effectEchoMix = 0.0;
+    double effectTone = 0.0;
+    double effectChorus = 0.0;
+    double effectDelay = 0.0;
+    double effectDryGain = 1.0;
+    double effectReverbWetGain = 0.0;
+    double effectEchoWetGain = 0.0;
+    double effectReverbFeedback = 0.48;
+    double effectReverbDamping = 0.08;
+    double effectDelaySamples = 0.0;
+    double effectDelayFeedback = 0.0;
+    double effectToneCoeff = 0.0;
+    double effectChorusPhaseIncrement = 0.0;
+    double effectChorusDelay = 0.0;
+    double effectChorusDepth = 0.0;
 };
 } // namespace opaline

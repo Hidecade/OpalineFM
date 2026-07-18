@@ -539,7 +539,9 @@ final class MobileSynthModel: ObservableObject {
         scopeTimer?.invalidate()
         scopeTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 20.0, repeats: true) { [weak self] _ in
             guard let self else { return }
-            let samples = self.engine.scopeSnapshot().map { $0.floatValue }
+            let samples = self.engine.scopeSnapshotData().withUnsafeBytes { bytes in
+                Array(bytes.bindMemory(to: Float.self))
+            }
             if samples.count == self.scopeSamples.count {
                 guard samples != self.scopeSamples else { return }
                 self.scopeSamples = samples

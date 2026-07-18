@@ -3,6 +3,7 @@
 #include "App/OpalineStateSerialization.h"
 #include "App/OpalineVoiceLibraryXml.h"
 #include "Engine/ChipVoiceImport.h"
+#include "OpalineVersion.h"
 #include "Engine/OpalineTables.h"
 #include "OpalineBinaryData.h"
 
@@ -290,9 +291,17 @@ void drawHeaderTitle(juce::Graphics& g, juce::Rectangle<float> area)
     area = area.reduced(0.0f, 1.0f);
     g.setFont(juce::FontOptions(25.0f, juce::Font::bold));
     g.setColour(kTextPrimary);
-    g.drawText("Opaline", area.removeFromLeft(102.0f), juce::Justification::centredLeft);
+    g.drawText("Opaline", area.removeFromLeft(90.0f), juce::Justification::centredLeft);
     g.setColour(kTeal);
-    g.drawText("FM", area, juce::Justification::centredLeft);
+    g.drawText("FM", area.removeFromLeft(36.0f), juce::Justification::centredLeft);
+
+    auto version = juce::String(OPALINE_VERSION_STRING);
+    if (version.endsWith(".0"))
+        version = version.dropLastCharacters(2);
+
+    g.setFont(juce::FontOptions(11.0f, juce::Font::bold));
+    g.setColour(kTextMuted);
+    g.drawText("v" + version, area.withTrimmedBottom(6.0f), juce::Justification::bottomLeft);
 }
 std::array<std::atomic<bool>, 128> gMidiUiHeldNotes {};
 std::array<std::atomic<int>, 128> gMidiUiHeldVelocities {};
@@ -2488,16 +2497,7 @@ void MainComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo& buffer
     }
 
     if (wavRecording.load(std::memory_order_relaxed))
-    {
-        std::lock_guard<std::mutex> recordingLock(recordingMutex);
-        const auto sampleCount = static_cast<std::size_t>(bufferToFill.numSamples);
-        wavRecordingInterleaved.reserve(wavRecordingInterleaved.size() + sampleCount * 2);
-        for (int i = 0; i < bufferToFill.numSamples; ++i)
-        {
-            wavRecordingInterleaved.push_back(left[i]);
-            wavRecordingInterleaved.push_back(right[i]);
-        }
-    }
+        wavRecorder.push(left, right, bufferToFill.numSamples);
 }
 
 void MainComponent::releaseResources() {}
@@ -3952,10 +3952,7 @@ void MainComponent::startWavRecording()
     }
     else
     {
-        std::lock_guard<std::mutex> recordingLock(recordingMutex);
-        wavRecordingInterleaved.clear();
-        wavRecordingSampleRate = audioSampleRate > 0.0 ? audioSampleRate : 44100.0;
-        wavRecordingInterleaved.reserve(static_cast<std::size_t>(wavRecordingSampleRate) * 2 * 60);
+        wavRecorder.start(audioSampleRate);
     }
 
     wavRecording.store(true, std::memory_order_relaxed);
@@ -3971,19 +3968,15 @@ void MainComponent::stopWavRecordingAndChooseFile()
 
     if (onExternalWavRecordingStop)
         onExternalWavRecordingStop();
+    else
+        wavRecorder.stop();
 
     wavRecordButton.setButtonText("WAV");
     wavRecordButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff17242a));
 
     if (!onExternalWavRecordingSave)
     {
-        std::size_t recordedSamples = 0;
-        {
-            std::lock_guard<std::mutex> recordingLock(recordingMutex);
-            recordedSamples = wavRecordingInterleaved.size() / 2;
-        }
-
-        if (recordedSamples == 0)
+        if (wavRecorder.recordedFrameCount() == 0)
         {
             statusLabel.setText("WAV recording is empty", juce::dontSendNotification);
             return;
@@ -4023,14 +4016,8 @@ void MainComponent::writeWavRecordingToFile(const juce::File& file)
         return;
     }
 
-    std::vector<float> interleaved;
-    double sampleRate = 44100.0;
-    {
-        std::lock_guard<std::mutex> recordingLock(recordingMutex);
-        interleaved = wavRecordingInterleaved;
-        sampleRate = wavRecordingSampleRate;
-        wavRecordingInterleaved.clear();
-    }
+    const double sampleRate = wavRecorder.sampleRate();
+    auto interleaved = wavRecorder.takeRecordedSamples();
 
     const int sampleCount = static_cast<int>(interleaved.size() / 2);
     if (sampleCount <= 0)

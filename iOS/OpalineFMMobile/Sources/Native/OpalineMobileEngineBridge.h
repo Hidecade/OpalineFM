@@ -49,7 +49,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)setModWheel:(double)value;
 - (void)setMonoMode:(BOOL)enabled;
 - (void)setMonoModeB:(BOOL)enabled;
-- (NSArray<NSNumber*>*)scopeSnapshot;
+- (NSData*)scopeSnapshotData NS_SWIFT_NAME(scopeSnapshotData());
 - (void)renderLeft:(float*)left right:(float*)right frames:(int)frames;
 - (void)renderToAudioBufferList:(AudioBufferList*)audioBufferList frames:(int)frames;
 

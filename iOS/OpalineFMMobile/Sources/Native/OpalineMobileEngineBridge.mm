@@ -13,10 +13,16 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <sstream>
 #include <vector>
+
+namespace
+{
+constexpr int kPreparedScratchFrames = 4096;
+}
 
 @interface OpalineMobileEngineBridge ()
 {
@@ -34,6 +40,13 @@
     std::vector<float> scratchBRight;
     std::array<std::atomic<float>, 4096> scopeSamples;
     std::atomic<int> scopeWriteIndex;
+    std::atomic<int> scopeTriggerNote;
+    std::atomic<double> scopeSampleRate;
+    std::array<int, 128> scopeHeldNoteCounts;
+    int scopeHeldNoteTotal;
+    std::array<float, 128> scopeSmoothedDisplay;
+    int scopeSmoothedNote;
+    BOOL scopeHasSmoothedDisplay;
     std::mutex engineMutex;
     double currentSampleRate;
     double currentPitchBend;
@@ -143,6 +156,13 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
         hasCopiedPatch = NO;
         didLoadInitialFactoryBank = NO;
         scopeWriteIndex.store(0, std::memory_order_relaxed);
+        scopeTriggerNote.store(-1, std::memory_order_relaxed);
+        scopeSampleRate.store(currentSampleRate, std::memory_order_relaxed);
+        scopeHeldNoteCounts.fill(0);
+        scopeHeldNoteTotal = 0;
+        scopeSmoothedDisplay.fill(0.0f);
+        scopeSmoothedNote = -1;
+        scopeHasSmoothedDisplay = NO;
         for (auto& sample : scopeSamples)
             sample.store(0.0f, std::memory_order_relaxed);
     }
@@ -153,6 +173,7 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
 {
     std::lock_guard<std::mutex> lock(engineMutex);
     currentSampleRate = sampleRate > 0.0 ? sampleRate : 44100.0;
+    scopeSampleRate.store(currentSampleRate, std::memory_order_release);
     [self prepareEnginesNoLock];
     if (!didLoadInitialFactoryBank)
     {
@@ -821,6 +842,11 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
 - (void)noteOn:(int)note velocity:(int)velocity
 {
     std::lock_guard<std::mutex> lock(engineMutex);
+    const int safeNote = std::max(0, std::min(note, 127));
+    ++scopeHeldNoteCounts[static_cast<std::size_t>(safeNote)];
+    if (scopeHeldNoteTotal == 0 || safeNote >= scopeTriggerNote.load(std::memory_order_relaxed))
+        scopeTriggerNote.store(safeNote, std::memory_order_release);
+    ++scopeHeldNoteTotal;
     switch (performanceMode)
     {
         case 1:
@@ -844,6 +870,24 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
 - (void)noteOff:(int)note
 {
     std::lock_guard<std::mutex> lock(engineMutex);
+    const int safeNote = std::max(0, std::min(note, 127));
+    auto& heldCount = scopeHeldNoteCounts[static_cast<std::size_t>(safeNote)];
+    if (heldCount > 0)
+    {
+        --heldCount;
+        scopeHeldNoteTotal = std::max(0, scopeHeldNoteTotal - 1);
+    }
+    if (scopeHeldNoteTotal > 0)
+    {
+        for (int triggerNote = 127; triggerNote >= 0; --triggerNote)
+        {
+            if (scopeHeldNoteCounts[static_cast<std::size_t>(triggerNote)] > 0)
+            {
+                scopeTriggerNote.store(triggerNote, std::memory_order_release);
+                break;
+            }
+        }
+    }
     engine->noteOff(note);
     engineB->noteOff(note);
 }
@@ -946,22 +990,20 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
         return;
 
     std::lock_guard<std::mutex> lock(engineMutex);
-    engine->renderBlock(left, right, frames);
-    if (performanceMode == 0)
+    for (int offset = 0; offset < frames; offset += kPreparedScratchFrames)
     {
-        [self pushScopeSamplesNoLock:left frames:frames];
-        return;
-    }
+        const int chunkFrames = std::min(frames - offset, kPreparedScratchFrames);
+        auto* chunkLeft = left + offset;
+        auto* chunkRight = right + offset;
+        engine->renderBlock(chunkLeft, chunkRight, chunkFrames);
 
-    if (scratchBLeft.size() < static_cast<std::size_t>(frames))
-    {
-        scratchBLeft.resize(static_cast<std::size_t>(frames));
-        scratchBRight.resize(static_cast<std::size_t>(frames));
+        if (performanceMode != 0)
+        {
+            engineB->renderBlock(scratchBLeft.data(), scratchBRight.data(), chunkFrames);
+            [self mixEngineBNoLockLeft:chunkLeft right:chunkRight frames:chunkFrames];
+        }
+        [self pushScopeSamplesNoLock:chunkLeft frames:chunkFrames];
     }
-
-    engineB->renderBlock(scratchBLeft.data(), scratchBRight.data(), frames);
-    [self mixEngineBNoLockLeft:left right:right frames:frames];
-    [self pushScopeSamplesNoLock:left frames:frames];
 }
 
 - (void)renderToAudioBufferList:(AudioBufferList*)audioBufferList frames:(int)frames
@@ -969,74 +1011,118 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
     if (audioBufferList == nullptr || frames <= 0)
         return;
 
-    if (scratchLeft.size() < static_cast<std::size_t>(frames))
-    {
-        scratchLeft.resize(static_cast<std::size_t>(frames));
-        scratchRight.resize(static_cast<std::size_t>(frames));
-        scratchBLeft.resize(static_cast<std::size_t>(frames));
-        scratchBRight.resize(static_cast<std::size_t>(frames));
-    }
-
-    std::lock_guard<std::mutex> lock(engineMutex);
-    engine->renderBlock(scratchLeft.data(), scratchRight.data(), frames);
-    if (performanceMode != 0)
-    {
-        engineB->renderBlock(scratchBLeft.data(), scratchBRight.data(), frames);
-        [self mixEngineBNoLockLeft:scratchLeft.data() right:scratchRight.data() frames:frames];
-    }
-    [self pushScopeSamplesNoLock:scratchLeft.data() frames:frames];
-
     const auto bufferCount = audioBufferList->mNumberBuffers;
-    if (bufferCount == 1)
+    std::lock_guard<std::mutex> lock(engineMutex);
+    for (int offset = 0; offset < frames; offset += kPreparedScratchFrames)
     {
-        auto& buffer = audioBufferList->mBuffers[0];
-        auto* samples = static_cast<float*>(buffer.mData);
-        const auto channelCount = std::max<UInt32>(1, buffer.mNumberChannels);
-        for (int frame = 0; frame < frames; ++frame)
+        const int chunkFrames = std::min(frames - offset, kPreparedScratchFrames);
+        engine->renderBlock(scratchLeft.data(), scratchRight.data(), chunkFrames);
+        if (performanceMode != 0)
         {
-            samples[frame * channelCount] = scratchLeft[static_cast<std::size_t>(frame)];
-            if (channelCount > 1)
-                samples[frame * channelCount + 1] = scratchRight[static_cast<std::size_t>(frame)];
+            engineB->renderBlock(scratchBLeft.data(), scratchBRight.data(), chunkFrames);
+            [self mixEngineBNoLockLeft:scratchLeft.data() right:scratchRight.data() frames:chunkFrames];
         }
-        return;
+        [self pushScopeSamplesNoLock:scratchLeft.data() frames:chunkFrames];
+
+        if (bufferCount == 1)
+        {
+            auto& buffer = audioBufferList->mBuffers[0];
+            auto* samples = static_cast<float*>(buffer.mData);
+            const auto channelCount = std::max<UInt32>(1, buffer.mNumberChannels);
+            for (int frame = 0; frame < chunkFrames; ++frame)
+            {
+                const auto outputFrame = static_cast<std::size_t>(offset + frame);
+                samples[outputFrame * channelCount] = scratchLeft[static_cast<std::size_t>(frame)];
+                if (channelCount > 1)
+                    samples[outputFrame * channelCount + 1] = scratchRight[static_cast<std::size_t>(frame)];
+            }
+        }
+        else if (bufferCount >= 2)
+        {
+            auto* left = static_cast<float*>(audioBufferList->mBuffers[0].mData) + offset;
+            auto* right = static_cast<float*>(audioBufferList->mBuffers[1].mData) + offset;
+            std::copy_n(scratchLeft.data(), chunkFrames, left);
+            std::copy_n(scratchRight.data(), chunkFrames, right);
+        }
     }
 
-    if (bufferCount >= 2)
-    {
-        auto* left = static_cast<float*>(audioBufferList->mBuffers[0].mData);
-        auto* right = static_cast<float*>(audioBufferList->mBuffers[1].mData);
-        std::copy_n(scratchLeft.data(), frames, left);
-        std::copy_n(scratchRight.data(), frames, right);
-    }
 }
 
-- (NSArray<NSNumber*>*)scopeSnapshot
+- (NSData*)scopeSnapshotData
 {
     constexpr int historySize = 4096;
     constexpr int displaySize = 128;
-    constexpr int viewSamples = 1024;
 
     std::array<float, historySize> history {};
-    const int newest = scopeWriteIndex.load(std::memory_order_relaxed);
+    const int newest = scopeWriteIndex.load(std::memory_order_acquire);
     float average = 0.0f;
+    float peak = 0.0f;
     for (int i = 0; i < historySize; ++i)
     {
         const int readIndex = (newest + i) & (historySize - 1);
         const float value = scopeSamples[static_cast<std::size_t>(readIndex)].load(std::memory_order_relaxed);
         history[static_cast<std::size_t>(i)] = value;
         average += value;
+        peak = std::max(peak, std::abs(value));
     }
     average /= static_cast<float>(historySize);
     for (auto& value : history)
         value -= average;
 
-    const int windowStart = historySize - viewSamples;
+    const int note = scopeTriggerNote.load(std::memory_order_acquire);
+    const double sampleRate = scopeSampleRate.load(std::memory_order_acquire);
+    const double frequency = note >= 0
+        ? 440.0 * std::pow(2.0, (static_cast<double>(note) - 69.0) / 12.0)
+        : 0.0;
+    const double periodSamples = frequency > 0.0 ? sampleRate / frequency : 256.0;
+    const int timeWindowSamples = static_cast<int>(std::round(sampleRate * 0.025));
+    const int minimumCycleWindow = static_cast<int>(std::round(periodSamples * 1.5));
+    const int viewSamples = std::max(256, std::min(3072,
+        std::max(timeWindowSamples, minimumCycleWindow)));
+
+    const int idealCentre = historySize - viewSamples / 2 - 2;
+    const int searchRadius = std::max(8, std::min(1536,
+        static_cast<int>(std::round(periodSamples))));
+    const int slopeSpan = std::max(1, std::min(128,
+        static_cast<int>(std::round(periodSamples * 0.125))));
+    const int halfView = viewSamples / 2;
+    const int minimumCentre = halfView + 1;
+    const int maximumCentre = historySize - halfView - 2;
+    const int searchStart = std::max(std::max(slopeSpan, minimumCentre),
+                                     idealCentre - searchRadius);
+    const int searchEnd = std::min(std::min(historySize - slopeSpan - 1, maximumCentre),
+                                   idealCentre + searchRadius);
+    int centreCrossing = -1;
+    int closestDistance = std::numeric_limits<int>::max();
+    float closestRise = 0.0f;
+    const float minimumRise = peak * 0.025f;
+    for (int i = searchStart; i <= searchEnd; ++i)
+    {
+        if (history[static_cast<std::size_t>(i - 1)] <= 0.0f
+            && history[static_cast<std::size_t>(i)] > 0.0f)
+        {
+            const float rise = history[static_cast<std::size_t>(i + slopeSpan)]
+                - history[static_cast<std::size_t>(i - slopeSpan)];
+            const int distance = std::abs(i - idealCentre);
+            if (rise >= minimumRise
+                && (distance < closestDistance || (distance == closestDistance && rise > closestRise)))
+            {
+                closestDistance = distance;
+                closestRise = rise;
+                centreCrossing = i;
+            }
+        }
+    }
+
+    const double windowStart = note >= 0 && peak > 1.0e-4f && centreCrossing >= 0
+        ? static_cast<double>(centreCrossing) - static_cast<double>(viewSamples) * 0.5
+        : static_cast<double>(historySize - viewSamples);
     std::array<float, displaySize> display {};
     float displayPeak = 0.0f;
     for (int point = 0; point < displaySize; ++point)
     {
-        const double position = static_cast<double>(windowStart)
-            + static_cast<double>(viewSamples - 1) * static_cast<double>(point) / static_cast<double>(displaySize - 1);
+        const double position = windowStart
+            + static_cast<double>(viewSamples) * static_cast<double>(point) / static_cast<double>(displaySize - 1);
         const int index = std::max(0, std::min(historySize - 2, static_cast<int>(position)));
         const float fraction = static_cast<float>(position - static_cast<double>(index));
         const float value = history[static_cast<std::size_t>(index)]
@@ -1048,14 +1134,29 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
     const float displayGain = displayPeak > 1.0e-4f
         ? std::min(24.0f, 1.5f / std::sqrt(displayPeak))
         : 1.0f;
-
-    NSMutableArray<NSNumber*>* snapshot = [NSMutableArray arrayWithCapacity:displaySize];
-    for (const auto value : display)
+    const bool canStabilize = note >= 0 && centreCrossing >= 0 && displayPeak > 1.0e-4f;
+    if (!canStabilize || note != scopeSmoothedNote || !scopeHasSmoothedDisplay)
     {
-        const float clipped = std::max(-1.0f, std::min(1.0f, value * displayGain));
-        [snapshot addObject:@(clipped)];
+        for (std::size_t i = 0; i < display.size(); ++i)
+            scopeSmoothedDisplay[i] = display[i] * displayGain;
+        scopeSmoothedNote = canStabilize ? note : -1;
+        scopeHasSmoothedDisplay = canStabilize;
     }
-    return snapshot;
+    else
+    {
+        const float currentFrameWeight = periodSamples > 900.0 ? 0.25f : 0.42f;
+        for (std::size_t i = 0; i < display.size(); ++i)
+        {
+            const float current = display[i] * displayGain;
+            scopeSmoothedDisplay[i] += (current - scopeSmoothedDisplay[i]) * currentFrameWeight;
+        }
+    }
+
+    std::array<float, displaySize> snapshot {};
+    for (std::size_t i = 0; i < snapshot.size(); ++i)
+        snapshot[i] = std::max(-1.0f, std::min(1.0f, scopeSmoothedDisplay[i]));
+
+    return [NSData dataWithBytes:snapshot.data() length:sizeof(snapshot)];
 }
 
 - (void)loadBundledFactoryBank
@@ -1092,6 +1193,14 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
 
 - (void)prepareEnginesNoLock
 {
+    if (scratchLeft.size() < static_cast<std::size_t>(kPreparedScratchFrames))
+    {
+        scratchLeft.resize(kPreparedScratchFrames);
+        scratchRight.resize(kPreparedScratchFrames);
+        scratchBLeft.resize(kPreparedScratchFrames);
+        scratchBRight.resize(kPreparedScratchFrames);
+    }
+
     const int voiceCountA = performanceMode == 0 ? 8 : 4;
     engine->prepare(currentSampleRate, voiceCountA);
     engineB->prepare(currentSampleRate, 4);
@@ -1162,12 +1271,14 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
     if (left == nullptr || frames <= 0)
         return;
 
+    const int scopeStart = scopeWriteIndex.load(std::memory_order_relaxed) & 4095;
     for (int frame = 0; frame < frames; ++frame)
     {
-        const int index = scopeWriteIndex.fetch_add(1, std::memory_order_relaxed) & 4095;
+        const int index = (scopeStart + frame) & 4095;
         const float sample = std::max(-1.0f, std::min(1.0f, left[static_cast<std::size_t>(frame)]));
         scopeSamples[static_cast<std::size_t>(index)].store(sample, std::memory_order_relaxed);
     }
+    scopeWriteIndex.store((scopeStart + frames) & 4095, std::memory_order_release);
 }
 
 @end

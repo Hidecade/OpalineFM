@@ -2,6 +2,7 @@
 
 #include "App/OpalineAppState.h"
 #include "Engine/OpalineEngine.h"
+#include "Engine/RealtimeAudioRecorder.h"
 #include "Engine/OpalineVoiceLibrary.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -9,11 +10,12 @@
 #include <array>
 #include <vector>
 
-class OpalineAudioProcessor final : public juce::AudioProcessor
+class OpalineAudioProcessor final : public juce::AudioProcessor,
+                                    private juce::AudioProcessorValueTreeState::Listener
 {
 public:
     OpalineAudioProcessor();
-    ~OpalineAudioProcessor() override = default;
+    ~OpalineAudioProcessor() override;
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
@@ -58,6 +60,7 @@ public:
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
+    void parameterChanged(const juce::String& parameterID, float newValue) override;
     void handleMidiMessage(const juce::MidiMessage& message);
     void applyStateToEngine();
     void applyParametersToState();
@@ -76,6 +79,7 @@ private:
     opalineapp::SynthState state;
     opaline::OpalineRenderModel renderModel = opaline::OpalineRenderModel::TypeB;
     juce::AudioProcessorValueTreeState parameters;
+    std::atomic<bool> parametersDirty { true };
     double currentSampleRate = 44100.0;
     double currentPitchBend = 0.0;
     double currentModWheel = 0.0;
@@ -85,10 +89,7 @@ private:
     std::array<std::atomic<int>, 128> midiUiVelocities {};
     std::array<std::atomic<float>, 4096> scopeSamples {};
     std::atomic<int> scopeWriteIndex { 0 };
-    std::vector<float> wavRecordingInterleaved;
-    double wavRecordingSampleRate = 44100.0;
-    std::atomic<bool> wavRecording { false };
-    mutable juce::CriticalSection wavRecordingLock;
+    opaline::RealtimeAudioRecorder wavRecorder;
     mutable juce::CriticalSection engineLock;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(OpalineAudioProcessor)

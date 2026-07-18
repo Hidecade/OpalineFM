@@ -11,14 +11,13 @@ namespace opaline
 {
 namespace
 {
-// LEVEL、TL、変調指数の調整係数。TypeAは現行音色を保持し、TypeBはチップ互換寄りにする。
+// Level, TL, and modulation-index compatibility constants.
 constexpr double kCarrierLevelDbRange = 48.0;
 constexpr double kModulatorIndexScale = 0.82;
 constexpr double kModulatorIndexBlend = 0.05;
 constexpr double kModulatorIndexExponent = 2.2;
 constexpr double kOpmTlDbPerStep = 0.75;
 constexpr double kOpmLogAttenuationDbPerStep = 6.020599913279624 / 256.0;
-constexpr double kOpmEgDbRange = 128.0;
 constexpr double kOpmEgIndexMax = 1023.0;
 constexpr double kChipLevelBlend = 0.50;
 constexpr double kChipModulatorBlend = 0.14;
@@ -113,7 +112,7 @@ double dbToAmplitude(const double db)
 
 double opalineLevelToOpmTl(const double level)
 {
-    // compatibleのLEVEL 0..99を、OPMのTL 0..127へ写像する。TLは小さいほど音量が大きい。
+    // Map compatible LEVEL 0..99 to OPM TL 127..0.
     return std::round((1.0 - clampDouble(level, 0.0, 99.0) / 99.0) * kOppTlMax);
 }
 
@@ -277,7 +276,7 @@ int chipPhaseOffsetIndexFromRadians(const double radians)
 
 int chipOperatorPhaseIndex(const double phase, const double modulationBus, const double feedbackRadians)
 {
-    // NEWでは1024stepのテーブルindex上で、PMとFBを整数加算する。
+    // Combine the base phase, PM bus, and feedback in the 1024-step domain.
     const int baseIndex = chipOperatorPhaseIndex(phase);
     const int modulationIndex = chipPhaseOffsetIndexFromRadians(opmPhaseBusToRadians(modulationBus, OpalineRenderModel::TypeB));
     const int feedbackIndex = chipPhaseOffsetIndexFromRadians(feedbackRadians);
@@ -658,6 +657,13 @@ void OpalineVoice::start(const OpalinePatch& patch, const int newMidiNote, const
     pitchEnvelope.reset(currentSampleRate);
     pitchEnvelope.noteOn(patch.pitchEnvelope);
 
+    for (int sensitivity = 0; sensitivity <= 7; ++sensitivity)
+    {
+        const auto index = static_cast<std::size_t>(sensitivity);
+        carrierVelocityFactors[index] = operatorVelocityFactor(sensitivity, noteVelocity, true);
+        modulatorVelocityFactors[index] = operatorVelocityFactor(sensitivity, noteVelocity, false);
+    }
+
     for (int i = 0; i < kOperatorCount; ++i)
     {
         const auto& op = patch.operators[static_cast<std::size_t>(i)];
@@ -849,20 +855,19 @@ OperatorRender OpalineVoice::renderOperator(const int opIndex,
         phases[opSize] -= 2.0 * kPi;
 
     double chipEnvelopeIndex = 0.0;
-    double rawEnvelopeAmp = 0.0;
+    double envelopeAmp = 0.0;
     if (usesChipOperatorPath(renderModel))
     {
         chipEnvelopeIndex = chipEnvelopes[opSize].nextIndex();
-        rawEnvelopeAmp = dbToAmplitude(chipEnvelopeIndex * kOpmEgDbRange / kOpmEgIndexMax);
     }
     else
     {
-        rawEnvelopeAmp = envelopes[opSize].next();
+        envelopeAmp = envelopeAmpForModel(envelopes[opSize].next(), renderModel);
     }
-    const double envelopeAmp = envelopeAmpForModel(rawEnvelopeAmp, renderModel);
     const bool carrier = isCarrierOperator(algorithm, opIndex);
-    const double carrierVelocityFactor = operatorVelocityFactor(op.velocity, noteVelocity, true);
-    const double modulatorVelocityFactor = operatorVelocityFactor(op.velocity, noteVelocity, false);
+    const auto velocityIndex = static_cast<std::size_t>(clampInt(op.velocity, 0, 7));
+    const double carrierVelocityFactor = carrierVelocityFactors[velocityIndex];
+    const double modulatorVelocityFactor = modulatorVelocityFactors[velocityIndex];
     const double ampMod = op.ampModEnable ? operatorAmpModFactor(ampDepth, lfoAm) : 1.0;
     double carrierAmp = 0.0;
     double modulatorIndex = 0.0;

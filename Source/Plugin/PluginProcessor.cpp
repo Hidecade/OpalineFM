@@ -102,6 +102,27 @@ OpalineAudioProcessor::OpalineAudioProcessor()
     state.patch = opaline::normalizePatch(state.patch);
     state.renderModel = renderModel;
     syncParametersFromState();
+
+    for (auto* parameter : getParameters())
+    {
+        if (const auto* parameterWithID = dynamic_cast<juce::AudioProcessorParameterWithID*>(parameter))
+            parameters.addParameterListener(parameterWithID->paramID, this);
+    }
+}
+
+OpalineAudioProcessor::~OpalineAudioProcessor()
+{
+    wavRecorder.stop();
+    for (auto* parameter : getParameters())
+    {
+        if (const auto* parameterWithID = dynamic_cast<juce::AudioProcessorParameterWithID*>(parameter))
+            parameters.removeParameterListener(parameterWithID->paramID, this);
+    }
+}
+
+void OpalineAudioProcessor::parameterChanged(const juce::String&, float)
+{
+    parametersDirty.store(true, std::memory_order_release);
 }
 
 void OpalineAudioProcessor::prepareToPlay(const double sampleRate, int)
@@ -189,13 +210,15 @@ void OpalineAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
 {
     juce::ScopedNoDenormals noDenormals;
     const juce::ScopedLock lock(engineLock);
-    applyParametersToState();
+    if (parametersDirty.exchange(false, std::memory_order_acq_rel))
+        applyParametersToState();
 
     for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
         buffer.clear(channel, 0, buffer.getNumSamples());
 
     auto midi = midiMessages.cbegin();
     const auto midiEnd = midiMessages.cend();
+    const int scopeStart = scopeWriteIndex.load(std::memory_order_relaxed) & 4095;
     for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
     {
         while (midi != midiEnd && (*midi).samplePosition <= sample)
@@ -223,22 +246,16 @@ void OpalineAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
             buffer.setSample(0, sample, left);
         if (buffer.getNumChannels() > 1)
             buffer.setSample(1, sample, right);
-        const int scopeIndex = scopeWriteIndex.fetch_add(1, std::memory_order_relaxed) & 4095;
+        const int scopeIndex = (scopeStart + sample) & 4095;
         scopeSamples[static_cast<std::size_t>(scopeIndex)].store(left, std::memory_order_relaxed);
     }
+    scopeWriteIndex.store((scopeStart + buffer.getNumSamples()) & 4095, std::memory_order_release);
 
-    if (wavRecording.load(std::memory_order_relaxed) && buffer.getNumChannels() > 0)
+    if (buffer.getNumChannels() > 0)
     {
-        const juce::ScopedLock recordingLock(wavRecordingLock);
-        const auto sampleCount = static_cast<std::size_t>(buffer.getNumSamples());
-        wavRecordingInterleaved.reserve(wavRecordingInterleaved.size() + sampleCount * 2);
         const auto* left = buffer.getReadPointer(0);
         const auto* right = buffer.getNumChannels() > 1 ? buffer.getReadPointer(1) : left;
-        for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
-        {
-            wavRecordingInterleaved.push_back(left[sample]);
-            wavRecordingInterleaved.push_back(right[sample]);
-        }
+        wavRecorder.push(left, right, buffer.getNumSamples());
     }
 
     midiMessages.clear();
@@ -407,7 +424,7 @@ std::array<int, 128> OpalineAudioProcessor::getMidiUiVelocities() const
 std::array<float, 4096> OpalineAudioProcessor::getScopeSamples() const
 {
     std::array<float, 4096> samples {};
-    const int newest = scopeWriteIndex.load(std::memory_order_relaxed);
+    const int newest = scopeWriteIndex.load(std::memory_order_acquire);
     for (int i = 0; i < static_cast<int>(samples.size()); ++i)
     {
         const int index = (newest - static_cast<int>(samples.size()) + i) & 4095;
@@ -420,29 +437,19 @@ std::array<float, 4096> OpalineAudioProcessor::getScopeSamples() const
 
 void OpalineAudioProcessor::startWavRecording()
 {
-    const juce::ScopedLock lock(wavRecordingLock);
-    wavRecordingInterleaved.clear();
-    wavRecordingSampleRate = currentSampleRate > 0.0 ? currentSampleRate : 44100.0;
-    wavRecordingInterleaved.reserve(static_cast<std::size_t>(wavRecordingSampleRate) * 2 * 60);
-    wavRecording.store(true, std::memory_order_relaxed);
+    wavRecorder.start(currentSampleRate);
 }
 
 void OpalineAudioProcessor::stopWavRecording()
 {
-    wavRecording.store(false, std::memory_order_relaxed);
+    wavRecorder.stop();
 }
 
 bool OpalineAudioProcessor::stopWavRecordingAndSaveToFile(const juce::File& file)
 {
     stopWavRecording();
-    std::vector<float> interleaved;
-    double sampleRate = 44100.0;
-    {
-        const juce::ScopedLock lock(wavRecordingLock);
-        interleaved = wavRecordingInterleaved;
-        sampleRate = wavRecordingSampleRate;
-        wavRecordingInterleaved.clear();
-    }
+    const double sampleRate = wavRecorder.sampleRate();
+    auto interleaved = wavRecorder.takeRecordedSamples();
 
     const int sampleCount = static_cast<int>(interleaved.size() / 2);
     if (sampleCount <= 0)
