@@ -63,6 +63,14 @@ void OpalineEngine::setPatch(const OpalinePatch& newPatch)
     updateEffectParameters();
 }
 
+void OpalineEngine::setVoiceLimit(const int maxVoices)
+{
+    const int reservedVoices = std::max(1, static_cast<int>(voices.capacity()));
+    maxVoiceCount = clampInt(maxVoices, 1, reservedVoices);
+    while (static_cast<int>(voices.size()) > maxVoiceCount)
+        voices.erase(voices.begin());
+}
+
 void OpalineEngine::noteOn(const int note, const int velocity)
 {
     const int safeNote = clampInt(note, 0, 127);

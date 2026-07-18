@@ -445,12 +445,21 @@ void testRealtimeAudioRecorder()
 void testVoiceLimit()
 {
     opaline::OpalineEngine engine;
-    engine.prepare(44100.0, 2);
+    engine.prepare(44100.0, 8);
     engine.setPatch(opaline::OpalinePatch {});
     engine.noteOn(60, 100);
     engine.noteOn(62, 100);
     engine.noteOn(64, 100);
+    expect(engine.activeVoiceCount() == 3, "prepared voice capacity is available");
+
+    engine.setVoiceLimit(2);
     expect(engine.activeVoiceCount() == 2, "voice count is limited");
+    engine.noteOn(65, 100);
+    expect(engine.activeVoiceCount() == 2, "dynamic voice limit applies to new notes");
+
+    engine.setVoiceLimit(8);
+    engine.noteOn(67, 100);
+    expect(engine.activeVoiceCount() == 3, "voice limit can return to reserved capacity");
 }
 
 void testEngineEffectsRendering()

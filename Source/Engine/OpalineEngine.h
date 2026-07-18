@@ -13,6 +13,7 @@ class OpalineEngine
 {
 public:
     void prepare(double sampleRate, int maxVoices = kDefaultMaxVoices);
+    void setVoiceLimit(int maxVoices);
     void setPatch(const OpalinePatch& newPatch);
     const OpalinePatch& getPatch() const { return patch; }
 

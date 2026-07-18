@@ -46,7 +46,8 @@ enum class RealtimeCommandType
     monoModeB,
     dualDetune,
     splitPoint,
-    abBalance
+    abBalance,
+    performanceMode
 };
 
 enum class PatchParameterId
@@ -324,6 +325,38 @@ static OperatorParameterId operatorParameterId(NSString* parameter)
     return OperatorParameterId::invalid;
 }
 
+static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
+{
+    NSURL* libraryURL = [NSBundle.mainBundle URLForResource:@"factory.opalinelibrary" withExtension:@"xml"];
+    NSData* libraryData = libraryURL != nil ? [NSData dataWithContentsOfURL:libraryURL] : nil;
+    opaline::OpalineVoiceLibrary factoryLibrary;
+    if (opaline::mobile::voiceLibraryFromXMLData(libraryData, factoryLibrary))
+    {
+        bank = std::move(factoryLibrary.banks[0]);
+        return true;
+    }
+
+    NSString* path = [NSBundle.mainBundle pathForResource:@"factory" ofType:@"syx"];
+    if (path == nil)
+        return false;
+
+    NSData* data = [NSData dataWithContentsOfFile:path];
+    if (data == nil || data.length == 0)
+        return false;
+
+    const auto* bytes = static_cast<const std::uint8_t*>(data.bytes);
+    std::vector<std::uint8_t> sysex(bytes, bytes + data.length);
+    try
+    {
+        bank = opaline::voiceBankFromSysex(sysex, "Factory");
+    }
+    catch (...)
+    {
+        bank = opaline::makeInitVoiceBank("Factory");
+    }
+    return true;
+}
+
 @implementation OpalineMobileEngineBridge
 
 - (instancetype)init
@@ -415,23 +448,37 @@ static OperatorParameterId operatorParameterId(NSString* parameter)
 
 - (NSString*)currentVoiceName
 {
-    std::lock_guard<std::mutex> lock(engineMutex);
-    return [NSString stringWithUTF8String:currentVoiceName.c_str()];
+    std::string name;
+    {
+        std::lock_guard<std::mutex> lock(engineMutex);
+        name = currentVoiceName;
+    }
+    return [NSString stringWithUTF8String:name.c_str()];
 }
 
 - (NSString*)currentVoiceBName
 {
-    std::lock_guard<std::mutex> lock(engineMutex);
-    return [NSString stringWithUTF8String:currentVoiceBName.c_str()];
+    std::string name;
+    {
+        std::lock_guard<std::mutex> lock(engineMutex);
+        name = currentVoiceBName;
+    }
+    return [NSString stringWithUTF8String:name.c_str()];
 }
 
 - (NSArray<NSString*>*)voiceBankNames
 {
-    std::lock_guard<std::mutex> lock(engineMutex);
+    std::array<std::string, opaline::kOpalineVoiceBankCount> nameSnapshot;
+    {
+        std::lock_guard<std::mutex> lock(engineMutex);
+        for (int bank = 0; bank < opaline::kOpalineVoiceBankCount; ++bank)
+            nameSnapshot[static_cast<std::size_t>(bank)] = library.banks[static_cast<std::size_t>(bank)].name;
+    }
+
     NSMutableArray<NSString*>* names = [NSMutableArray arrayWithCapacity:opaline::kOpalineVoiceBankCount];
     for (int bank = 0; bank < opaline::kOpalineVoiceBankCount; ++bank)
     {
-        const auto& name = library.banks[static_cast<std::size_t>(bank)].name;
+        const auto& name = nameSnapshot[static_cast<std::size_t>(bank)];
         const std::string displayName = name.empty() ? "Bank " + std::to_string(bank + 1) : name;
         [names addObject:[NSString stringWithUTF8String:displayName.c_str()]];
     }
@@ -440,13 +487,19 @@ static OperatorParameterId operatorParameterId(NSString* parameter)
 
 - (NSArray<NSString*>*)voiceNamesForBank:(int)bank
 {
-    std::lock_guard<std::mutex> lock(engineMutex);
     const int safeBank = std::max(0, std::min(bank, opaline::kOpalineVoiceBankCount - 1));
+    std::array<std::string, opaline::kOpalineVoiceBankSize> nameSnapshot;
+    {
+        std::lock_guard<std::mutex> lock(engineMutex);
+        for (int voice = 0; voice < opaline::kOpalineVoiceBankSize; ++voice)
+            nameSnapshot[static_cast<std::size_t>(voice)] = opaline::voiceAt(library, safeBank, voice).name;
+    }
+
     NSMutableArray<NSString*>* names = [NSMutableArray arrayWithCapacity:opaline::kOpalineVoiceBankSize];
     for (int voice = 0; voice < opaline::kOpalineVoiceBankSize; ++voice)
     {
-        const auto& selected = opaline::voiceAt(library, safeBank, voice);
-        [names addObject:[NSString stringWithUTF8String:selected.name.c_str()]];
+        const auto& name = nameSnapshot[static_cast<std::size_t>(voice)];
+        [names addObject:[NSString stringWithUTF8String:name.c_str()]];
     }
     return names;
 }
@@ -562,9 +615,13 @@ static OperatorParameterId operatorParameterId(NSString* parameter)
 
 - (void)reloadBundledFactoryBank
 {
+    opaline::OpalineVoiceBank factoryBank;
+    if (!readBundledFactoryBank(factoryBank))
+        return;
+
     std::lock_guard<std::mutex> lock(engineMutex);
     [self applyRealtimeCommandsNoLock];
-    [self loadBundledFactoryBank];
+    library.banks[0] = std::move(factoryBank);
     currentPatch = opaline::normalizePatch(opaline::voiceAt(library, currentBank, currentVoice).patch);
     currentPatchB = opaline::normalizePatch(opaline::voiceAt(library, currentBank, currentVoiceB).patch);
     currentVoiceName = opaline::voiceAt(library, currentBank, currentVoice).name;
@@ -889,10 +946,16 @@ static OperatorParameterId operatorParameterId(NSString* parameter)
 
 - (NSDictionary<NSString*, NSNumber*>*)currentPatchSnapshot
 {
-    std::lock_guard<std::mutex> lock(engineMutex);
-    [self applyRealtimeCommandsNoLock];
+    opaline::OpalinePatch patch;
+    BOOL effectsEnabledSnapshot = NO;
+    {
+        std::lock_guard<std::mutex> lock(engineMutex);
+        [self applyRealtimeCommandsNoLock];
+        patch = currentPatch;
+        effectsEnabledSnapshot = effectsEnabled;
+    }
+
     NSMutableDictionary<NSString*, NSNumber*>* snapshot = [NSMutableDictionary dictionary];
-    const auto& patch = currentPatch;
 
     snapshot[@"alg"] = @(patch.algorithm);
     snapshot[@"fb"] = @(patch.feedback);
@@ -916,7 +979,7 @@ static OperatorParameterId operatorParameterId(NSString* parameter)
     snapshot[@"fx.revmix"] = @(patch.effects.mix);
     snapshot[@"fx.dlymix"] = @(patch.effects.echoMix);
     snapshot[@"fx.tone"] = @(patch.effects.tone);
-    snapshot[@"fx.enabled"] = @(effectsEnabled ? 1 : 0);
+    snapshot[@"fx.enabled"] = @(effectsEnabledSnapshot ? 1 : 0);
 
     for (int opIndex = 0; opIndex < opaline::kOperatorCount; ++opIndex)
     {
@@ -995,11 +1058,8 @@ static OperatorParameterId operatorParameterId(NSString* parameter)
 
 - (void)setPerformanceMode:(int)mode
 {
-    std::lock_guard<std::mutex> lock(engineMutex);
-    [self applyRealtimeCommandsNoLock];
-    performanceMode = std::max(0, std::min(mode, 2));
-    [self prepareEnginesNoLock];
-    [self applyPatchesNoLock];
+    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
+                           { RealtimeCommandType::performanceMode, mode });
 }
 
 - (void)setDualDetune:(int)value
@@ -1272,6 +1332,17 @@ static OperatorParameterId operatorParameterId(NSString* parameter)
                 abBalance = clamp(command.value1, -100, 100);
                 break;
 
+            case RealtimeCommandType::performanceMode:
+                performanceMode = clamp(command.value1, 0, 2);
+                engine->panic();
+                engineB->panic();
+                engine->setVoiceLimit(performanceMode == 0 ? 8 : 4);
+                engineB->setVoiceLimit(4);
+                scopeHeldNoteCounts.fill(0);
+                scopeHeldNoteTotal = 0;
+                scopeTriggerNote.store(-1, std::memory_order_release);
+                break;
+
             case RealtimeCommandType::patchParameter:
                 switch (static_cast<PatchParameterId>(command.value1))
                 {
@@ -1537,34 +1608,9 @@ static OperatorParameterId operatorParameterId(NSString* parameter)
 
 - (void)loadBundledFactoryBank
 {
-    NSURL* libraryURL = [NSBundle.mainBundle URLForResource:@"factory.opalinelibrary" withExtension:@"xml"];
-    NSData* libraryData = libraryURL != nil ? [NSData dataWithContentsOfURL:libraryURL] : nil;
-    opaline::OpalineVoiceLibrary factoryLibrary;
-    if (opaline::mobile::voiceLibraryFromXMLData(libraryData, factoryLibrary))
-    {
-        library.banks[0] = std::move(factoryLibrary.banks[0]);
-        return;
-    }
-
-    NSString* path = [[NSBundle mainBundle] pathForResource:@"factory" ofType:@"syx"];
-    if (path == nil)
-        return;
-
-    NSData* data = [NSData dataWithContentsOfFile:path];
-    if (data == nil || data.length == 0)
-        return;
-
-    const auto* bytes = static_cast<const std::uint8_t*>(data.bytes);
-    std::vector<std::uint8_t> sysex(bytes, bytes + data.length);
-
-    try
-    {
-        library.banks[0] = opaline::voiceBankFromSysex(sysex, "Factory");
-    }
-    catch (...)
-    {
-        library.banks[0] = opaline::makeInitVoiceBank("Factory");
-    }
+    opaline::OpalineVoiceBank factoryBank;
+    if (readBundledFactoryBank(factoryBank))
+        library.banks[0] = std::move(factoryBank);
 }
 
 - (void)prepareEnginesNoLock
@@ -1577,9 +1623,9 @@ static OperatorParameterId operatorParameterId(NSString* parameter)
         scratchBRight.resize(kPreparedScratchFrames);
     }
 
-    const int voiceCountA = performanceMode == 0 ? 8 : 4;
-    engine->prepare(currentSampleRate, voiceCountA);
+    engine->prepare(currentSampleRate, 8);
     engineB->prepare(currentSampleRate, 4);
+    engine->setVoiceLimit(performanceMode == 0 ? 8 : 4);
     engine->setMonoMode(monoA);
     engineB->setMonoMode(monoB);
     engine->setPortamentoMode(portamentoModeA);
