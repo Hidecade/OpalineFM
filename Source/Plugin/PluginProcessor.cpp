@@ -280,12 +280,23 @@ void OpalineAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
         applyParametersToAudioState();
     applyRealtimeCommands();
 
-    for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
-        buffer.clear(channel, 0, buffer.getNumSamples());
+    const int numChannels = buffer.getNumChannels();
+    const int numSamples = buffer.getNumSamples();
+    for (int channel = 2; channel < numChannels; ++channel)
+        buffer.clear(channel, 0, numSamples);
+
+    auto* leftOutput = numChannels > 0 ? buffer.getWritePointer(0) : nullptr;
+    auto* rightOutput = numChannels > 1 ? buffer.getWritePointer(1) : nullptr;
+    const bool renderPerformanceB = audioState.performance.mode != opalineapp::PerformanceMode::Single;
+    const float gain = audioState.masterVolume;
+    const float balance = static_cast<float>(juce::jlimit(-100, 100, audioState.performance.abBalance)) / 100.0f;
+    const float gainA = balance >= 0.0f ? 1.0f : 1.0f + balance;
+    const float gainB = balance <= 0.0f ? 1.0f : 1.0f - balance;
+    const float mixGain = audioState.performance.mode == opalineapp::PerformanceMode::Dual ? 0.50f : 0.82f;
 
     auto midi = midiMessages.cbegin();
     const auto midiEnd = midiMessages.cend();
-    for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+    for (int sample = 0; sample < numSamples; ++sample)
     {
         while (midi != midiEnd && (*midi).samplePosition <= sample)
         {
@@ -295,31 +306,25 @@ void OpalineAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
 
         const auto outputA = engine.renderSample();
         auto output = outputA;
-        if (audioState.performance.mode != opalineapp::PerformanceMode::Single)
+        if (renderPerformanceB)
         {
             const auto outputB = performanceEngineB.renderSample();
-            const float balance = static_cast<float>(juce::jlimit(-100, 100, audioState.performance.abBalance)) / 100.0f;
-            const float gainA = balance >= 0.0f ? 1.0f : 1.0f + balance;
-            const float gainB = balance <= 0.0f ? 1.0f : 1.0f - balance;
-            const float mixGain = audioState.performance.mode == opalineapp::PerformanceMode::Dual ? 0.50f : 0.82f;
             output.left = (outputA.left * gainA + outputB.left * gainB) * mixGain;
             output.right = (outputA.right * gainA + outputB.right * gainB) * mixGain;
         }
-        const float gain = audioState.masterVolume;
         const float left = output.left * gain;
         const float right = output.right * gain;
-        if (buffer.getNumChannels() > 0)
-            buffer.setSample(0, sample, left);
-        if (buffer.getNumChannels() > 1)
-            buffer.setSample(1, sample, right);
+        if (leftOutput != nullptr)
+            leftOutput[sample] = left;
+        if (rightOutput != nullptr)
+            rightOutput[sample] = right;
     }
 
-    if (buffer.getNumChannels() > 0)
+    if (leftOutput != nullptr)
     {
-        const auto* left = buffer.getReadPointer(0);
-        const auto* right = buffer.getNumChannels() > 1 ? buffer.getReadPointer(1) : left;
-        scopeBuffer.push(left, buffer.getNumSamples());
-        wavRecorder.push(left, right, buffer.getNumSamples());
+        const auto* right = rightOutput != nullptr ? rightOutput : leftOutput;
+        scopeBuffer.push(leftOutput, numSamples);
+        wavRecorder.push(leftOutput, right, numSamples);
     }
 
     midiMessages.clear();
