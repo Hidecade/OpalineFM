@@ -552,6 +552,7 @@ private:
 
     float masterVolume = 0.65f;
     std::atomic<float> audioMasterVolume { 0.65f };
+    std::atomic<float> audioOutputTrim { 1.0f };
     double audioSampleRate = 44100.0;
     int retainedScopeTriggerNote = -1;
     std::atomic<double> currentPitchBend { 0.0 };

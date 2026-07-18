@@ -2464,17 +2464,8 @@ void MainComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo& buffer
         ? bufferToFill.buffer->getWritePointer(1, bufferToFill.startSample)
         : left;
 
-    float outputTrim = 1.0f;
-    if (audioDeviceManager != nullptr)
-    {
-        if (auto* device = audioDeviceManager->getCurrentAudioDevice())
-        {
-            if (device->getTypeName() == "ASIO")
-                outputTrim = kAsioOutputTrim;
-        }
-    }
-
-    const float outputGain = audioMasterVolume.load(std::memory_order_relaxed) * outputTrim;
+    const float outputGain = audioMasterVolume.load(std::memory_order_relaxed)
+        * audioOutputTrim.load(std::memory_order_relaxed);
 
     EngineState updatedState;
     if (engineStateUpdates.consume(updatedState))
@@ -3758,6 +3749,14 @@ bool MainComponent::ensureAudioStarted()
         audioDeviceManager = nullptr;
         return false;
     }
+
+    float outputTrim = 1.0f;
+    if (auto* device = audioDeviceManager->getCurrentAudioDevice())
+    {
+        if (device->getTypeName() == "ASIO")
+            outputTrim = kAsioOutputTrim;
+    }
+    audioOutputTrim.store(outputTrim, std::memory_order_release);
 
     audioDeviceManager->addAudioCallback(&audioSourcePlayer);
     audioSourcePlayer.setSource(this);
