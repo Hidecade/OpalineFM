@@ -16,7 +16,11 @@ $versionText = Get-Content $versionFile -Raw
 $major = [regex]::Match($versionText, 'OPALINE_VERSION_MAJOR\s+([0-9]+)').Groups[1].Value
 $minor = [regex]::Match($versionText, 'OPALINE_VERSION_MINOR\s+([0-9]+)').Groups[1].Value
 $patch = [regex]::Match($versionText, 'OPALINE_VERSION_PATCH\s+([0-9]+)').Groups[1].Value
+$tweak = [regex]::Match($versionText, 'OPALINE_VERSION_TWEAK\s+([0-9]+)').Groups[1].Value
 $sourceVersion = "$major.$minor.$patch"
+if (-not [string]::IsNullOrWhiteSpace($tweak) -and $tweak -ne "0") {
+    $sourceVersion = "$sourceVersion.$tweak"
+}
 if ([string]::IsNullOrWhiteSpace($Version)) {
     $Version = $sourceVersion
 }

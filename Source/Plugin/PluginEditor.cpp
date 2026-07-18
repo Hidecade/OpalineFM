@@ -75,7 +75,8 @@ void OpalineAudioProcessorEditor::resized()
 
 void OpalineAudioProcessorEditor::visibilityChanged()
 {
-    audioProcessor.setScopeCaptureEnabled(isShowing());
+    const bool isStandalone = audioProcessor.wrapperType == juce::AudioProcessor::wrapperType_Standalone;
+    audioProcessor.setScopeCaptureEnabled(isStandalone || isShowing());
 }
 
 void OpalineAudioProcessorEditor::timerCallback()
