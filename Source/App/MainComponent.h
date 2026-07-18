@@ -271,6 +271,21 @@ private:
         double normalizedValue = 0.0;
     };
 
+    struct EngineState
+    {
+        opaline::OpalinePatch patchA;
+        opaline::OpalinePatch patchB;
+        PerformanceState performance;
+        opaline::OpalineRenderModel renderModel = opaline::OpalineRenderModel::TypeB;
+        double pitchBend = 0.0;
+        double modWheel = 0.0;
+        int pitchBendRange = 2;
+        int portamento = 0;
+        int modWheelPitchRange = 99;
+        int modWheelAmpRange = 0;
+        bool effectsEnabled = true;
+    };
+
     class SplitPointSlider final : public juce::Slider
     {
     public:
@@ -344,8 +359,9 @@ private:
     void syncUiFromPatch();
     void updatePatchFromGlobalControls();
     void applyPatchToEngine(bool updateUi = true, bool notifyState = true);
-    void applyPerformanceModeToEngines();
-    void applyRenderModelToEnginesNoLock();
+    EngineState captureEngineState() const;
+    void publishEngineState();
+    void applyEngineStateNoLock(const EngineState& state);
     void refreshEngineModelButton();
     void emitSynthStateChanged();
     void updatePerformanceFromControls();
@@ -525,25 +541,27 @@ private:
     juce::AudioSourcePlayer audioSourcePlayer;
     std::unique_ptr<juce::FileChooser> fileChooser;
     std::vector<std::unique_ptr<juce::MidiInput>> midiInputs;
-    std::mutex engineMutex;
     opaline::RealtimeCommandQueue<RealtimeCommand, 1024> realtimeCommands;
     std::atomic<bool> realtimeCommandOverflowed { false };
+    opaline::RealtimeStateMailbox<EngineState> engineStateUpdates;
+    EngineState audioEngineState;
     opaline::RealtimeAudioRecorder wavRecorder;
     std::atomic<bool> wavRecording { false };
     std::array<bool, 128> pcKeyboardHeldNotes {};
     std::array<int, 128> pcKeyboardHeldVelocities {};
 
     float masterVolume = 0.65f;
+    std::atomic<float> audioMasterVolume { 0.65f };
     double audioSampleRate = 44100.0;
     int retainedScopeTriggerNote = -1;
-    double currentPitchBend = 0.0;
-    double currentModWheel = 0.0;
+    std::atomic<double> currentPitchBend { 0.0 };
+    std::atomic<double> currentModWheel { 0.0 };
     int pitchBendRange = 2;
     int portamento = 0;
     int modWheelPitchRange = 99;
     int modWheelAmpRange = 0;
     bool effectsEnabled = true;
-    bool powerOn = false;
+    std::atomic<bool> powerOn { false };
     bool audioStarted = false;
     bool chipRenderModel = true;
     bool syncingUi = false;

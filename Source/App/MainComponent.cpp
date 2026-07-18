@@ -2443,19 +2443,20 @@ void MainComponent::setExternalMidiNoteState(const std::array<int, 128>& velocit
 
 void MainComponent::prepareToPlay(int, const double sampleRate)
 {
-    std::lock_guard<std::mutex> lock(engineMutex);
     audioSampleRate = sampleRate > 0.0 ? sampleRate : 44100.0;
-    engine.prepare(audioSampleRate, performanceState.mode == PerformanceMode::Single ? 8 : 4);
+    engine.prepare(audioSampleRate, 8);
     performanceEngineB.prepare(audioSampleRate, 4);
-    applyRenderModelToEnginesNoLock();
-    engine.setPatch(currentPatch);
-    performanceEngineB.setPatch(patchForVoiceIndex(performanceState.voiceBIndex));
+
+    EngineState discardedState;
+    (void) engineStateUpdates.consume(discardedState);
+    audioEngineState = captureEngineState();
+    applyEngineStateNoLock(audioEngineState);
 }
 
 void MainComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferToFill)
 {
     bufferToFill.clearActiveBufferRegion();
-    if (!powerOn)
+    if (!powerOn.load(std::memory_order_acquire))
         return;
 
     auto* left = bufferToFill.buffer->getWritePointer(0, bufferToFill.startSample);
@@ -2473,21 +2474,28 @@ void MainComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo& buffer
         }
     }
 
-    const float outputGain = masterVolume * outputTrim;
+    const float outputGain = audioMasterVolume.load(std::memory_order_relaxed) * outputTrim;
 
-    std::lock_guard<std::mutex> lock(engineMutex);
+    EngineState updatedState;
+    if (engineStateUpdates.consume(updatedState))
+    {
+        audioEngineState = updatedState;
+        applyEngineStateNoLock(audioEngineState);
+    }
+
     applyRealtimeCommandsNoLock();
     for (int i = 0; i < bufferToFill.numSamples; ++i)
     {
         const auto sampleA = engine.renderSample();
         auto sample = sampleA;
-        if (performanceState.mode != PerformanceMode::Single)
+        if (audioEngineState.performance.mode != PerformanceMode::Single)
         {
             const auto sampleB = performanceEngineB.renderSample();
-            const float balance = static_cast<float>(juce::jlimit(-100, 100, performanceState.abBalance)) / 100.0f;
+            const float balance = static_cast<float>(juce::jlimit(-100, 100,
+                audioEngineState.performance.abBalance)) / 100.0f;
             const float gainA = balance >= 0.0f ? 1.0f : 1.0f + balance;
             const float gainB = balance <= 0.0f ? 1.0f : 1.0f - balance;
-            const float mixGain = performanceState.mode == PerformanceMode::Dual ? 0.50f : 0.82f;
+            const float mixGain = audioEngineState.performance.mode == PerformanceMode::Dual ? 0.50f : 0.82f;
             sample.left = (sampleA.left * gainA + sampleB.left * gainB) * mixGain;
             sample.right = (sampleA.right * gainA + sampleB.right * gainB) * mixGain;
         }
@@ -3429,6 +3437,7 @@ void MainComponent::applySynthState(const opalineapp::SynthState& state, const b
         }
     }
     masterVolume = juce::jlimit(0.0f, 1.0f, state.masterVolume);
+    audioMasterVolume.store(masterVolume, std::memory_order_relaxed);
     pitchBendRange = juce::jlimit(0, 12, state.pitchBendRange);
     portamento = juce::jlimit(0, 99, state.portamento);
     modWheelPitchRange = juce::jlimit(0, 99, state.modWheelPitchRange);
@@ -3458,38 +3467,58 @@ void MainComponent::applySynthState(const opalineapp::SynthState& state, const b
     suppressStateCallback = false;
 }
 
-void MainComponent::applyPerformanceModeToEngines()
+MainComponent::EngineState MainComponent::captureEngineState() const
 {
-    const int voiceCount = performanceState.mode == PerformanceMode::Single ? 8 : 4;
-    engine.prepare(audioSampleRate, voiceCount);
-    performanceEngineB.prepare(audioSampleRate, 4);
-    applyRenderModelToEnginesNoLock();
+    EngineState state;
+    state.patchA = currentPatch;
+    state.patchB = patchForVoiceIndex(performanceState.voiceBIndex);
+    state.performance = performanceState;
+    state.renderModel = currentRenderModel();
+    state.pitchBend = currentPitchBend.load(std::memory_order_relaxed);
+    state.modWheel = currentModWheel.load(std::memory_order_relaxed);
+    state.pitchBendRange = pitchBendRange;
+    state.portamento = portamento;
+    state.modWheelPitchRange = modWheelPitchRange;
+    state.modWheelAmpRange = modWheelAmpRange;
+    state.effectsEnabled = effectsEnabled;
+    return state;
+}
+
+void MainComponent::publishEngineState()
+{
+    engineStateUpdates.publish(captureEngineState());
+}
+
+void MainComponent::applyEngineStateNoLock(const EngineState& state)
+{
+    engine.setRenderModel(state.renderModel);
+    performanceEngineB.setRenderModel(state.renderModel);
+    engine.setVoiceLimit(state.performance.mode == PerformanceMode::Single ? 8 : 4);
+    performanceEngineB.setVoiceLimit(4);
+    engine.setPatch(state.patchA);
+    performanceEngineB.setPatch(state.patchB);
+    engine.setPitchBend(state.pitchBend);
+    engine.setPitchBendRange(state.pitchBendRange);
+    engine.setPortamento(state.portamento);
+    engine.setModWheelRanges(state.modWheelPitchRange, state.modWheelAmpRange);
+    engine.setEffectsEnabled(state.effectsEnabled);
+    engine.setMonoMode(state.performance.monoA);
+    engine.setPortamentoMode(static_cast<int>(state.performance.portamentoModeA));
+    engine.setModWheel(state.modWheel);
+    performanceEngineB.setPitchBend(juce::jlimit(-1.0, 1.0,
+        state.pitchBend + static_cast<double>(state.performance.dualDetune) / 64.0));
+    performanceEngineB.setPitchBendRange(state.pitchBendRange);
+    performanceEngineB.setPortamento(state.portamento);
+    performanceEngineB.setModWheelRanges(state.modWheelPitchRange, state.modWheelAmpRange);
+    performanceEngineB.setEffectsEnabled(state.effectsEnabled);
+    performanceEngineB.setMonoMode(state.performance.monoB);
+    performanceEngineB.setPortamentoMode(static_cast<int>(state.performance.portamentoModeB));
+    performanceEngineB.setModWheel(state.modWheel);
 }
 
 void MainComponent::applyPatchToEngine(const bool updateUi, const bool notifyState)
 {
-    {
-        std::lock_guard<std::mutex> lock(engineMutex);
-        applyRenderModelToEnginesNoLock();
-        engine.setPatch(currentPatch);
-        performanceEngineB.setPatch(patchForVoiceIndex(performanceState.voiceBIndex));
-        engine.setPitchBend(currentPitchBend);
-        engine.setPitchBendRange(pitchBendRange);
-        engine.setPortamento(portamento);
-        engine.setModWheelRanges(modWheelPitchRange, modWheelAmpRange);
-        engine.setEffectsEnabled(effectsEnabled);
-        engine.setMonoMode(performanceState.monoA);
-        engine.setPortamentoMode(static_cast<int>(performanceState.portamentoModeA));
-        engine.setModWheel(currentModWheel);
-        performanceEngineB.setPitchBend(juce::jlimit(-1.0, 1.0, currentPitchBend + static_cast<double>(performanceState.dualDetune) / 64.0));
-        performanceEngineB.setPitchBendRange(pitchBendRange);
-        performanceEngineB.setPortamento(portamento);
-        performanceEngineB.setModWheelRanges(modWheelPitchRange, modWheelAmpRange);
-        performanceEngineB.setEffectsEnabled(effectsEnabled);
-        performanceEngineB.setMonoMode(performanceState.monoB);
-        performanceEngineB.setPortamentoMode(static_cast<int>(performanceState.portamentoModeB));
-        performanceEngineB.setModWheel(currentModWheel);
-    }
+    publishEngineState();
     if (updateUi)
     {
         refreshLcd();
@@ -3506,13 +3535,6 @@ void MainComponent::applyPatchToEngine(const bool updateUi, const bool notifySta
 opaline::OpalineRenderModel MainComponent::currentRenderModel() const
 {
     return opaline::OpalineRenderModel::TypeB;
-}
-
-void MainComponent::applyRenderModelToEnginesNoLock()
-{
-    const auto model = currentRenderModel();
-    engine.setRenderModel(model);
-    performanceEngineB.setRenderModel(model);
 }
 
 void MainComponent::refreshEngineModelButton()
@@ -4142,7 +4164,8 @@ void MainComponent::applyRealtimeCommandsNoLock()
             case RealtimeCommandType::pitchBend:
                 engine.setPitchBend(command.normalizedValue);
                 performanceEngineB.setPitchBend(juce::jlimit(-1.0, 1.0,
-                    command.normalizedValue + static_cast<double>(performanceState.dualDetune) / 64.0));
+                    command.normalizedValue
+                        + static_cast<double>(audioEngineState.performance.dualDetune) / 64.0));
                 break;
             case RealtimeCommandType::modWheel:
                 engine.setModWheel(command.normalizedValue);
@@ -4168,7 +4191,7 @@ void MainComponent::applyRealtimeCommandsNoLock()
 
 void MainComponent::performNoteOnNoLock(const int note, const int velocity)
 {
-    switch (performanceState.mode)
+    switch (audioEngineState.performance.mode)
     {
         case PerformanceMode::Single:
             engine.noteOn(note, velocity);
@@ -4180,7 +4203,7 @@ void MainComponent::performNoteOnNoLock(const int note, const int velocity)
             break;
 
         case PerformanceMode::Split:
-            if (note <= performanceState.splitPoint)
+            if (note <= audioEngineState.performance.splitPoint)
                 engine.noteOn(note, velocity);
             else
                 performanceEngineB.noteOn(note, velocity);
@@ -4320,8 +4343,8 @@ void MainComponent::setExternalControllerState(const double pitchBend, const dou
     const double safePitchBend = juce::jlimit(-1.0, 1.0, pitchBend);
     const double safeModWheel = juce::jlimit(0.0, 1.0, modWheel);
 
-    currentPitchBend = safePitchBend;
-    currentModWheel = safeModWheel;
+    currentPitchBend.store(safePitchBend, std::memory_order_relaxed);
+    currentModWheel.store(safeModWheel, std::memory_order_relaxed);
     pitchWheelSlider.setValue(safePitchBend, juce::dontSendNotification);
     modWheelSlider.setValue(safeModWheel, juce::dontSendNotification);
 }
@@ -4399,7 +4422,7 @@ void MainComponent::handleIncomingMidiMessage(juce::MidiInput*, const juce::Midi
         const double value = juce::jlimit(-1.0,
                                           1.0,
                                           (static_cast<double>(message.getPitchWheelValue()) - 8192.0) / 8192.0);
-        currentPitchBend = value;
+        currentPitchBend.store(value, std::memory_order_relaxed);
         enqueueRealtimeCommand({ RealtimeCommandType::pitchBend, 0, 0, value });
         juce::MessageManager::callAsync([this, value]
         {
@@ -4409,7 +4432,7 @@ void MainComponent::handleIncomingMidiMessage(juce::MidiInput*, const juce::Midi
     else if (message.isController() && message.getControllerNumber() == 1)
     {
         const double value = static_cast<double>(message.getControllerValue()) / 127.0;
-        currentModWheel = value;
+        currentModWheel.store(value, std::memory_order_relaxed);
         enqueueRealtimeCommand({ RealtimeCommandType::modWheel, 0, 0, value });
         juce::MessageManager::callAsync([this, value]
         {
@@ -4455,10 +4478,6 @@ void MainComponent::comboBoxChanged(juce::ComboBox* comboBoxThatHasChanged)
         allNotesOff();
         updatePerformanceFromControls();
         refreshPerformanceControls();
-        {
-            std::lock_guard<std::mutex> lock(engineMutex);
-            applyPerformanceModeToEngines();
-        }
         applyPatchToEngine();
         saveVoiceLibraryState();
         refreshStatus();
@@ -4766,6 +4785,7 @@ void MainComponent::sliderValueChanged(juce::Slider* slider)
     if (slider == &volumeSlider)
     {
         masterVolume = static_cast<float>(volumeSlider.getValue());
+        audioMasterVolume.store(masterVolume, std::memory_order_relaxed);
         emitSynthStateChanged();
     }
     else if (slider == &transposeSlider)
@@ -4785,40 +4805,34 @@ void MainComponent::sliderValueChanged(juce::Slider* slider)
         portamento = static_cast<int>(portamentoSlider.getValue());
         modWheelPitchRange = static_cast<int>(modWheelPitchRangeSlider.getValue());
         modWheelAmpRange = static_cast<int>(modWheelAmpRangeSlider.getValue());
-        {
-            std::lock_guard<std::mutex> lock(engineMutex);
-            engine.setPitchBendRange(pitchBendRange);
-            performanceEngineB.setPitchBendRange(pitchBendRange);
-            engine.setPortamento(portamento);
-            performanceEngineB.setPortamento(portamento);
-            engine.setModWheelRanges(modWheelPitchRange, modWheelAmpRange);
-            performanceEngineB.setModWheelRanges(modWheelPitchRange, modWheelAmpRange);
-        }
+        publishEngineState();
         emitSynthStateChanged();
     }
     else if (slider == &pitchWheelSlider)
     {
-        currentPitchBend = pitchWheelSlider.getValue();
+        const double pitchBend = pitchWheelSlider.getValue();
+        currentPitchBend.store(pitchBend, std::memory_order_relaxed);
         if (hostMode == HostMode::PluginEditor)
         {
             if (onPitchBend)
-                onPitchBend(currentPitchBend);
+                onPitchBend(pitchBend);
             return;
         }
 
-        enqueueRealtimeCommand({ RealtimeCommandType::pitchBend, 0, 0, currentPitchBend });
+        enqueueRealtimeCommand({ RealtimeCommandType::pitchBend, 0, 0, pitchBend });
     }
     else if (slider == &modWheelSlider)
     {
-        currentModWheel = modWheelSlider.getValue();
+        const double modWheel = modWheelSlider.getValue();
+        currentModWheel.store(modWheel, std::memory_order_relaxed);
         if (hostMode == HostMode::PluginEditor)
         {
             if (onModWheel)
-                onModWheel(currentModWheel);
+                onModWheel(modWheel);
             return;
         }
 
-        enqueueRealtimeCommand({ RealtimeCommandType::modWheel, 0, 0, currentModWheel });
+        enqueueRealtimeCommand({ RealtimeCommandType::modWheel, 0, 0, modWheel });
     }
     else if (slider == &dualDetuneSlider || slider == &splitPointSlider || slider == &balanceSlider)
     {

@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <type_traits>
 
 namespace opaline
 {
@@ -12,6 +13,8 @@ class RealtimeCommandQueue
 {
     static_assert(Capacity > 1 && (Capacity & (Capacity - 1)) == 0,
                   "Realtime command queue capacity must be a power of two");
+    static_assert(std::is_trivially_copy_assignable_v<Command>,
+                  "Realtime commands must not allocate while being copied");
 
 public:
     RealtimeCommandQueue()
@@ -75,5 +78,49 @@ private:
     std::array<Slot, Capacity> slots {};
     std::atomic<std::size_t> enqueuePosition { 0 };
     std::size_t dequeuePosition = 0;
+};
+
+template <typename Value>
+class RealtimeStateMailbox
+{
+    static_assert(std::is_trivially_copy_assignable_v<Value>,
+                  "Realtime state must not allocate while being copied");
+
+public:
+    void publish(const Value& value) noexcept
+    {
+        while (writer.test_and_set(std::memory_order_acquire)) {}
+
+        values[backIndex] = value;
+        const auto previousMiddle = middleIndex.exchange(
+            static_cast<std::uint8_t>(backIndex | kDirtyBit), std::memory_order_acq_rel);
+        backIndex = static_cast<std::uint8_t>(previousMiddle & kIndexMask);
+
+        writer.clear(std::memory_order_release);
+    }
+
+    bool consume(Value& value) noexcept
+    {
+        if ((middleIndex.load(std::memory_order_acquire) & kDirtyBit) == 0)
+            return false;
+
+        const auto previousMiddle = middleIndex.exchange(frontIndex, std::memory_order_acq_rel);
+        if ((previousMiddle & kDirtyBit) == 0)
+            return false;
+
+        frontIndex = static_cast<std::uint8_t>(previousMiddle & kIndexMask);
+        value = values[frontIndex];
+        return true;
+    }
+
+private:
+    static constexpr std::uint8_t kDirtyBit = 0x80;
+    static constexpr std::uint8_t kIndexMask = 0x03;
+
+    std::array<Value, 3> values {};
+    std::atomic<std::uint8_t> middleIndex { 1 };
+    std::atomic_flag writer = ATOMIC_FLAG_INIT;
+    std::uint8_t frontIndex = 0;
+    std::uint8_t backIndex = 2;
 };
 } // namespace opaline

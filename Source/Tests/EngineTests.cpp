@@ -4,6 +4,7 @@
 #include "Engine/OpalineEnvelope.h"
 #include "Engine/OpalinePitchEnvelope.h"
 #include "Engine/RealtimeAudioRecorder.h"
+#include "Engine/RealtimeCommandQueue.h"
 #include "Engine/OpalineSysex.h"
 #include "Engine/OpalineTables.h"
 #include "Engine/OpalineVoiceLibrary.h"
@@ -105,6 +106,32 @@ void testPatchNormalization()
     expect(normalized.operators[0].ratioIndex == 63, "ratio index clamps high");
     expect(normalized.operators[0].detune == -3, "detune clamps low");
     expect(normalized.operators[0].envelope.decay1Level == 15, "D1L clamps high");
+}
+
+void testRealtimeStateMailbox()
+{
+    struct State
+    {
+        int revision = 0;
+        opaline::OpalinePatch patch;
+    };
+
+    opaline::RealtimeStateMailbox<State> mailbox;
+    State received;
+    expect(!mailbox.consume(received), "state mailbox starts empty");
+
+    for (int revision = 1; revision <= 20; ++revision)
+    {
+        State state;
+        state.revision = revision;
+        state.patch.algorithm = revision;
+        mailbox.publish(state);
+    }
+
+    expect(mailbox.consume(received), "state mailbox publishes an update");
+    expect(received.revision == 20, "state mailbox keeps the latest revision");
+    expect(received.patch.algorithm == 20, "state mailbox copies the complete state");
+    expect(!mailbox.consume(received), "state mailbox consumes each revision once");
 }
 
 void testEnvelope()
@@ -880,6 +907,7 @@ int main()
 {
     testTables();
     testPatchNormalization();
+    testRealtimeStateMailbox();
     testEnvelope();
     testFastAttackTiming();
     testD1L15SkipsToDecay2();
