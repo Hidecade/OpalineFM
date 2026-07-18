@@ -29,26 +29,11 @@ enum class RealtimeCommandType
 {
     noteOn,
     noteOff,
+    panic,
     pitchBend,
     modWheel,
     sustainPedal,
-    portamentoFootSwitch,
-    patchParameter,
-    operatorParameter,
-    operatorEnabled,
-    operatorAmpModEnabled,
-    effectsEnabled,
-    pitchBendRange,
-    portamento,
-    portamentoModeA,
-    portamentoModeB,
-    modWheelRanges,
-    monoModeA,
-    monoModeB,
-    dualDetune,
-    splitPoint,
-    abBalance,
-    performanceMode
+    portamentoFootSwitch
 };
 
 enum class PatchParameterId
@@ -103,6 +88,25 @@ struct RealtimeCommand
     int value3 = 0;
 };
 
+struct MobileEngineState
+{
+    opaline::OpalinePatch patchA;
+    opaline::OpalinePatch patchB;
+    int performanceMode = 0;
+    int dualDetune = 0;
+    int splitPoint = 60;
+    int abBalance = 0;
+    int pitchBendRange = 2;
+    int portamento = 0;
+    int portamentoModeA = 0;
+    int portamentoModeB = 0;
+    int modWheelPitchRange = 0;
+    int modWheelAmpRange = 0;
+    bool effectsEnabled = true;
+    bool monoA = false;
+    bool monoB = false;
+};
+
 constexpr std::size_t kRealtimeCommandCapacity = 1024;
 
 void enqueueRealtimeCommand(opaline::RealtimeCommandQueue<RealtimeCommand, kRealtimeCommandCapacity>& queue,
@@ -139,6 +143,9 @@ void enqueueRealtimeCommand(opaline::RealtimeCommandQueue<RealtimeCommand, kReal
     BOOL scopeHasSmoothedDisplay;
     opaline::RealtimeCommandQueue<RealtimeCommand, kRealtimeCommandCapacity> realtimeCommands;
     std::atomic<bool> realtimeCommandOverflowed;
+    opaline::RealtimeStateMailbox<MobileEngineState> engineStateUpdates;
+    MobileEngineState audioEngineState;
+    // Protects library and UI snapshots only. Audio rendering must never acquire it.
     std::mutex engineMutex;
     double currentSampleRate;
     std::atomic<double> currentPitchBend;
@@ -166,6 +173,9 @@ void enqueueRealtimeCommand(opaline::RealtimeCommandQueue<RealtimeCommand, kReal
 - (void)applyPatchesNoLock;
 - (void)applyPitchBendNoLock;
 - (void)applyCurrentPatchNoLock;
+- (MobileEngineState)captureEngineStateNoLock;
+- (void)publishEngineStateNoLock;
+- (void)applyEngineStateNoLock:(const MobileEngineState&)state;
 - (void)syncCurrentVoiceToLibraryNoLock;
 - (void)mixEngineBNoLockLeft:(float*)left right:(float*)right frames:(int)frames;
 - (void)pushScopeSamplesNoLock:(const float*)left frames:(int)frames;
@@ -350,12 +360,16 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
         didLoadInitialFactoryBank = YES;
     }
     [self applyPatchesNoLock];
+
+    MobileEngineState discardedState;
+    (void) engineStateUpdates.consume(discardedState);
+    audioEngineState = [self captureEngineStateNoLock];
+    [self applyEngineStateNoLock:audioEngineState];
 }
 
 - (void)selectVoiceBank:(int)bank voice:(int)voice
 {
     std::lock_guard<std::mutex> lock(engineMutex);
-    [self applyRealtimeCommandsNoLock];
     [self syncCurrentVoiceToLibraryNoLock];
     currentBank = std::max(0, std::min(bank, opaline::kOpalineVoiceBankCount - 1));
     currentVoice = std::max(0, std::min(voice, opaline::kOpalineVoiceBankSize - 1));
@@ -370,7 +384,6 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
 - (void)selectVoiceB:(int)voice
 {
     std::lock_guard<std::mutex> lock(engineMutex);
-    [self applyRealtimeCommandsNoLock];
     currentVoiceB = std::max(0, std::min(voice, opaline::kOpalineVoiceBankSize - 1));
     currentPatchB = opaline::normalizePatch(opaline::voiceAt(library, currentBank, currentVoiceB).patch);
     currentVoiceBName = opaline::voiceAt(library, currentBank, currentVoiceB).name;
@@ -450,9 +463,6 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
         auto importedBank = opaline::voiceBankFromSysex(sysex, bankName);
 
         std::lock_guard<std::mutex> lock(engineMutex);
-        [self applyRealtimeCommandsNoLock];
-        engine->panic();
-        engineB->panic();
         library.banks[static_cast<std::size_t>(currentBank)] = std::move(importedBank);
         currentVoice = std::max(0, std::min(currentVoice, opaline::kOpalineVoiceBankSize - 1));
         currentVoiceB = std::max(0, std::min(currentVoiceB, opaline::kOpalineVoiceBankSize - 1));
@@ -461,6 +471,8 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
         currentVoiceName = opaline::voiceAt(library, currentBank, currentVoice).name;
         currentVoiceBName = opaline::voiceAt(library, currentBank, currentVoiceB).name;
         [self applyCurrentPatchNoLock];
+        enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
+                               { RealtimeCommandType::panic });
         return YES;
     }
     catch (...)
@@ -476,7 +488,6 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
         opaline::OpalineVoiceBank bankSnapshot;
         {
             std::lock_guard<std::mutex> lock(engineMutex);
-            [self applyRealtimeCommandsNoLock];
             [self syncCurrentVoiceToLibraryNoLock];
             bankSnapshot = library.banks[static_cast<std::size_t>(currentBank)];
         }
@@ -494,7 +505,6 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
     opaline::OpalineVoiceLibrary librarySnapshot;
     {
         std::lock_guard<std::mutex> lock(engineMutex);
-        [self applyRealtimeCommandsNoLock];
         [self syncCurrentVoiceToLibraryNoLock];
         librarySnapshot = library;
     }
@@ -536,11 +546,10 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
         return NO;
 
     std::lock_guard<std::mutex> lock(engineMutex);
-    [self applyRealtimeCommandsNoLock];
-    engine->panic();
-    engineB->panic();
     library = std::move(restored);
     [self applyPatchesNoLock];
+    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
+                           { RealtimeCommandType::panic });
     return YES;
 }
 
@@ -551,16 +560,15 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
         return;
 
     std::lock_guard<std::mutex> lock(engineMutex);
-    [self applyRealtimeCommandsNoLock];
     library.banks[0] = std::move(factoryBank);
     currentPatch = opaline::normalizePatch(opaline::voiceAt(library, currentBank, currentVoice).patch);
     currentPatchB = opaline::normalizePatch(opaline::voiceAt(library, currentBank, currentVoiceB).patch);
     currentVoiceName = opaline::voiceAt(library, currentBank, currentVoice).name;
     currentVoiceBName = opaline::voiceAt(library, currentBank, currentVoiceB).name;
     effectsEnabled = opaline::voiceAt(library, currentBank, currentVoice).effectsEnabled;
-    engine->panic();
-    engineB->panic();
     [self applyCurrentPatchNoLock];
+    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
+                           { RealtimeCommandType::panic });
 }
 
 - (NSData*)currentSingleVoiceXMLData
@@ -570,7 +578,6 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
     BOOL effectsEnabledSnapshot = NO;
     {
         std::lock_guard<std::mutex> lock(engineMutex);
-        [self applyRealtimeCommandsNoLock];
         patchSnapshot = currentPatch;
         voiceNameSnapshot = currentVoiceName;
         effectsEnabledSnapshot = effectsEnabled;
@@ -642,7 +649,6 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
     BOOL importedEffectsEnabled = NO;
     {
         std::lock_guard<std::mutex> lock(engineMutex);
-        [self applyRealtimeCommandsNoLock];
         patch = currentPatch;
         importedEffectsEnabled = effectsEnabled;
     }
@@ -761,13 +767,12 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
 
     {
         std::lock_guard<std::mutex> lock(engineMutex);
-        [self applyRealtimeCommandsNoLock];
-        engine->panic();
-        engineB->panic();
         currentPatch = opaline::normalizePatch(patch);
         currentVoiceName = voiceName != nil && voiceName.length > 0 ? std::string(voiceName.UTF8String) : "INIT VOICE";
         effectsEnabled = importedEffectsEnabled;
         [self applyCurrentPatchNoLock];
+        enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
+                               { RealtimeCommandType::panic });
     }
     return YES;
 }
@@ -794,13 +799,12 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
 
         const auto& voice = imported.voices.front();
         std::lock_guard<std::mutex> lock(engineMutex);
-        [self applyRealtimeCommandsNoLock];
-        engine->panic();
-        engineB->panic();
         currentPatch = opaline::normalizePatch(voice.patch);
         currentVoiceName = voice.name;
         effectsEnabled = NO;
         [self applyCurrentPatchNoLock];
+        enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
+                               { RealtimeCommandType::panic });
         return YES;
     }
     catch (...)
@@ -812,17 +816,16 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
 - (void)initializeCurrentVoice
 {
     std::lock_guard<std::mutex> lock(engineMutex);
-    [self applyRealtimeCommandsNoLock];
-    engine->panic();
     currentPatch = opaline::normalizePatch(opaline::OpalinePatch {});
     currentVoiceName = "INIT VOICE";
     [self applyCurrentPatchNoLock];
+    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
+                           { RealtimeCommandType::panic });
 }
 
 - (void)copyCurrentVoice
 {
     std::lock_guard<std::mutex> lock(engineMutex);
-    [self applyRealtimeCommandsNoLock];
     copiedVoice.patch = opaline::normalizePatch(currentPatch);
     copiedVoice.name = currentVoiceName.substr(0, 10);
     if (copiedVoice.name.empty())
@@ -835,16 +838,16 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
 - (BOOL)pasteCopiedVoice
 {
     std::lock_guard<std::mutex> lock(engineMutex);
-    [self applyRealtimeCommandsNoLock];
     if (!hasCopiedPatch)
         return NO;
 
-    engine->panic();
     currentPatch = opaline::normalizePatch(copiedVoice.patch);
     currentVoiceName = copiedVoice.name.substr(0, 10);
     if (currentVoiceName.empty())
         currentVoiceName = "INIT VOICE";
     [self applyCurrentPatchNoLock];
+    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
+                           { RealtimeCommandType::panic });
     return YES;
 }
 
@@ -857,7 +860,6 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
 - (void)storeCurrentVoice
 {
     std::lock_guard<std::mutex> lock(engineMutex);
-    [self applyRealtimeCommandsNoLock];
     [self syncCurrentVoiceToLibraryNoLock];
 }
 
@@ -881,7 +883,6 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
     BOOL effectsEnabledSnapshot = NO;
     {
         std::lock_guard<std::mutex> lock(engineMutex);
-        [self applyRealtimeCommandsNoLock];
         patch = currentPatch;
         effectsEnabledSnapshot = effectsEnabled;
     }
@@ -942,19 +943,50 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
 
 - (void)setPatchParameter:(NSString*)parameter value:(int)value
 {
+    std::lock_guard<std::mutex> lock(engineMutex);
     if ([parameter isEqualToString:@"fx.enabled"])
     {
-        enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
-                               { RealtimeCommandType::effectsEnabled, value != 0 ? 1 : 0 });
+        effectsEnabled = value != 0;
+        [self publishEngineStateNoLock];
         return;
     }
 
     const auto parameterId = patchParameterId(parameter);
     if (parameterId == PatchParameterId::invalid)
         return;
-    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
-                           { RealtimeCommandType::patchParameter,
-                             static_cast<int>(parameterId), value });
+
+    const auto clamp = [](const int input, const int low, const int high)
+    {
+        return std::max(low, std::min(input, high));
+    };
+    switch (parameterId)
+    {
+        case PatchParameterId::algorithm: currentPatch.algorithm = clamp(value, 1, 8); break;
+        case PatchParameterId::feedback: currentPatch.feedback = clamp(value, 0, 7); break;
+        case PatchParameterId::pitchRate1: currentPatch.pitchEnvelope.rate1 = clamp(value, 0, 99); break;
+        case PatchParameterId::pitchRate2: currentPatch.pitchEnvelope.rate2 = clamp(value, 0, 99); break;
+        case PatchParameterId::pitchRate3: currentPatch.pitchEnvelope.rate3 = clamp(value, 0, 99); break;
+        case PatchParameterId::pitchLevel1: currentPatch.pitchEnvelope.level1 = clamp(value, 0, 99); break;
+        case PatchParameterId::pitchLevel2: currentPatch.pitchEnvelope.level2 = clamp(value, 0, 99); break;
+        case PatchParameterId::pitchLevel3: currentPatch.pitchEnvelope.level3 = clamp(value, 0, 99); break;
+        case PatchParameterId::lfoSpeed: currentPatch.lfo.speed = clamp(value, 0, 99); break;
+        case PatchParameterId::lfoDelay: currentPatch.lfo.delay = clamp(value, 0, 99); break;
+        case PatchParameterId::lfoPitchDepth: currentPatch.lfo.pitchDepth = clamp(value, 0, 99); break;
+        case PatchParameterId::lfoAmpDepth: currentPatch.lfo.ampDepth = clamp(value, 0, 99); break;
+        case PatchParameterId::lfoPitchSensitivity: currentPatch.lfo.pitchSensitivity = clamp(value, 0, 7); break;
+        case PatchParameterId::lfoAmpSensitivity: currentPatch.lfo.ampSensitivity = clamp(value, 0, 3); break;
+        case PatchParameterId::lfoWave: currentPatch.lfo.wave = clamp(value, 0, 3); break;
+        case PatchParameterId::lfoSync: currentPatch.lfo.sync = value != 0; break;
+        case PatchParameterId::reverb: currentPatch.effects.reverb = clamp(value, 0, 99); break;
+        case PatchParameterId::delay: currentPatch.effects.delay = clamp(value, 0, 99); break;
+        case PatchParameterId::chorus: currentPatch.effects.chorus = clamp(value, 0, 99); break;
+        case PatchParameterId::reverbMix: currentPatch.effects.mix = clamp(value, 0, 99); break;
+        case PatchParameterId::delayMix: currentPatch.effects.echoMix = clamp(value, 0, 99); break;
+        case PatchParameterId::tone: currentPatch.effects.tone = clamp(value, 0, 99); break;
+        case PatchParameterId::invalid: break;
+    }
+    currentPatch = opaline::normalizePatch(currentPatch);
+    [self publishEngineStateNoLock];
 }
 
 - (void)setOperatorParameter:(int)operatorIndex parameter:(NSString*)parameter value:(int)value
@@ -962,53 +994,82 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
     const auto parameterId = operatorParameterId(parameter);
     if (parameterId == OperatorParameterId::invalid)
         return;
-    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
-                           { RealtimeCommandType::operatorParameter,
-                             operatorIndex, static_cast<int>(parameterId), 0.0, value });
+
+    std::lock_guard<std::mutex> lock(engineMutex);
+    const int opIndex = std::max(0, std::min(operatorIndex, opaline::kOperatorCount - 1));
+    auto& op = currentPatch.operators[static_cast<std::size_t>(opIndex)];
+    const auto clamp = [](const int input, const int low, const int high)
+    {
+        return std::max(low, std::min(input, high));
+    };
+    switch (parameterId)
+    {
+        case OperatorParameterId::ratio: op.ratioIndex = clamp(value, 0, 63); break;
+        case OperatorParameterId::detune: op.detune = clamp(value, -3, 3); break;
+        case OperatorParameterId::level: op.level = clamp(value, 0, 99); break;
+        case OperatorParameterId::rateScale: op.rateScale = clamp(value, 0, 3); break;
+        case OperatorParameterId::levelScale: op.levelScale = clamp(value, 0, 99); break;
+        case OperatorParameterId::velocity: op.velocity = clamp(value, 0, 7); break;
+        case OperatorParameterId::attackRate: op.envelope.attackRate = clamp(value, 0, 31); break;
+        case OperatorParameterId::decay1Rate: op.envelope.decay1Rate = clamp(value, 0, 31); break;
+        case OperatorParameterId::decay1Level: op.envelope.decay1Level = clamp(value, 0, 15); break;
+        case OperatorParameterId::decay2Rate: op.envelope.decay2Rate = clamp(value, 0, 31); break;
+        case OperatorParameterId::releaseRate: op.envelope.releaseRate = clamp(value, 0, 15); break;
+        case OperatorParameterId::invalid: break;
+    }
+    currentPatch = opaline::normalizePatch(currentPatch);
+    [self publishEngineStateNoLock];
 }
 
 - (void)setOperatorEnabled:(int)operatorIndex enabled:(BOOL)enabled
 {
-    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
-                           { RealtimeCommandType::operatorEnabled,
-                             operatorIndex, enabled ? 1 : 0 });
+    std::lock_guard<std::mutex> lock(engineMutex);
+    const int opIndex = std::max(0, std::min(operatorIndex, opaline::kOperatorCount - 1));
+    currentPatch.operators[static_cast<std::size_t>(opIndex)].enabled = enabled;
+    [self publishEngineStateNoLock];
 }
 
 - (void)setOperatorAmpModEnabled:(int)operatorIndex enabled:(BOOL)enabled
 {
-    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
-                           { RealtimeCommandType::operatorAmpModEnabled,
-                             operatorIndex, enabled ? 1 : 0 });
+    std::lock_guard<std::mutex> lock(engineMutex);
+    const int opIndex = std::max(0, std::min(operatorIndex, opaline::kOperatorCount - 1));
+    currentPatch.operators[static_cast<std::size_t>(opIndex)].ampModEnable = enabled;
+    [self publishEngineStateNoLock];
 }
 
 - (void)setEffectsEnabled:(BOOL)enabled
 {
-    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
-                           { RealtimeCommandType::effectsEnabled, enabled ? 1 : 0 });
+    std::lock_guard<std::mutex> lock(engineMutex);
+    effectsEnabled = enabled;
+    [self publishEngineStateNoLock];
 }
 
 - (void)setPerformanceMode:(int)mode
 {
-    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
-                           { RealtimeCommandType::performanceMode, mode });
+    std::lock_guard<std::mutex> lock(engineMutex);
+    performanceMode = std::max(0, std::min(mode, 2));
+    [self publishEngineStateNoLock];
 }
 
 - (void)setDualDetune:(int)value
 {
-    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
-                           { RealtimeCommandType::dualDetune, value });
+    std::lock_guard<std::mutex> lock(engineMutex);
+    dualDetune = std::max(-16, std::min(value, 16));
+    [self publishEngineStateNoLock];
 }
 
 - (void)setSplitPoint:(int)value
 {
-    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
-                           { RealtimeCommandType::splitPoint, value });
+    std::lock_guard<std::mutex> lock(engineMutex);
+    splitPoint = std::max(0, std::min(value, 127));
+    [self publishEngineStateNoLock];
 }
 
 - (void)setABBalance:(int)value
 {
-    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
-                           { RealtimeCommandType::abBalance, value });
+    std::lock_guard<std::mutex> lock(engineMutex);
+    abBalance = std::max(-100, std::min(value, 100));
+    [self publishEngineStateNoLock];
 }
 
 - (void)noteOn:(int)note velocity:(int)velocity
@@ -1033,26 +1094,30 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
 
 - (void)setPitchBendRange:(int)value
 {
-    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
-                           { RealtimeCommandType::pitchBendRange, value });
+    std::lock_guard<std::mutex> lock(engineMutex);
+    pitchBendRange = std::max(0, std::min(value, 12));
+    [self publishEngineStateNoLock];
 }
 
 - (void)setPortamento:(int)value
 {
-    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
-                           { RealtimeCommandType::portamento, value });
+    std::lock_guard<std::mutex> lock(engineMutex);
+    portamento = std::max(0, std::min(value, 99));
+    [self publishEngineStateNoLock];
 }
 
 - (void)setPortamentoModeA:(int)mode
 {
-    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
-                           { RealtimeCommandType::portamentoModeA, mode });
+    std::lock_guard<std::mutex> lock(engineMutex);
+    portamentoModeA = std::max(0, std::min(mode, 2));
+    [self publishEngineStateNoLock];
 }
 
 - (void)setPortamentoModeB:(int)mode
 {
-    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
-                           { RealtimeCommandType::portamentoModeB, mode });
+    std::lock_guard<std::mutex> lock(engineMutex);
+    portamentoModeB = std::max(0, std::min(mode, 2));
+    [self publishEngineStateNoLock];
 }
 
 - (void)setPortamentoFootSwitch:(BOOL)down
@@ -1069,8 +1134,10 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
 
 - (void)setModWheelPitchRange:(int)value ampRange:(int)ampRange
 {
-    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
-                           { RealtimeCommandType::modWheelRanges, value, ampRange });
+    std::lock_guard<std::mutex> lock(engineMutex);
+    modWheelPitchRange = std::max(0, std::min(value, 99));
+    modWheelAmpRange = std::max(0, std::min(ampRange, 99));
+    [self publishEngineStateNoLock];
 }
 
 - (void)setModWheel:(double)value
@@ -1083,14 +1150,20 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
 
 - (void)setMonoMode:(BOOL)enabled
 {
-    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
-                           { RealtimeCommandType::monoModeA, enabled ? 1 : 0 });
+    std::lock_guard<std::mutex> lock(engineMutex);
+    monoA = enabled;
+    if (!monoA && portamentoModeA == 2)
+        portamentoModeA = 1;
+    [self publishEngineStateNoLock];
 }
 
 - (void)setMonoModeB:(BOOL)enabled
 {
-    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
-                           { RealtimeCommandType::monoModeB, enabled ? 1 : 0 });
+    std::lock_guard<std::mutex> lock(engineMutex);
+    monoB = enabled;
+    if (!monoB && portamentoModeB == 2)
+        portamentoModeB = 1;
+    [self publishEngineStateNoLock];
 }
 
 - (void)applyRealtimeCommandsNoLock
@@ -1112,12 +1185,6 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
         return;
     }
 
-    bool patchChanged = false;
-    const auto clamp = [](const int value, const int low, const int high)
-    {
-        return std::max(low, std::min(value, high));
-    };
-
     while (realtimeCommands.pop(command))
     {
         switch (command.type)
@@ -1132,14 +1199,14 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
                     scopeTriggerNote.store(safeNote, std::memory_order_release);
                 ++scopeHeldNoteTotal;
 
-                switch (performanceMode)
+                switch (audioEngineState.performanceMode)
                 {
                     case 1:
                         engine->noteOn(note, velocity);
                         engineB->noteOn(note, velocity);
                         break;
                     case 2:
-                        if (note <= splitPoint)
+                        if (note <= audioEngineState.splitPoint)
                             engine->noteOn(note, velocity);
                         else
                             engineB->noteOn(note, velocity);
@@ -1177,11 +1244,15 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
                 break;
             }
 
+            case RealtimeCommandType::panic:
+                panicAndResetScope();
+                break;
+
             case RealtimeCommandType::pitchBend:
             {
                 engine->setPitchBend(command.normalizedValue);
                 const double detunedB = std::max(-1.0, std::min(1.0,
-                    command.normalizedValue + static_cast<double>(dualDetune) / 64.0));
+                    command.normalizedValue + static_cast<double>(audioEngineState.dualDetune) / 64.0));
                 engineB->setPitchBend(detunedB);
                 break;
             }
@@ -1200,158 +1271,8 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
                 engine->setPortamentoFootSwitch(command.value1 != 0);
                 engineB->setPortamentoFootSwitch(command.value1 != 0);
                 break;
-
-            case RealtimeCommandType::pitchBendRange:
-                pitchBendRange = clamp(command.value1, 0, 12);
-                engine->setPitchBendRange(pitchBendRange);
-                engineB->setPitchBendRange(pitchBendRange);
-                break;
-
-            case RealtimeCommandType::portamento:
-                portamento = clamp(command.value1, 0, 99);
-                engine->setPortamento(portamento);
-                engineB->setPortamento(portamento);
-                break;
-
-            case RealtimeCommandType::portamentoModeA:
-                portamentoModeA = clamp(command.value1, 0, 2);
-                engine->panic();
-                engine->setPortamentoMode(portamentoModeA);
-                break;
-
-            case RealtimeCommandType::portamentoModeB:
-                portamentoModeB = clamp(command.value1, 0, 2);
-                engineB->panic();
-                engineB->setPortamentoMode(portamentoModeB);
-                break;
-
-            case RealtimeCommandType::modWheelRanges:
-                modWheelPitchRange = clamp(command.value1, 0, 99);
-                modWheelAmpRange = clamp(command.value2, 0, 99);
-                engine->setModWheelRanges(modWheelPitchRange, modWheelAmpRange);
-                engineB->setModWheelRanges(modWheelPitchRange, modWheelAmpRange);
-                break;
-
-            case RealtimeCommandType::monoModeA:
-                monoA = command.value1 != 0;
-                if (!monoA && portamentoModeA == 2)
-                    portamentoModeA = 1;
-                engine->panic();
-                engine->setMonoMode(monoA);
-                engine->setPortamentoMode(portamentoModeA);
-                break;
-
-            case RealtimeCommandType::monoModeB:
-                monoB = command.value1 != 0;
-                if (!monoB && portamentoModeB == 2)
-                    portamentoModeB = 1;
-                engineB->panic();
-                engineB->setMonoMode(monoB);
-                engineB->setPortamentoMode(portamentoModeB);
-                break;
-
-            case RealtimeCommandType::dualDetune:
-                dualDetune = clamp(command.value1, -16, 16);
-                [self applyPitchBendNoLock];
-                break;
-
-            case RealtimeCommandType::splitPoint:
-                splitPoint = clamp(command.value1, 0, 127);
-                break;
-
-            case RealtimeCommandType::abBalance:
-                abBalance = clamp(command.value1, -100, 100);
-                break;
-
-            case RealtimeCommandType::performanceMode:
-                performanceMode = clamp(command.value1, 0, 2);
-                engine->panic();
-                engineB->panic();
-                engine->setVoiceLimit(performanceMode == 0 ? 8 : 4);
-                engineB->setVoiceLimit(4);
-                scopeHeldNoteCounts.fill(0);
-                scopeHeldNoteTotal = 0;
-                scopeTriggerNote.store(-1, std::memory_order_release);
-                break;
-
-            case RealtimeCommandType::patchParameter:
-                switch (static_cast<PatchParameterId>(command.value1))
-                {
-                    case PatchParameterId::algorithm: currentPatch.algorithm = clamp(command.value2, 1, 8); break;
-                    case PatchParameterId::feedback: currentPatch.feedback = clamp(command.value2, 0, 7); break;
-                    case PatchParameterId::pitchRate1: currentPatch.pitchEnvelope.rate1 = clamp(command.value2, 0, 99); break;
-                    case PatchParameterId::pitchRate2: currentPatch.pitchEnvelope.rate2 = clamp(command.value2, 0, 99); break;
-                    case PatchParameterId::pitchRate3: currentPatch.pitchEnvelope.rate3 = clamp(command.value2, 0, 99); break;
-                    case PatchParameterId::pitchLevel1: currentPatch.pitchEnvelope.level1 = clamp(command.value2, 0, 99); break;
-                    case PatchParameterId::pitchLevel2: currentPatch.pitchEnvelope.level2 = clamp(command.value2, 0, 99); break;
-                    case PatchParameterId::pitchLevel3: currentPatch.pitchEnvelope.level3 = clamp(command.value2, 0, 99); break;
-                    case PatchParameterId::lfoSpeed: currentPatch.lfo.speed = clamp(command.value2, 0, 99); break;
-                    case PatchParameterId::lfoDelay: currentPatch.lfo.delay = clamp(command.value2, 0, 99); break;
-                    case PatchParameterId::lfoPitchDepth: currentPatch.lfo.pitchDepth = clamp(command.value2, 0, 99); break;
-                    case PatchParameterId::lfoAmpDepth: currentPatch.lfo.ampDepth = clamp(command.value2, 0, 99); break;
-                    case PatchParameterId::lfoPitchSensitivity: currentPatch.lfo.pitchSensitivity = clamp(command.value2, 0, 7); break;
-                    case PatchParameterId::lfoAmpSensitivity: currentPatch.lfo.ampSensitivity = clamp(command.value2, 0, 3); break;
-                    case PatchParameterId::lfoWave: currentPatch.lfo.wave = clamp(command.value2, 0, 3); break;
-                    case PatchParameterId::lfoSync: currentPatch.lfo.sync = command.value2 != 0; break;
-                    case PatchParameterId::reverb: currentPatch.effects.reverb = clamp(command.value2, 0, 99); break;
-                    case PatchParameterId::delay: currentPatch.effects.delay = clamp(command.value2, 0, 99); break;
-                    case PatchParameterId::chorus: currentPatch.effects.chorus = clamp(command.value2, 0, 99); break;
-                    case PatchParameterId::reverbMix: currentPatch.effects.mix = clamp(command.value2, 0, 99); break;
-                    case PatchParameterId::delayMix: currentPatch.effects.echoMix = clamp(command.value2, 0, 99); break;
-                    case PatchParameterId::tone: currentPatch.effects.tone = clamp(command.value2, 0, 99); break;
-                    case PatchParameterId::invalid: break;
-                }
-                patchChanged = true;
-                break;
-
-            case RealtimeCommandType::operatorParameter:
-            {
-                const int opIndex = clamp(command.value1, 0, opaline::kOperatorCount - 1);
-                auto& op = currentPatch.operators[static_cast<std::size_t>(opIndex)];
-                switch (static_cast<OperatorParameterId>(command.value2))
-                {
-                    case OperatorParameterId::ratio: op.ratioIndex = clamp(command.value3, 0, 63); break;
-                    case OperatorParameterId::detune: op.detune = clamp(command.value3, -3, 3); break;
-                    case OperatorParameterId::level: op.level = clamp(command.value3, 0, 99); break;
-                    case OperatorParameterId::rateScale: op.rateScale = clamp(command.value3, 0, 3); break;
-                    case OperatorParameterId::levelScale: op.levelScale = clamp(command.value3, 0, 99); break;
-                    case OperatorParameterId::velocity: op.velocity = clamp(command.value3, 0, 7); break;
-                    case OperatorParameterId::attackRate: op.envelope.attackRate = clamp(command.value3, 0, 31); break;
-                    case OperatorParameterId::decay1Rate: op.envelope.decay1Rate = clamp(command.value3, 0, 31); break;
-                    case OperatorParameterId::decay1Level: op.envelope.decay1Level = clamp(command.value3, 0, 15); break;
-                    case OperatorParameterId::decay2Rate: op.envelope.decay2Rate = clamp(command.value3, 0, 31); break;
-                    case OperatorParameterId::releaseRate: op.envelope.releaseRate = clamp(command.value3, 0, 15); break;
-                    case OperatorParameterId::invalid: break;
-                }
-                patchChanged = true;
-                break;
-            }
-
-            case RealtimeCommandType::operatorEnabled:
-            {
-                const int opIndex = clamp(command.value1, 0, opaline::kOperatorCount - 1);
-                currentPatch.operators[static_cast<std::size_t>(opIndex)].enabled = command.value2 != 0;
-                patchChanged = true;
-                break;
-            }
-
-            case RealtimeCommandType::operatorAmpModEnabled:
-            {
-                const int opIndex = clamp(command.value1, 0, opaline::kOperatorCount - 1);
-                currentPatch.operators[static_cast<std::size_t>(opIndex)].ampModEnable = command.value2 != 0;
-                patchChanged = true;
-                break;
-            }
-
-            case RealtimeCommandType::effectsEnabled:
-                effectsEnabled = command.value1 != 0;
-                patchChanged = true;
-                break;
         }
     }
-
-    if (patchChanged)
-        [self applyCurrentPatchNoLock];
 
     if (realtimeCommandOverflowed.exchange(false, std::memory_order_acq_rel))
     {
@@ -1365,7 +1286,9 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
     if (left == nullptr || right == nullptr || frames <= 0)
         return;
 
-    std::lock_guard<std::mutex> lock(engineMutex);
+    MobileEngineState updatedState;
+    if (engineStateUpdates.consume(updatedState))
+        [self applyEngineStateNoLock:updatedState];
     [self applyRealtimeCommandsNoLock];
     for (int offset = 0; offset < frames; offset += kPreparedScratchFrames)
     {
@@ -1374,7 +1297,7 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
         auto* chunkRight = right + offset;
         engine->renderBlock(chunkLeft, chunkRight, chunkFrames);
 
-        if (performanceMode != 0)
+        if (audioEngineState.performanceMode != 0)
         {
             engineB->renderBlock(scratchBLeft.data(), scratchBRight.data(), chunkFrames);
             [self mixEngineBNoLockLeft:chunkLeft right:chunkRight frames:chunkFrames];
@@ -1389,13 +1312,15 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
         return;
 
     const auto bufferCount = audioBufferList->mNumberBuffers;
-    std::lock_guard<std::mutex> lock(engineMutex);
+    MobileEngineState updatedState;
+    if (engineStateUpdates.consume(updatedState))
+        [self applyEngineStateNoLock:updatedState];
     [self applyRealtimeCommandsNoLock];
     for (int offset = 0; offset < frames; offset += kPreparedScratchFrames)
     {
         const int chunkFrames = std::min(frames - offset, kPreparedScratchFrames);
         engine->renderBlock(scratchLeft.data(), scratchRight.data(), chunkFrames);
-        if (performanceMode != 0)
+        if (audioEngineState.performanceMode != 0)
         {
             engineB->renderBlock(scratchBLeft.data(), scratchBRight.data(), chunkFrames);
             [self mixEngineBNoLockLeft:scratchLeft.data() right:scratchRight.data() frames:chunkFrames];
@@ -1556,23 +1481,6 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
 
     engine->prepare(currentSampleRate, 8);
     engineB->prepare(currentSampleRate, 4);
-    engine->setVoiceLimit(performanceMode == 0 ? 8 : 4);
-    engine->setMonoMode(monoA);
-    engineB->setMonoMode(monoB);
-    engine->setPortamentoMode(portamentoModeA);
-    engineB->setPortamentoMode(portamentoModeB);
-    engine->setPitchBendRange(pitchBendRange);
-    engineB->setPitchBendRange(pitchBendRange);
-    engine->setPortamento(portamento);
-    engineB->setPortamento(portamento);
-    engine->setModWheelRanges(modWheelPitchRange, modWheelAmpRange);
-    engineB->setModWheelRanges(modWheelPitchRange, modWheelAmpRange);
-    const double modWheel = currentModWheel.load(std::memory_order_acquire);
-    engine->setModWheel(modWheel);
-    engineB->setModWheel(modWheel);
-    engine->setEffectsEnabled(effectsEnabled);
-    engineB->setEffectsEnabled(effectsEnabled);
-    [self applyPitchBendNoLock];
 }
 
 - (void)applyPatchesNoLock
@@ -1592,7 +1500,8 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
 {
     const double pitchBend = currentPitchBend.load(std::memory_order_acquire);
     engine->setPitchBend(pitchBend);
-    const double detunedB = std::max(-1.0, std::min(1.0, pitchBend + static_cast<double>(dualDetune) / 64.0));
+    const double detunedB = std::max(-1.0, std::min(1.0,
+        pitchBend + static_cast<double>(audioEngineState.dualDetune) / 64.0));
     engineB->setPitchBend(detunedB);
 }
 
@@ -1600,18 +1509,89 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
 {
     currentPatch = opaline::normalizePatch(currentPatch);
     currentPatchB = opaline::normalizePatch(currentPatchB);
-    engine->setPatch(currentPatch);
-    engineB->setPatch(currentPatchB);
-    engine->setEffectsEnabled(effectsEnabled);
-    engineB->setEffectsEnabled(effectsEnabled);
+    [self publishEngineStateNoLock];
+}
+
+- (MobileEngineState)captureEngineStateNoLock
+{
+    MobileEngineState state;
+    state.patchA = currentPatch;
+    state.patchB = currentPatchB;
+    state.performanceMode = performanceMode;
+    state.dualDetune = dualDetune;
+    state.splitPoint = splitPoint;
+    state.abBalance = abBalance;
+    state.pitchBendRange = pitchBendRange;
+    state.portamento = portamento;
+    state.portamentoModeA = portamentoModeA;
+    state.portamentoModeB = portamentoModeB;
+    state.modWheelPitchRange = modWheelPitchRange;
+    state.modWheelAmpRange = modWheelAmpRange;
+    state.effectsEnabled = effectsEnabled;
+    state.monoA = monoA;
+    state.monoB = monoB;
+    return state;
+}
+
+- (void)publishEngineStateNoLock
+{
+    engineStateUpdates.publish([self captureEngineStateNoLock]);
+}
+
+- (void)applyEngineStateNoLock:(const MobileEngineState&)state
+{
+    const bool performanceModeChanged = audioEngineState.performanceMode != state.performanceMode;
+    const bool monoAChanged = audioEngineState.monoA != state.monoA;
+    const bool monoBChanged = audioEngineState.monoB != state.monoB;
+    const bool portamentoModeAChanged = audioEngineState.portamentoModeA != state.portamentoModeA;
+    const bool portamentoModeBChanged = audioEngineState.portamentoModeB != state.portamentoModeB;
+
+    if (performanceModeChanged)
+    {
+        engine->panic();
+        engineB->panic();
+        scopeHeldNoteCounts.fill(0);
+        scopeHeldNoteTotal = 0;
+        scopeTriggerNote.store(-1, std::memory_order_release);
+    }
+    else
+    {
+        if (monoAChanged || portamentoModeAChanged)
+            engine->panic();
+        if (monoBChanged || portamentoModeBChanged)
+            engineB->panic();
+    }
+
+    audioEngineState = state;
+    engine->setVoiceLimit(state.performanceMode == 0 ? 8 : 4);
+    engineB->setVoiceLimit(4);
+    engine->setPatch(state.patchA);
+    engineB->setPatch(state.patchB);
+    engine->setPitchBendRange(state.pitchBendRange);
+    engineB->setPitchBendRange(state.pitchBendRange);
+    engine->setPortamento(state.portamento);
+    engineB->setPortamento(state.portamento);
+    engine->setPortamentoMode(state.portamentoModeA);
+    engineB->setPortamentoMode(state.portamentoModeB);
+    engine->setModWheelRanges(state.modWheelPitchRange, state.modWheelAmpRange);
+    engineB->setModWheelRanges(state.modWheelPitchRange, state.modWheelAmpRange);
+    engine->setEffectsEnabled(state.effectsEnabled);
+    engineB->setEffectsEnabled(state.effectsEnabled);
+    engine->setMonoMode(state.monoA);
+    engineB->setMonoMode(state.monoB);
+
+    const double modWheel = currentModWheel.load(std::memory_order_acquire);
+    engine->setModWheel(modWheel);
+    engineB->setModWheel(modWheel);
+    [self applyPitchBendNoLock];
 }
 
 - (void)mixEngineBNoLockLeft:(float*)left right:(float*)right frames:(int)frames
 {
-    const float balance = static_cast<float>(std::max(-100, std::min(abBalance, 100))) / 100.0f;
+    const float balance = static_cast<float>(std::max(-100, std::min(audioEngineState.abBalance, 100))) / 100.0f;
     const float gainA = balance >= 0.0f ? 1.0f : 1.0f + balance;
     const float gainB = balance <= 0.0f ? 1.0f : 1.0f - balance;
-    const float mixGain = performanceMode == 1 ? 0.50f : 0.82f;
+    const float mixGain = audioEngineState.performanceMode == 1 ? 0.50f : 0.82f;
 
     for (int frame = 0; frame < frames; ++frame)
     {
