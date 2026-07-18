@@ -26,18 +26,19 @@ jobs:
 
       - name: Configure
         run: >-
-          cmake -S . -B build/ci-windows -G Ninja
-          -DCMAKE_BUILD_TYPE=Release
+          cmake -S . -B build/ci-windows
+          -G "Visual Studio 18 2026"
+          -A x64
           -DOPALINE_AUTO_INCREMENT_VERSION=OFF
           -DOPALINE_BUILD_STANDALONE=OFF
           -DOPALINE_BUILD_PLUGIN=ON
           -DOPALINE_BUILD_AU=OFF
 
       - name: Build engine tests and VST3
-        run: cmake --build build/ci-windows --target opaline_engine_tests OpalineFM_Plugin_VST3
+        run: cmake --build build/ci-windows --config Release --target opaline_engine_tests OpalineFM_Plugin_VST3
 
       - name: Run engine tests
-        run: ctest --test-dir build/ci-windows --output-on-failure
+        run: ctest --test-dir build/ci-windows -C Release --output-on-failure
 
   macos:
     name: macOS engine, VST3, AU, and auval
@@ -75,7 +76,7 @@ jobs:
 
   ios:
     name: iOS app and AUv3
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - name: Check out source
         uses: actions/checkout@v5
