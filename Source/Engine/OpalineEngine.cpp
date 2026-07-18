@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace opaline
 {
@@ -59,8 +60,11 @@ void OpalineEngine::prepare(const double sampleRate, const int maxVoices)
 
 void OpalineEngine::setPatch(const OpalinePatch& newPatch)
 {
+    const bool wetParametersWereZero = effectWetParametersZero;
     patch = normalizePatch(newPatch);
     updateEffectParameters();
+    if (effectWetParametersZero && !wetParametersWereZero)
+        resetEffects();
 }
 
 void OpalineEngine::setVoiceLimit(const int maxVoices)
@@ -294,6 +298,14 @@ StereoSample OpalineEngine::processEffects(const double input)
     if (!effectsEnabled)
         return { static_cast<float>(input), static_cast<float>(input) };
 
+    if (effectWetParametersZero)
+    {
+        const double limited = softLimit(input);
+        lastLeft += clampDouble(limited - lastLeft, -0.42, 0.42);
+        lastRight += clampDouble(limited - lastRight, -0.42, 0.42);
+        return { static_cast<float>(lastLeft), static_cast<float>(lastRight) };
+    }
+
     std::array<double, 4> reverbTapsLeft {};
     std::array<double, 4> reverbTapsRight {};
     for (int i = 0; i < 4; ++i)
@@ -404,13 +416,20 @@ StereoSample OpalineEngine::renderSample()
     globalLfoAge += 1.0 / currentSampleRate;
     double mixed = 0.0;
 
-    for (auto& voice : voices)
-        mixed += voice.render(patch, pitchBend, pitchBendRange, modWheel, modWheelPitchRange, modWheelAmpRange, globalLfoAge, renderModel);
+    std::size_t activeVoiceCount = 0;
+    for (std::size_t voiceIndex = 0; voiceIndex < voices.size(); ++voiceIndex)
+    {
+        auto& voice = voices[voiceIndex];
+        mixed += voice.render(patch, pitchBend, pitchBendRange, modWheel, modWheelPitchRange,
+                              modWheelAmpRange, globalLfoAge, renderModel);
+        if (!voice.isActive())
+            continue;
 
-    voices.erase(std::remove_if(voices.begin(),
-                                voices.end(),
-                                [](const OpalineVoice& voice) { return !voice.isActive(); }),
-                 voices.end());
+        if (activeVoiceCount != voiceIndex)
+            voices[activeVoiceCount] = std::move(voice);
+        ++activeVoiceCount;
+    }
+    voices.resize(activeVoiceCount);
 
     const double output = limitAndDeclick(mixed * kOutputGain);
     return processEffects(output);
