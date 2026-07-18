@@ -29,7 +29,7 @@ function(opaline_add_version_bump target_name)
     )
 endfunction()
 
-option(OPALINE_AUTO_INCREMENT_VERSION "Increment the patch version after application and plugin builds." ON)
+option(OPALINE_AUTO_INCREMENT_VERSION "Increment the patch version after application and plugin builds." OFF)
 
 if (MSVC OR CMAKE_GENERATOR MATCHES "Visual Studio")
     add_compile_options(/W4 /permissive- /utf-8)

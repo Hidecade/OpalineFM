@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "**"
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Windows engine and VST3
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Configure
+        run: >-
+          cmake -S . -B build/ci-windows -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DOPALINE_AUTO_INCREMENT_VERSION=OFF
+          -DOPALINE_BUILD_STANDALONE=OFF
+          -DOPALINE_BUILD_PLUGIN=ON
+          -DOPALINE_BUILD_AU=OFF
+
+      - name: Build engine tests and VST3
+        run: cmake --build build/ci-windows --target opaline_engine_tests OpalineFM_Plugin_VST3
+
+      - name: Run engine tests
+        run: ctest --test-dir build/ci-windows --output-on-failure
+
+  macos:
+    name: macOS engine, VST3, AU, and auval
+    runs-on: macos-14
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Configure
+        run: >-
+          cmake -S . -B build/ci-macos
+          -DCMAKE_BUILD_TYPE=Release
+          -DOPALINE_AUTO_INCREMENT_VERSION=OFF
+          -DOPALINE_BUILD_STANDALONE=OFF
+          -DOPALINE_BUILD_PLUGIN=ON
+          -DOPALINE_BUILD_AU=ON
+
+      - name: Build engine tests, VST3, and AU
+        run: cmake --build build/ci-macos --target opaline_engine_tests OpalineFM_Plugin_VST3 OpalineFM_Plugin_AU --parallel 3
+
+      - name: Run engine tests
+        run: ctest --test-dir build/ci-macos --output-on-failure
+
+      - name: Validate Audio Unit
+        run: |
+          component="$PWD/build/ci-macos/OpalineFM_Plugin_artefacts/Release/AU/Opaline FM.component"
+          destination="$HOME/Library/Audio/Plug-Ins/Components/Opaline FM.component"
+          mkdir -p "$(dirname "$destination")"
+          rm -rf "$destination"
+          ditto "$component" "$destination"
+          killall -9 AudioComponentRegistrar 2>/dev/null || true
+          auval -v aumu OpFM Hica
+
+  ios:
+    name: iOS app and AUv3
+    runs-on: macos-14
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Build AUv3 extension
+        run: >-
+          xcodebuild
+          -project iOS/OpalineFMMobile/OpalineFMMobile.xcodeproj
+          -scheme OpalineFMAUv3Extension
+          -configuration Debug
+          -destination generic/platform=iOS
+          -derivedDataPath build/ci-ios-auv3
+          CODE_SIGNING_ALLOWED=NO
+          CODE_SIGNING_REQUIRED=NO
+          build
+
+      - name: Build iOS app with embedded AUv3
+        run: >-
+          xcodebuild
+          -project iOS/OpalineFMMobile/OpalineFMMobile.xcodeproj
+          -scheme OpalineFMMobile
+          -configuration Debug
+          -destination generic/platform=iOS
+          -derivedDataPath build/ci-ios-app
+          CODE_SIGNING_ALLOWED=NO
+          CODE_SIGNING_REQUIRED=NO
+          build
