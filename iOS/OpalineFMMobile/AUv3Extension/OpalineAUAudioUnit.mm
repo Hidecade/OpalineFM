@@ -24,6 +24,12 @@ enum OpalineAUParameterAddress : AUParameterAddress
 };
 
 constexpr float kAUGain = 0.65f;
+constexpr std::uint32_t kAllParameterBits = (1U << ParamCount) - 1U;
+
+constexpr std::uint32_t parameterBit(const AUParameterAddress address)
+{
+    return 1U << static_cast<std::uint32_t>(address);
+}
 
 int roundedParameterValue(const std::array<std::atomic<float>, ParamCount>& values, const AUParameterAddress address)
 {
@@ -67,12 +73,15 @@ int portamentoValueForPreset(const int preset)
     std::vector<float> renderLeft;
     std::vector<float> renderRight;
     std::array<std::atomic<float>, ParamCount> parameterValues;
-    std::atomic<bool> parametersDirty;
+    std::atomic<std::uint32_t> dirtyParameterBits;
     AUParameterObserverToken parameterObserverToken;
     double preparedSampleRate;
     AVAudioFrameCount preparedFrameCapacity;
     int currentBankIndex;
     int currentVoiceIndex;
+    bool appliedEffectsEnabled;
+    bool appliedMono;
+    int appliedPortamentoPreset;
     double currentPitchBend;
     double currentModWheel;
 }
@@ -100,13 +109,16 @@ int portamentoValueForPreset(const int preset)
     self.maximumFramesToRender = 4096;
     for (auto& value : parameterValues)
         value.store(0.0f, std::memory_order_relaxed);
-    parametersDirty.store(true, std::memory_order_relaxed);
+    dirtyParameterBits.store(kAllParameterBits, std::memory_order_relaxed);
     voiceLibrary = opaline::makeInitVoiceLibrary();
     currentBankIndex = 0;
     currentVoiceIndex = 0;
     [self loadBundledFactoryBank];
     const auto& voice = opaline::voiceAt(voiceLibrary, currentBankIndex, currentVoiceIndex);
     currentPatch = opaline::normalizePatch(voice.patch);
+    appliedEffectsEnabled = false;
+    appliedMono = false;
+    appliedPortamentoPreset = -1;
     voiceDisplayNames = [self makeVoiceDisplayNames];
     currentPitchBend = 0.0;
     currentModWheel = 0.0;
@@ -131,7 +143,7 @@ int portamentoValueForPreset(const int preset)
         if (address < ParamCount)
         {
             audioUnit->parameterValues[static_cast<std::size_t>(address)].store(value, std::memory_order_relaxed);
-            audioUnit->parametersDirty.store(true, std::memory_order_release);
+            audioUnit->dirtyParameterBits.fetch_or(parameterBit(address), std::memory_order_release);
         }
     }];
 }
@@ -199,7 +211,8 @@ int portamentoValueForPreset(const int preset)
     renderRight.assign(static_cast<std::size_t>(frameCapacity), 0.0f);
 
     engine.prepare(sampleRate, 16);
-    [self applyParametersToEngine];
+    dirtyParameterBits.exchange(0, std::memory_order_acq_rel);
+    [self applyParameterChanges:kAllParameterBits forcePatch:YES];
     preparedSampleRate = sampleRate;
     preparedFrameCapacity = frameCapacity;
     return YES;
@@ -316,7 +329,7 @@ int portamentoValueForPreset(const int preset)
         if (parameter.address < ParamCount)
             parameterValues[static_cast<std::size_t>(parameter.address)].store(parameter.value, std::memory_order_relaxed);
     }
-    parametersDirty.store(true, std::memory_order_release);
+    dirtyParameterBits.store(kAllParameterBits, std::memory_order_release);
 }
 
 - (void)loadBundledFactoryBank
@@ -352,32 +365,68 @@ int portamentoValueForPreset(const int preset)
 
 - (void)applyPendingParametersToEngine
 {
-    if (!parametersDirty.exchange(false, std::memory_order_acq_rel))
+    const auto changes = dirtyParameterBits.exchange(0, std::memory_order_acq_rel);
+    if (changes == 0)
         return;
 
-    [self applyParametersToEngine];
+    [self applyParameterChanges:changes forcePatch:NO];
 }
 
-- (void)applyParametersToEngine
+- (void)applyParameterChanges:(std::uint32_t)changes forcePatch:(BOOL)forcePatch
 {
-    const int requestedVoiceA = roundedParameterValue(parameterValues, ParamVoiceA);
-    if (requestedVoiceA != currentVoiceIndex)
+    if (forcePatch || (changes & parameterBit(ParamVoiceA)) != 0)
     {
-        currentVoiceIndex = std::max(0, std::min(requestedVoiceA, opaline::kOpalineVoiceBankSize - 1));
-        const auto& voice = opaline::voiceAt(voiceLibrary, currentBankIndex, currentVoiceIndex);
-        currentPatch = opaline::normalizePatch(voice.patch);
+        const int requestedVoiceA = roundedParameterValue(parameterValues, ParamVoiceA);
+        const int safeVoiceIndex = std::max(0, std::min(requestedVoiceA, opaline::kOpalineVoiceBankSize - 1));
+        bool patchChanged = forcePatch;
+        if (safeVoiceIndex != currentVoiceIndex)
+        {
+            currentVoiceIndex = safeVoiceIndex;
+            const auto& voice = opaline::voiceAt(voiceLibrary, currentBankIndex, currentVoiceIndex);
+            currentPatch = opaline::normalizePatch(voice.patch);
+            patchChanged = true;
+        }
+        if (patchChanged)
+            engine.setPatch(currentPatch);
     }
 
-    engine.setPatch(currentPatch);
-    const bool effectsEnabled = roundedParameterValue(parameterValues, ParamEffectsEnabled) != 0;
-    const int portamentoPreset = roundedParameterValue(parameterValues, ParamPortamentoPreset);
-    engine.setEffectsEnabled(effectsEnabled);
-    engine.setMonoMode(roundedParameterValue(parameterValues, ParamMono) != 0);
-    engine.setPortamentoMode(portamentoModeForPreset(portamentoPreset));
-    engine.setPortamento(portamentoValueForPreset(portamentoPreset));
-    engine.setModWheelRanges(99, 0);
-    engine.setPitchBend(currentPitchBend);
-    engine.setModWheel(currentModWheel);
+    if (forcePatch || (changes & parameterBit(ParamEffectsEnabled)) != 0)
+    {
+        const bool enabled = roundedParameterValue(parameterValues, ParamEffectsEnabled) != 0;
+        if (forcePatch || enabled != appliedEffectsEnabled)
+        {
+            engine.setEffectsEnabled(enabled);
+            appliedEffectsEnabled = enabled;
+        }
+    }
+
+    if (forcePatch || (changes & parameterBit(ParamMono)) != 0)
+    {
+        const bool mono = roundedParameterValue(parameterValues, ParamMono) != 0;
+        if (forcePatch || mono != appliedMono)
+        {
+            engine.setMonoMode(mono);
+            appliedMono = mono;
+        }
+    }
+
+    if (forcePatch || (changes & parameterBit(ParamPortamentoPreset)) != 0)
+    {
+        const int portamentoPreset = roundedParameterValue(parameterValues, ParamPortamentoPreset);
+        if (forcePatch || portamentoPreset != appliedPortamentoPreset)
+        {
+            engine.setPortamentoMode(portamentoModeForPreset(portamentoPreset));
+            engine.setPortamento(portamentoValueForPreset(portamentoPreset));
+            appliedPortamentoPreset = portamentoPreset;
+        }
+    }
+
+    if (forcePatch)
+    {
+        engine.setModWheelRanges(99, 0);
+        engine.setPitchBend(currentPitchBend);
+        engine.setModWheel(currentModWheel);
+    }
 }
 
 - (void)renderFrames:(AVAudioFrameCount)frames atOffset:(AVAudioFrameCount)offset
@@ -417,7 +466,7 @@ int portamentoValueForPreset(const int preset)
         return;
 
     parameterValues[static_cast<std::size_t>(address)].store(value, std::memory_order_relaxed);
-    parametersDirty.store(true, std::memory_order_release);
+    dirtyParameterBits.fetch_or(parameterBit(address), std::memory_order_release);
     [self applyPendingParametersToEngine];
 }
 
