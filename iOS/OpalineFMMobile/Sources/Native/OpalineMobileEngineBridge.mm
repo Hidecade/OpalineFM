@@ -31,7 +31,55 @@ enum class RealtimeCommandType
     pitchBend,
     modWheel,
     sustainPedal,
-    portamentoFootSwitch
+    portamentoFootSwitch,
+    patchParameter,
+    operatorParameter,
+    operatorEnabled,
+    operatorAmpModEnabled,
+    effectsEnabled
+};
+
+enum class PatchParameterId
+{
+    invalid,
+    algorithm,
+    feedback,
+    pitchRate1,
+    pitchRate2,
+    pitchRate3,
+    pitchLevel1,
+    pitchLevel2,
+    pitchLevel3,
+    lfoSpeed,
+    lfoDelay,
+    lfoPitchDepth,
+    lfoAmpDepth,
+    lfoPitchSensitivity,
+    lfoAmpSensitivity,
+    lfoWave,
+    lfoSync,
+    reverb,
+    delay,
+    chorus,
+    reverbMix,
+    delayMix,
+    tone
+};
+
+enum class OperatorParameterId
+{
+    invalid,
+    ratio,
+    detune,
+    level,
+    rateScale,
+    levelScale,
+    velocity,
+    attackRate,
+    decay1Rate,
+    decay1Level,
+    decay2Rate,
+    releaseRate
 };
 
 struct RealtimeCommand
@@ -40,6 +88,7 @@ struct RealtimeCommand
     int value1 = 0;
     int value2 = 0;
     double normalizedValue = 0.0;
+    int value3 = 0;
 };
 
 template <std::size_t Capacity>
@@ -222,6 +271,49 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
     return encoded;
 }
 
+static PatchParameterId patchParameterId(NSString* parameter)
+{
+    if ([parameter isEqualToString:@"alg"]) return PatchParameterId::algorithm;
+    if ([parameter isEqualToString:@"fb"]) return PatchParameterId::feedback;
+    if ([parameter isEqualToString:@"pr1"]) return PatchParameterId::pitchRate1;
+    if ([parameter isEqualToString:@"pr2"]) return PatchParameterId::pitchRate2;
+    if ([parameter isEqualToString:@"pr3"]) return PatchParameterId::pitchRate3;
+    if ([parameter isEqualToString:@"pl1"]) return PatchParameterId::pitchLevel1;
+    if ([parameter isEqualToString:@"pl2"]) return PatchParameterId::pitchLevel2;
+    if ([parameter isEqualToString:@"pl3"]) return PatchParameterId::pitchLevel3;
+    if ([parameter isEqualToString:@"lfo.speed"]) return PatchParameterId::lfoSpeed;
+    if ([parameter isEqualToString:@"lfo.delay"]) return PatchParameterId::lfoDelay;
+    if ([parameter isEqualToString:@"lfo.pmd"]) return PatchParameterId::lfoPitchDepth;
+    if ([parameter isEqualToString:@"lfo.amd"]) return PatchParameterId::lfoAmpDepth;
+    if ([parameter isEqualToString:@"lfo.pms"]) return PatchParameterId::lfoPitchSensitivity;
+    if ([parameter isEqualToString:@"lfo.ams"]) return PatchParameterId::lfoAmpSensitivity;
+    if ([parameter isEqualToString:@"lfo.wave"]) return PatchParameterId::lfoWave;
+    if ([parameter isEqualToString:@"lfo.sync"]) return PatchParameterId::lfoSync;
+    if ([parameter isEqualToString:@"fx.reverb"]) return PatchParameterId::reverb;
+    if ([parameter isEqualToString:@"fx.delay"]) return PatchParameterId::delay;
+    if ([parameter isEqualToString:@"fx.chorus"]) return PatchParameterId::chorus;
+    if ([parameter isEqualToString:@"fx.revmix"]) return PatchParameterId::reverbMix;
+    if ([parameter isEqualToString:@"fx.dlymix"]) return PatchParameterId::delayMix;
+    if ([parameter isEqualToString:@"fx.tone"]) return PatchParameterId::tone;
+    return PatchParameterId::invalid;
+}
+
+static OperatorParameterId operatorParameterId(NSString* parameter)
+{
+    if ([parameter isEqualToString:@"ratio"]) return OperatorParameterId::ratio;
+    if ([parameter isEqualToString:@"detune"]) return OperatorParameterId::detune;
+    if ([parameter isEqualToString:@"level"]) return OperatorParameterId::level;
+    if ([parameter isEqualToString:@"ratesc"]) return OperatorParameterId::rateScale;
+    if ([parameter isEqualToString:@"levelsc"]) return OperatorParameterId::levelScale;
+    if ([parameter isEqualToString:@"vel"]) return OperatorParameterId::velocity;
+    if ([parameter isEqualToString:@"ar"]) return OperatorParameterId::attackRate;
+    if ([parameter isEqualToString:@"d1r"]) return OperatorParameterId::decay1Rate;
+    if ([parameter isEqualToString:@"d1l"]) return OperatorParameterId::decay1Level;
+    if ([parameter isEqualToString:@"d2r"]) return OperatorParameterId::decay2Rate;
+    if ([parameter isEqualToString:@"rr"]) return OperatorParameterId::releaseRate;
+    return OperatorParameterId::invalid;
+}
+
 @implementation OpalineMobileEngineBridge
 
 - (instancetype)init
@@ -289,6 +381,7 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
 - (void)selectVoiceBank:(int)bank voice:(int)voice
 {
     std::lock_guard<std::mutex> lock(engineMutex);
+    [self applyRealtimeCommandsNoLock];
     [self syncCurrentVoiceToLibraryNoLock];
     currentBank = std::max(0, std::min(bank, opaline::kOpalineVoiceBankCount - 1));
     currentVoice = std::max(0, std::min(voice, opaline::kOpalineVoiceBankSize - 1));
@@ -303,6 +396,7 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
 - (void)selectVoiceB:(int)voice
 {
     std::lock_guard<std::mutex> lock(engineMutex);
+    [self applyRealtimeCommandsNoLock];
     currentVoiceB = std::max(0, std::min(voice, opaline::kOpalineVoiceBankSize - 1));
     currentPatchB = opaline::normalizePatch(opaline::voiceAt(library, currentBank, currentVoiceB).patch);
     currentVoiceBName = opaline::voiceAt(library, currentBank, currentVoiceB).name;
@@ -362,6 +456,7 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
         auto importedBank = opaline::voiceBankFromSysex(sysex, bankName);
 
         std::lock_guard<std::mutex> lock(engineMutex);
+        [self applyRealtimeCommandsNoLock];
         engine->panic();
         engineB->panic();
         library.banks[static_cast<std::size_t>(currentBank)] = std::move(importedBank);
@@ -387,6 +482,7 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
         opaline::OpalineVoiceBank bankSnapshot;
         {
             std::lock_guard<std::mutex> lock(engineMutex);
+            [self applyRealtimeCommandsNoLock];
             [self syncCurrentVoiceToLibraryNoLock];
             bankSnapshot = library.banks[static_cast<std::size_t>(currentBank)];
         }
@@ -404,6 +500,7 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
     opaline::OpalineVoiceLibrary librarySnapshot;
     {
         std::lock_guard<std::mutex> lock(engineMutex);
+        [self applyRealtimeCommandsNoLock];
         [self syncCurrentVoiceToLibraryNoLock];
         librarySnapshot = library;
     }
@@ -445,6 +542,7 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
         return NO;
 
     std::lock_guard<std::mutex> lock(engineMutex);
+    [self applyRealtimeCommandsNoLock];
     engine->panic();
     engineB->panic();
     library = std::move(restored);
@@ -455,6 +553,7 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
 - (void)reloadBundledFactoryBank
 {
     std::lock_guard<std::mutex> lock(engineMutex);
+    [self applyRealtimeCommandsNoLock];
     [self loadBundledFactoryBank];
     currentPatch = opaline::normalizePatch(opaline::voiceAt(library, currentBank, currentVoice).patch);
     currentPatchB = opaline::normalizePatch(opaline::voiceAt(library, currentBank, currentVoiceB).patch);
@@ -473,6 +572,7 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
     BOOL effectsEnabledSnapshot = NO;
     {
         std::lock_guard<std::mutex> lock(engineMutex);
+        [self applyRealtimeCommandsNoLock];
         patchSnapshot = currentPatch;
         voiceNameSnapshot = currentVoiceName;
         effectsEnabledSnapshot = effectsEnabled;
@@ -544,6 +644,7 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
     BOOL importedEffectsEnabled = NO;
     {
         std::lock_guard<std::mutex> lock(engineMutex);
+        [self applyRealtimeCommandsNoLock];
         patch = currentPatch;
         importedEffectsEnabled = effectsEnabled;
     }
@@ -662,6 +763,7 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
 
     {
         std::lock_guard<std::mutex> lock(engineMutex);
+        [self applyRealtimeCommandsNoLock];
         engine->panic();
         engineB->panic();
         currentPatch = opaline::normalizePatch(patch);
@@ -694,6 +796,7 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
 
         const auto& voice = imported.voices.front();
         std::lock_guard<std::mutex> lock(engineMutex);
+        [self applyRealtimeCommandsNoLock];
         engine->panic();
         engineB->panic();
         currentPatch = opaline::normalizePatch(voice.patch);
@@ -711,6 +814,7 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
 - (void)initializeCurrentVoice
 {
     std::lock_guard<std::mutex> lock(engineMutex);
+    [self applyRealtimeCommandsNoLock];
     engine->panic();
     currentPatch = opaline::normalizePatch(opaline::OpalinePatch {});
     currentVoiceName = "INIT VOICE";
@@ -720,6 +824,7 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
 - (void)copyCurrentVoice
 {
     std::lock_guard<std::mutex> lock(engineMutex);
+    [self applyRealtimeCommandsNoLock];
     copiedVoice.patch = opaline::normalizePatch(currentPatch);
     copiedVoice.name = currentVoiceName.substr(0, 10);
     if (copiedVoice.name.empty())
@@ -732,6 +837,7 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
 - (BOOL)pasteCopiedVoice
 {
     std::lock_guard<std::mutex> lock(engineMutex);
+    [self applyRealtimeCommandsNoLock];
     if (!hasCopiedPatch)
         return NO;
 
@@ -753,6 +859,7 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
 - (void)storeCurrentVoice
 {
     std::lock_guard<std::mutex> lock(engineMutex);
+    [self applyRealtimeCommandsNoLock];
     [self syncCurrentVoiceToLibraryNoLock];
 }
 
@@ -773,6 +880,7 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
 - (NSDictionary<NSString*, NSNumber*>*)currentPatchSnapshot
 {
     std::lock_guard<std::mutex> lock(engineMutex);
+    [self applyRealtimeCommandsNoLock];
     NSMutableDictionary<NSString*, NSNumber*>* snapshot = [NSMutableDictionary dictionary];
     const auto& patch = currentPatch;
 
@@ -830,123 +938,55 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
 
 - (void)setPatchParameter:(NSString*)parameter value:(int)value
 {
-    std::lock_guard<std::mutex> lock(engineMutex);
-    const auto clamp = [](const int v, const int low, const int high) { return std::max(low, std::min(v, high)); };
-
-    if ([parameter isEqualToString:@"alg"])
-        currentPatch.algorithm = clamp(value, 1, 8);
-    else if ([parameter isEqualToString:@"fb"])
-        currentPatch.feedback = clamp(value, 0, 7);
-    else if ([parameter isEqualToString:@"pr1"])
-        currentPatch.pitchEnvelope.rate1 = clamp(value, 0, 99);
-    else if ([parameter isEqualToString:@"pr2"])
-        currentPatch.pitchEnvelope.rate2 = clamp(value, 0, 99);
-    else if ([parameter isEqualToString:@"pr3"])
-        currentPatch.pitchEnvelope.rate3 = clamp(value, 0, 99);
-    else if ([parameter isEqualToString:@"pl1"])
-        currentPatch.pitchEnvelope.level1 = clamp(value, 0, 99);
-    else if ([parameter isEqualToString:@"pl2"])
-        currentPatch.pitchEnvelope.level2 = clamp(value, 0, 99);
-    else if ([parameter isEqualToString:@"pl3"])
-        currentPatch.pitchEnvelope.level3 = clamp(value, 0, 99);
-    else if ([parameter isEqualToString:@"lfo.speed"])
-        currentPatch.lfo.speed = clamp(value, 0, 99);
-    else if ([parameter isEqualToString:@"lfo.delay"])
-        currentPatch.lfo.delay = clamp(value, 0, 99);
-    else if ([parameter isEqualToString:@"lfo.pmd"])
-        currentPatch.lfo.pitchDepth = clamp(value, 0, 99);
-    else if ([parameter isEqualToString:@"lfo.amd"])
-        currentPatch.lfo.ampDepth = clamp(value, 0, 99);
-    else if ([parameter isEqualToString:@"lfo.pms"])
-        currentPatch.lfo.pitchSensitivity = clamp(value, 0, 7);
-    else if ([parameter isEqualToString:@"lfo.ams"])
-        currentPatch.lfo.ampSensitivity = clamp(value, 0, 3);
-    else if ([parameter isEqualToString:@"lfo.wave"])
-        currentPatch.lfo.wave = clamp(value, 0, 3);
-    else if ([parameter isEqualToString:@"lfo.sync"])
-        currentPatch.lfo.sync = value != 0;
-    else if ([parameter isEqualToString:@"fx.reverb"])
-        currentPatch.effects.reverb = clamp(value, 0, 99);
-    else if ([parameter isEqualToString:@"fx.delay"])
-        currentPatch.effects.delay = clamp(value, 0, 99);
-    else if ([parameter isEqualToString:@"fx.chorus"])
-        currentPatch.effects.chorus = clamp(value, 0, 99);
-    else if ([parameter isEqualToString:@"fx.revmix"])
-        currentPatch.effects.mix = clamp(value, 0, 99);
-    else if ([parameter isEqualToString:@"fx.dlymix"])
-        currentPatch.effects.echoMix = clamp(value, 0, 99);
-    else if ([parameter isEqualToString:@"fx.tone"])
-        currentPatch.effects.tone = clamp(value, 0, 99);
-    else if ([parameter isEqualToString:@"fx.enabled"])
+    if ([parameter isEqualToString:@"fx.enabled"])
     {
-        effectsEnabled = value != 0;
-        engine->setEffectsEnabled(effectsEnabled);
-        engineB->setEffectsEnabled(effectsEnabled);
+        enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
+                               { RealtimeCommandType::effectsEnabled, value != 0 ? 1 : 0 });
+        return;
     }
 
-    [self applyCurrentPatchNoLock];
+    const auto parameterId = patchParameterId(parameter);
+    if (parameterId == PatchParameterId::invalid)
+        return;
+    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
+                           { RealtimeCommandType::patchParameter,
+                             static_cast<int>(parameterId), value });
 }
 
 - (void)setOperatorParameter:(int)operatorIndex parameter:(NSString*)parameter value:(int)value
 {
-    std::lock_guard<std::mutex> lock(engineMutex);
-    const int opIndex = std::max(0, std::min(operatorIndex, opaline::kOperatorCount - 1));
-    auto& op = currentPatch.operators[static_cast<std::size_t>(opIndex)];
-    const auto clamp = [](const int v, const int low, const int high) { return std::max(low, std::min(v, high)); };
-
-    if ([parameter isEqualToString:@"ratio"])
-        op.ratioIndex = clamp(value, 0, 63);
-    else if ([parameter isEqualToString:@"detune"])
-        op.detune = clamp(value, -3, 3);
-    else if ([parameter isEqualToString:@"level"])
-        op.level = clamp(value, 0, 99);
-    else if ([parameter isEqualToString:@"ratesc"])
-        op.rateScale = clamp(value, 0, 3);
-    else if ([parameter isEqualToString:@"levelsc"])
-        op.levelScale = clamp(value, 0, 99);
-    else if ([parameter isEqualToString:@"vel"])
-        op.velocity = clamp(value, 0, 7);
-    else if ([parameter isEqualToString:@"ar"])
-        op.envelope.attackRate = clamp(value, 0, 31);
-    else if ([parameter isEqualToString:@"d1r"])
-        op.envelope.decay1Rate = clamp(value, 0, 31);
-    else if ([parameter isEqualToString:@"d1l"])
-        op.envelope.decay1Level = clamp(value, 0, 15);
-    else if ([parameter isEqualToString:@"d2r"])
-        op.envelope.decay2Rate = clamp(value, 0, 31);
-    else if ([parameter isEqualToString:@"rr"])
-        op.envelope.releaseRate = clamp(value, 0, 15);
-
-    [self applyCurrentPatchNoLock];
+    const auto parameterId = operatorParameterId(parameter);
+    if (parameterId == OperatorParameterId::invalid)
+        return;
+    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
+                           { RealtimeCommandType::operatorParameter,
+                             operatorIndex, static_cast<int>(parameterId), 0.0, value });
 }
 
 - (void)setOperatorEnabled:(int)operatorIndex enabled:(BOOL)enabled
 {
-    std::lock_guard<std::mutex> lock(engineMutex);
-    const int opIndex = std::max(0, std::min(operatorIndex, opaline::kOperatorCount - 1));
-    currentPatch.operators[static_cast<std::size_t>(opIndex)].enabled = enabled;
-    [self applyCurrentPatchNoLock];
+    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
+                           { RealtimeCommandType::operatorEnabled,
+                             operatorIndex, enabled ? 1 : 0 });
 }
 
 - (void)setOperatorAmpModEnabled:(int)operatorIndex enabled:(BOOL)enabled
 {
-    std::lock_guard<std::mutex> lock(engineMutex);
-    const int opIndex = std::max(0, std::min(operatorIndex, opaline::kOperatorCount - 1));
-    currentPatch.operators[static_cast<std::size_t>(opIndex)].ampModEnable = enabled;
-    [self applyCurrentPatchNoLock];
+    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
+                           { RealtimeCommandType::operatorAmpModEnabled,
+                             operatorIndex, enabled ? 1 : 0 });
 }
 
 - (void)setEffectsEnabled:(BOOL)enabled
 {
-    std::lock_guard<std::mutex> lock(engineMutex);
-    effectsEnabled = enabled;
-    engine->setEffectsEnabled(effectsEnabled);
-    engineB->setEffectsEnabled(effectsEnabled);
+    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
+                           { RealtimeCommandType::effectsEnabled, enabled ? 1 : 0 });
 }
 
 - (void)setPerformanceMode:(int)mode
 {
     std::lock_guard<std::mutex> lock(engineMutex);
+    [self applyRealtimeCommandsNoLock];
     performanceMode = std::max(0, std::min(mode, 2));
     [self prepareEnginesNoLock];
     [self applyPatchesNoLock];
@@ -955,6 +995,7 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
 - (void)setDualDetune:(int)value
 {
     std::lock_guard<std::mutex> lock(engineMutex);
+    [self applyRealtimeCommandsNoLock];
     dualDetune = std::max(-16, std::min(value, 16));
     [self applyPitchBendNoLock];
 }
@@ -994,6 +1035,7 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
 - (void)setPitchBendRange:(int)value
 {
     std::lock_guard<std::mutex> lock(engineMutex);
+    [self applyRealtimeCommandsNoLock];
     pitchBendRange = std::max(0, std::min(value, 12));
     engine->setPitchBendRange(pitchBendRange);
     engineB->setPitchBendRange(pitchBendRange);
@@ -1002,6 +1044,7 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
 - (void)setPortamento:(int)value
 {
     std::lock_guard<std::mutex> lock(engineMutex);
+    [self applyRealtimeCommandsNoLock];
     portamento = std::max(0, std::min(value, 99));
     engine->setPortamento(portamento);
     engineB->setPortamento(portamento);
@@ -1010,6 +1053,7 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
 - (void)setPortamentoModeA:(int)mode
 {
     std::lock_guard<std::mutex> lock(engineMutex);
+    [self applyRealtimeCommandsNoLock];
     portamentoModeA = std::max(0, std::min(mode, 2));
     engine->panic();
     engine->setPortamentoMode(portamentoModeA);
@@ -1018,6 +1062,7 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
 - (void)setPortamentoModeB:(int)mode
 {
     std::lock_guard<std::mutex> lock(engineMutex);
+    [self applyRealtimeCommandsNoLock];
     portamentoModeB = std::max(0, std::min(mode, 2));
     engineB->panic();
     engineB->setPortamentoMode(portamentoModeB);
@@ -1038,6 +1083,7 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
 - (void)setModWheelPitchRange:(int)value ampRange:(int)ampRange
 {
     std::lock_guard<std::mutex> lock(engineMutex);
+    [self applyRealtimeCommandsNoLock];
     modWheelPitchRange = std::max(0, std::min(value, 99));
     modWheelAmpRange = std::max(0, std::min(ampRange, 99));
     engine->setModWheelRanges(modWheelPitchRange, modWheelAmpRange);
@@ -1055,6 +1101,7 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
 - (void)setMonoMode:(BOOL)enabled
 {
     std::lock_guard<std::mutex> lock(engineMutex);
+    [self applyRealtimeCommandsNoLock];
     monoA = enabled;
     if (!monoA && portamentoModeA == 2)
         portamentoModeA = 1;
@@ -1066,6 +1113,7 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
 - (void)setMonoModeB:(BOOL)enabled
 {
     std::lock_guard<std::mutex> lock(engineMutex);
+    [self applyRealtimeCommandsNoLock];
     monoB = enabled;
     if (!monoB && portamentoModeB == 2)
         portamentoModeB = 1;
@@ -1092,6 +1140,12 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
         panicAndResetScope();
         return;
     }
+
+    bool patchChanged = false;
+    const auto clamp = [](const int value, const int low, const int high)
+    {
+        return std::max(low, std::min(value, high));
+    };
 
     while (realtimeCommands.pop(command))
     {
@@ -1175,8 +1229,85 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
                 engine->setPortamentoFootSwitch(command.value1 != 0);
                 engineB->setPortamentoFootSwitch(command.value1 != 0);
                 break;
+
+            case RealtimeCommandType::patchParameter:
+                switch (static_cast<PatchParameterId>(command.value1))
+                {
+                    case PatchParameterId::algorithm: currentPatch.algorithm = clamp(command.value2, 1, 8); break;
+                    case PatchParameterId::feedback: currentPatch.feedback = clamp(command.value2, 0, 7); break;
+                    case PatchParameterId::pitchRate1: currentPatch.pitchEnvelope.rate1 = clamp(command.value2, 0, 99); break;
+                    case PatchParameterId::pitchRate2: currentPatch.pitchEnvelope.rate2 = clamp(command.value2, 0, 99); break;
+                    case PatchParameterId::pitchRate3: currentPatch.pitchEnvelope.rate3 = clamp(command.value2, 0, 99); break;
+                    case PatchParameterId::pitchLevel1: currentPatch.pitchEnvelope.level1 = clamp(command.value2, 0, 99); break;
+                    case PatchParameterId::pitchLevel2: currentPatch.pitchEnvelope.level2 = clamp(command.value2, 0, 99); break;
+                    case PatchParameterId::pitchLevel3: currentPatch.pitchEnvelope.level3 = clamp(command.value2, 0, 99); break;
+                    case PatchParameterId::lfoSpeed: currentPatch.lfo.speed = clamp(command.value2, 0, 99); break;
+                    case PatchParameterId::lfoDelay: currentPatch.lfo.delay = clamp(command.value2, 0, 99); break;
+                    case PatchParameterId::lfoPitchDepth: currentPatch.lfo.pitchDepth = clamp(command.value2, 0, 99); break;
+                    case PatchParameterId::lfoAmpDepth: currentPatch.lfo.ampDepth = clamp(command.value2, 0, 99); break;
+                    case PatchParameterId::lfoPitchSensitivity: currentPatch.lfo.pitchSensitivity = clamp(command.value2, 0, 7); break;
+                    case PatchParameterId::lfoAmpSensitivity: currentPatch.lfo.ampSensitivity = clamp(command.value2, 0, 3); break;
+                    case PatchParameterId::lfoWave: currentPatch.lfo.wave = clamp(command.value2, 0, 3); break;
+                    case PatchParameterId::lfoSync: currentPatch.lfo.sync = command.value2 != 0; break;
+                    case PatchParameterId::reverb: currentPatch.effects.reverb = clamp(command.value2, 0, 99); break;
+                    case PatchParameterId::delay: currentPatch.effects.delay = clamp(command.value2, 0, 99); break;
+                    case PatchParameterId::chorus: currentPatch.effects.chorus = clamp(command.value2, 0, 99); break;
+                    case PatchParameterId::reverbMix: currentPatch.effects.mix = clamp(command.value2, 0, 99); break;
+                    case PatchParameterId::delayMix: currentPatch.effects.echoMix = clamp(command.value2, 0, 99); break;
+                    case PatchParameterId::tone: currentPatch.effects.tone = clamp(command.value2, 0, 99); break;
+                    case PatchParameterId::invalid: break;
+                }
+                patchChanged = true;
+                break;
+
+            case RealtimeCommandType::operatorParameter:
+            {
+                const int opIndex = clamp(command.value1, 0, opaline::kOperatorCount - 1);
+                auto& op = currentPatch.operators[static_cast<std::size_t>(opIndex)];
+                switch (static_cast<OperatorParameterId>(command.value2))
+                {
+                    case OperatorParameterId::ratio: op.ratioIndex = clamp(command.value3, 0, 63); break;
+                    case OperatorParameterId::detune: op.detune = clamp(command.value3, -3, 3); break;
+                    case OperatorParameterId::level: op.level = clamp(command.value3, 0, 99); break;
+                    case OperatorParameterId::rateScale: op.rateScale = clamp(command.value3, 0, 3); break;
+                    case OperatorParameterId::levelScale: op.levelScale = clamp(command.value3, 0, 99); break;
+                    case OperatorParameterId::velocity: op.velocity = clamp(command.value3, 0, 7); break;
+                    case OperatorParameterId::attackRate: op.envelope.attackRate = clamp(command.value3, 0, 31); break;
+                    case OperatorParameterId::decay1Rate: op.envelope.decay1Rate = clamp(command.value3, 0, 31); break;
+                    case OperatorParameterId::decay1Level: op.envelope.decay1Level = clamp(command.value3, 0, 15); break;
+                    case OperatorParameterId::decay2Rate: op.envelope.decay2Rate = clamp(command.value3, 0, 31); break;
+                    case OperatorParameterId::releaseRate: op.envelope.releaseRate = clamp(command.value3, 0, 15); break;
+                    case OperatorParameterId::invalid: break;
+                }
+                patchChanged = true;
+                break;
+            }
+
+            case RealtimeCommandType::operatorEnabled:
+            {
+                const int opIndex = clamp(command.value1, 0, opaline::kOperatorCount - 1);
+                currentPatch.operators[static_cast<std::size_t>(opIndex)].enabled = command.value2 != 0;
+                patchChanged = true;
+                break;
+            }
+
+            case RealtimeCommandType::operatorAmpModEnabled:
+            {
+                const int opIndex = clamp(command.value1, 0, opaline::kOperatorCount - 1);
+                currentPatch.operators[static_cast<std::size_t>(opIndex)].ampModEnable = command.value2 != 0;
+                patchChanged = true;
+                break;
+            }
+
+            case RealtimeCommandType::effectsEnabled:
+                effectsEnabled = command.value1 != 0;
+                patchChanged = true;
+                break;
         }
     }
+
+    if (patchChanged)
+        [self applyCurrentPatchNoLock];
 
     if (realtimeCommandOverflowed.exchange(false, std::memory_order_acq_rel))
     {
