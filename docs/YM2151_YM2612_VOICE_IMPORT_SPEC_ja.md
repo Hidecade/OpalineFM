@@ -514,6 +514,8 @@ ChipVoiceImportResult importChipVoices(
 - DMPはVersion 10の50-byte FMプリセットと、system byteを持つVersion 11の51-byte FMプリセットに対応する。
 - macOS Standalone、VST3、AU、iOS Simulator（スタンドアロン＋AUv3）のビルドに成功した。
 - エンジンユニットテストにTFI、VGI、OPM、DMPの正常系、変換値、異常サイズ拒否を追加し、成功した。
+- 2026-07-18に`build`を削除した状態からmacOS Releaseを再構成し、Standalone、プラグイン版Standalone、VST3、AUのクリーンビルドとエンジンテスト（1/1）に成功した。
+- 音色変換とファイルアクセスはUI側で実行し、変換結果は`RealtimeStateMailbox`経由で音声レンダーへ反映するため、音声レンダー用mutexを保持しない。
 
 ### 残課題
 

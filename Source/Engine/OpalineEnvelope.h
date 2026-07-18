@@ -4,7 +4,7 @@
 
 namespace opaline
 {
-// 従来モデル用EG。内部はdB減衰量として進め、最後に振幅へ変換する。
+// Legacy envelope that advances in dB attenuation and converts to amplitude at output.
 class OpalineEnvelope
 {
 public:

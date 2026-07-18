@@ -19,8 +19,6 @@ constexpr double kModulatorIndexExponent = 2.2;
 constexpr double kOpmTlDbPerStep = 0.75;
 constexpr double kOpmLogAttenuationDbPerStep = 6.020599913279624 / 256.0;
 constexpr double kOpmEgIndexMax = 1023.0;
-constexpr double kChipLevelBlend = 0.50;
-constexpr double kChipModulatorBlend = 0.14;
 constexpr double kChipModulatorIndexScale = 0.82;
 constexpr double kTypeAPhaseModulationGain = 0.90;
 struct RenderModelTrim
@@ -33,7 +31,6 @@ struct RenderModelTrim
 constexpr RenderModelTrim kTypeATrim { 0.35, 1.0, 0.833 };
 constexpr RenderModelTrim kTypeBChipTrim { 0.0, 0.0, 2.0 };
 constexpr double kModulatorAttackSoftenSeconds = 0.003;
-constexpr double kChipPhaseModGain = 1.0;
 constexpr double kModulatorAttackInitialScale = 0.96;
 constexpr double kOpmPhaseSteps = 1048576.0;
 constexpr double kOpmPhaseMaxIncrement = kOpmPhaseSteps - 1.0;
@@ -164,14 +161,6 @@ int keyboardScaledTargetLevel(const int level, const int levelScale, const int n
     return clampInt(level - scaleAmount, 0, 99);
 }
 
-double keyboardScaledLevel(const double level, const int levelScale, const int note)
-{
-    const double tlOffset = measuredKeyboardScaleTlOffset(note, levelScale);
-    return clampDouble(level - tlOffset * 99.0 / kOppTlMax, 0.0, 99.0);
-}
-
-
-
 double operatorAmpModFactor(const double depth, const double shapeValue)
 {
     return clampDouble(1.0 - depth * shapeValue, 0.0, 1.0);
@@ -193,17 +182,6 @@ double envelopeAmpForModel(const double envelopeAmp, const OpalineRenderModel re
 {
     (void) renderModel;
     return envelopeAmp;
-}
-
-bool isCarrierOperator(const Algorithm& algorithm, const int opIndex)
-{
-    for (int i = 0; i < algorithm.carrierCount; ++i)
-    {
-        if (algorithm.carriers[static_cast<std::size_t>(i)] == opIndex)
-            return true;
-    }
-
-    return false;
 }
 
 double operatorVelocityFactor(const int opVelocity, const int noteVelocity, const bool carrier)
@@ -389,16 +367,6 @@ double chipOperatorOutputFromAttenuationIndex(const int phaseIndex, const double
     return quantizeOperatorAudioForModel(output, OpalineRenderModel::TypeB);
 }
 
-double chipOperatorOutputFromPhaseIndex(const int phaseIndex, const double amplitude)
-{
-    if (amplitude <= 0.0)
-        return 0.0;
-
-    const int ampAttenuation = clampInt(
-        static_cast<int>(std::round(amplitudeFactorToDbOffset(amplitude) / kOpmLogAttenuationDbPerStep)), 0, 1023);
-    return chipOperatorOutputFromAttenuationIndex(phaseIndex, ampAttenuation);
-}
-
 double quantizeOperatorBusForModel(const double bus, const OpalineRenderModel renderModel)
 {
     if (usesSharedTypeABase(renderModel))
@@ -469,7 +437,10 @@ double feedbackHistoryBusForModel(const std::array<double, 2>& history, const Op
     return sum;
 }
 
-double opmFeedbackBusToRadians(const double bus, const int level, const OpalineRenderModel renderModel)
+double opmFeedbackBusToRadians(const double bus,
+                               const int level,
+                               const OpalineRenderModel renderModel,
+                               const double sharedDivisor)
 {
     const int feedback = clampInt(level, 0, 7);
     if (feedback <= 0)
@@ -478,7 +449,7 @@ double opmFeedbackBusToRadians(const double bus, const int level, const OpalineR
     if (usesSharedTypeABase(renderModel))
     {
         const double phaseIndex = quantizeOperatorBusForModel(bus, renderModel)
-            / std::pow(2.0, static_cast<double>(9 - feedback));
+            / sharedDivisor;
         return phaseIndex * 2.0 * kPi / kOpmSineIndexSteps;
     }
 
@@ -561,14 +532,28 @@ double opmStyleAmpModDepth(const int depth, const int sensitivity)
     return normalizedSensitivity * steppedModDepth(normalized, kDepthTable);
 }
 
-double lfoDelayFactor(const int delay, const double age)
+struct LfoDelayTiming
+{
+    double waitSeconds = 0.0;
+    double fadeSeconds = 0.0;
+};
+
+LfoDelayTiming lfoDelayTimingForValue(const int delay)
 {
     if (delay <= 0)
-        return 1.0;
+        return {};
 
     const double waitSeconds = 0.25 * std::pow(2.0, static_cast<double>(clampInt(delay, 0, 99)) / 25.0);
     const double highDelay = clampDouble((static_cast<double>(delay) - 75.0) / 24.0, 0.0, 1.0);
     const double fadeSeconds = waitSeconds * (1.0 + 2.0 * highDelay);
+    return { waitSeconds, fadeSeconds };
+}
+
+double lfoDelayFactor(const int delay, const double age, const double waitSeconds, const double fadeSeconds)
+{
+    if (delay <= 0)
+        return 1.0;
+
     if (age <= waitSeconds)
         return 0.0;
 
@@ -615,13 +600,6 @@ std::pair<double, double> opalineLfoShape(const double phase, const int wave)
     return { clampDouble(am, 0.0, 1.0), clampDouble(pm, -1.0, 1.0) };
 }
 
-std::pair<double, double> opalinePitchLfoShape(const double phase, const int wave, const int sensitivity)
-{
-    if (clampInt(sensitivity, 0, 7) != 0)
-        return opalineLfoShape(phase, wave);
-
-    return opalineLfoShape(phase, 2);
-}
 }
 
 void OpalineVoice::start(const OpalinePatch& patch, const int newMidiNote, const int velocity,
@@ -641,6 +619,7 @@ void OpalineVoice::start(const OpalinePatch& patch, const int newMidiNote, const
     portamentoStepPerSample = portamentoSamples > 0.0
         ? std::abs(portamentoOffsetSemitones) / portamentoSamples
         : 0.0;
+    operatorTlStepInterval = std::max(1.0, currentSampleRate * kOppTlRampSeconds / (kOppTlMax * kOppTlSubsteps));
     phases.fill(0.0);
     operatorTlAccumulators.fill(0.0);
     delayedPitchLfo = 0.0;
@@ -660,8 +639,10 @@ void OpalineVoice::start(const OpalinePatch& patch, const int newMidiNote, const
     for (int sensitivity = 0; sensitivity <= 7; ++sensitivity)
     {
         const auto index = static_cast<std::size_t>(sensitivity);
-        carrierVelocityFactors[index] = operatorVelocityFactor(sensitivity, noteVelocity, true);
-        modulatorVelocityFactors[index] = operatorVelocityFactor(sensitivity, noteVelocity, false);
+        carrierVelocityDb[index] = amplitudeFactorToDbOffset(
+            operatorVelocityFactor(sensitivity, noteVelocity, true));
+        modulatorVelocityDb[index] = amplitudeFactorToDbOffset(
+            operatorVelocityFactor(sensitivity, noteVelocity, false));
     }
 
     for (int i = 0; i < kOperatorCount; ++i)
@@ -739,10 +720,8 @@ double OpalineVoice::nextOperatorTl(const int index, const int targetLevel)
     const auto opSize = static_cast<std::size_t>(index);
     double current = operatorOppTlUnits[opSize];
     const double target = levelToOppTlTarget(targetLevel, activeRenderModel);
-    const double stepInterval = std::max(1.0, currentSampleRate * kOppTlRampSeconds / (kOppTlMax * kOppTlSubsteps));
-
     operatorTlAccumulators[opSize] += 1.0;
-    const bool match = operatorTlAccumulators[opSize] >= stepInterval;
+    const bool match = operatorTlAccumulators[opSize] >= operatorTlStepInterval;
     bool stepped = false;
 
     if (match)
@@ -766,7 +745,7 @@ double OpalineVoice::nextOperatorTl(const int index, const int targetLevel)
     }
 
     if (match && stepped)
-        operatorTlAccumulators[opSize] -= stepInterval;
+        operatorTlAccumulators[opSize] -= operatorTlStepInterval;
 
     operatorOppTlUnits[opSize] = clampDouble(current, 0.0, kOppTlMax * kOppTlSubsteps);
     return operatorOppTlUnits[opSize] / kOppTlSubsteps;
@@ -845,7 +824,10 @@ OperatorRender OpalineVoice::renderOperator(const int opIndex,
     phaseModulation = mixPhaseModulationForModel(phaseModulation, algorithm.depCounts[opSize], renderModel);
 
     const double feedback = opIndex == 3
-        ? opmFeedbackBusToRadians(feedbackHistoryBusForModel(feedbackHistory, renderModel), patch.feedback, renderModel)
+        ? opmFeedbackBusToRadians(feedbackHistoryBusForModel(feedbackHistory, renderModel),
+                                  patch.feedback,
+                                  renderModel,
+                                  cachedFeedbackDivisor)
         : 0.0;
 
     const double ratio = opalineRatios()[static_cast<std::size_t>(op.ratioIndex)];
@@ -864,26 +846,31 @@ OperatorRender OpalineVoice::renderOperator(const int opIndex,
     {
         envelopeAmp = envelopeAmpForModel(envelopes[opSize].next(), renderModel);
     }
-    const bool carrier = isCarrierOperator(algorithm, opIndex);
+    const bool carrier = operatorCarrierRoles[opSize];
+    auto& scaleCache = operatorScaleCaches[opSize];
+    if (scaleCache.midiNote != midiNote || scaleCache.levelScale != op.levelScale)
+    {
+        scaleCache.midiNote = midiNote;
+        scaleCache.levelScale = op.levelScale;
+        scaleCache.tlOffset = measuredKeyboardScaleTlOffset(midiNote, op.levelScale);
+    }
     const auto velocityIndex = static_cast<std::size_t>(clampInt(op.velocity, 0, 7));
-    const double carrierVelocityFactor = carrierVelocityFactors[velocityIndex];
-    const double modulatorVelocityFactor = modulatorVelocityFactors[velocityIndex];
     const double ampMod = op.ampModEnable ? operatorAmpModFactor(ampDepth, lfoAm) : 1.0;
     double carrierAmp = 0.0;
     double modulatorIndex = 0.0;
     if (!usesChipOperatorPath(renderModel))
     {
         const double level = nextOperatorLevel(opIndex, op.level);
-        const double scaledLevel = keyboardScaledLevel(level, op.levelScale, midiNote);
+        const double scaledLevel = clampDouble(level - scaleCache.tlOffset * 99.0 / kOppTlMax, 0.0, 99.0);
         const double envelopeDb = amplitudeFactorToDbOffset(envelopeAmp);
         const double ampModDb = op.ampModEnable ? amplitudeFactorToDbOffset(ampMod) : 0.0;
-        const double carrierVelocityDb = amplitudeFactorToDbOffset(carrierVelocityFactor);
-        const double modulatorVelocityDb = amplitudeFactorToDbOffset(carrier ? carrierVelocityFactor : modulatorVelocityFactor);
+        const double carrierVelocityDbOffset = carrierVelocityDb[velocityIndex];
+        const double modulatorVelocityDbOffset = carrier ? carrierVelocityDbOffset : modulatorVelocityDb[velocityIndex];
         const double baseCarrierAmp = usesSharedTypeABase(renderModel)
             ? outputLevelToCarrierAmplitudeChipLike(scaledLevel)
             : outputLevelToCarrierAmplitude(scaledLevel);
         carrierAmp = dbToAmplitude(amplitudeToDb(baseCarrierAmp)
-                                   + envelopeDb + carrierVelocityDb + ampModDb);
+                                   + envelopeDb + carrierVelocityDbOffset + ampModDb);
         const auto& trim = trimForModel(renderModel);
         const double modulatorLevel = usesSharedTypeABase(renderModel)
             ? clampDouble(scaledLevel + trim.modulatorLevelBoost, 0.0, 99.0)
@@ -894,7 +881,7 @@ OperatorRender OpalineVoice::renderOperator(const int opIndex,
                 + compatibleModulatorIndex * trim.modulatorOpalineBlend
             : compatibleModulatorIndex;
         modulatorIndex = dbToAmplitude(amplitudeToDb(baseModulatorIndex)
-                                       + envelopeDb + modulatorVelocityDb + ampModDb)
+                                       + envelopeDb + modulatorVelocityDbOffset + ampModDb)
             * modulatorAttackSofteningForModel(ageSeconds, renderModel);
     }
 
@@ -903,9 +890,9 @@ OperatorRender OpalineVoice::renderOperator(const int opIndex,
     if (usesChipOperatorPath(renderModel))
     {
         const int phaseIndex = chipOperatorPhaseIndex(phases[opSize], phaseModulation, feedback);
-        const int scaledTargetLevel = keyboardScaledTargetLevel(op.level, op.levelScale, midiNote);
+        const int scaledTargetLevel = clampInt(op.level - static_cast<int>(scaleCache.tlOffset), 0, 99);
         const double chipTl = nextOperatorTl(opIndex, scaledTargetLevel);
-        const double velocityDb = amplitudeFactorToDbOffset(carrier ? carrierVelocityFactor : modulatorVelocityFactor);
+        const double velocityDb = carrier ? carrierVelocityDb[velocityIndex] : modulatorVelocityDb[velocityIndex];
         const double ampModDb = op.ampModEnable ? amplitudeFactorToDbOffset(ampMod) : 0.0;
         const double attenuationIndex = clampDouble(chipEnvelopeIndex + chipTl * kOppTlSubsteps
             + (velocityDb + ampModDb) / kOpmLogAttenuationDbPerStep, 0.0, kOpmEgIndexMax);
@@ -948,14 +935,42 @@ double OpalineVoice::render(const OpalinePatch& patch,
     ageSeconds += 1.0 / currentSampleRate;
 
     const auto& algorithm = opalineAlgorithms()[static_cast<std::size_t>(patch.algorithm - 1)];
+    if (cachedAlgorithm != patch.algorithm)
+    {
+        cachedAlgorithm = patch.algorithm;
+        operatorCarrierRoles.fill(false);
+        for (int index = 0; index < algorithm.carrierCount; ++index)
+            operatorCarrierRoles[static_cast<std::size_t>(algorithm.carriers[static_cast<std::size_t>(index)])] = true;
+    }
+    if (cachedFeedback != patch.feedback)
+    {
+        cachedFeedback = patch.feedback;
+        const int feedback = clampInt(patch.feedback, 0, 7);
+        cachedFeedbackDivisor = feedback > 0
+            ? std::pow(2.0, static_cast<double>(9 - feedback))
+            : 1.0;
+    }
     const double lfoAge = patch.lfo.sync ? ageSeconds : globalLfoAge;
-    const double lfoPhase = opalineLfoSpeedToHz(patch.lfo.speed) * lfoAge;
+    if (cachedLfoSpeed != patch.lfo.speed)
+    {
+        cachedLfoSpeed = patch.lfo.speed;
+        cachedLfoFrequency = opalineLfoSpeedToHz(patch.lfo.speed);
+    }
+    const double lfoPhase = cachedLfoFrequency * lfoAge;
     const auto lfo = patch.lfo.wave == 3 ? nextSampleAndHoldLfoShape(lfoPhase)
                                          : opalineLfoShape(lfoPhase, patch.lfo.wave);
     const auto pitchLfoShape = clampInt(patch.lfo.pitchSensitivity, 0, 7) == 0
         ? opalineLfoShape(lfoPhase, 2)
         : lfo;
-    const double delay = lfoDelayFactor(patch.lfo.delay, ageSeconds);
+    if (cachedLfoDelay != patch.lfo.delay)
+    {
+        cachedLfoDelay = patch.lfo.delay;
+        const auto timing = lfoDelayTimingForValue(patch.lfo.delay);
+        cachedLfoWaitSeconds = timing.waitSeconds;
+        cachedLfoFadeSeconds = timing.fadeSeconds;
+    }
+    const double delay = lfoDelayFactor(patch.lfo.delay, ageSeconds,
+                                        cachedLfoWaitSeconds, cachedLfoFadeSeconds);
     const double directPitchLfo = pitchModDepthForModel(patch.lfo.pitchDepth, patch.lfo.pitchSensitivity, patch.lfo.wave, renderModel)
         * delay * pitchLfoShape.second;
     const double safeModWheel = clampDouble(modWheel, 0.0, 1.0);
@@ -964,7 +979,13 @@ double OpalineVoice::render(const OpalinePatch& patch,
     const double pitchLfo = directPitchLfo + modWheelPitchLfo;
     const int combinedAmpDepth = clampInt(patch.lfo.ampDepth
         + static_cast<int>(std::round(static_cast<double>(clampInt(modWheelAmpRange, 0, 99)) * safeModWheel)), 0, 99);
-    const double ampDepth = opmStyleAmpModDepth(combinedAmpDepth, patch.lfo.ampSensitivity);
+    if (cachedAmpDepthValue != combinedAmpDepth || cachedAmpSensitivity != patch.lfo.ampSensitivity)
+    {
+        cachedAmpDepthValue = combinedAmpDepth;
+        cachedAmpSensitivity = patch.lfo.ampSensitivity;
+        cachedAmpDepth = opmStyleAmpModDepth(combinedAmpDepth, patch.lfo.ampSensitivity);
+    }
+    const double ampDepth = cachedAmpDepth;
     const double appliedPitchLfo = nextPitchModulation(pitchLfo);
     const double pitchEnvelopeSemitones = pitchEnvelope.nextSemitones();
     if (portamentoOffsetSemitones > 0.0)
@@ -974,7 +995,13 @@ double OpalineVoice::render(const OpalinePatch& patch,
 
     const double bendSemitones = clampDouble(pitchBend, -1.0, 1.0)
         * static_cast<double>(clampInt(pitchBendRange, 0, 12));
-    const double baseFrequency = midiNoteToFrequency(static_cast<double>(midiNote + patch.transpose))
+    const int baseMidiNote = midiNote + patch.transpose;
+    if (cachedBaseMidiNote != baseMidiNote)
+    {
+        cachedBaseMidiNote = baseMidiNote;
+        cachedBaseNoteFrequency = midiNoteToFrequency(static_cast<double>(baseMidiNote));
+    }
+    const double baseFrequency = cachedBaseNoteFrequency
         * std::pow(2.0, (portamentoOffsetSemitones + bendSemitones
                          + appliedPitchLfo + pitchEnvelopeSemitones) / 12.0);
 
@@ -1007,16 +1034,22 @@ double OpalineVoice::render(const OpalinePatch& patch,
     if (algorithm.carrierCount <= 0)
         return 0.0;
 
+    if (cachedCarrierCount != algorithm.carrierCount)
+    {
+        cachedCarrierCount = algorithm.carrierCount;
+        cachedChipCarrierGain = std::pow(static_cast<double>(algorithm.carrierCount),
+                                         -kChipCarrierCountCompensationExponent);
+        cachedCarrierDivisor = std::sqrt(static_cast<double>(algorithm.carrierCount));
+    }
+
     double mixed = 0.0;
     if (usesChipOperatorPath(renderModel))
     {
-        const double carrierCountGain = std::pow(static_cast<double>(algorithm.carrierCount),
-                                                 -kChipCarrierCountCompensationExponent);
-        mixed = chipMixerOutputFromBus(sum * kOpmOperatorBusPeak) * carrierCountGain;
+        mixed = chipMixerOutputFromBus(sum * kOpmOperatorBusPeak) * cachedChipCarrierGain;
     }
     else
     {
-        mixed = (sum / std::sqrt(static_cast<double>(algorithm.carrierCount))) * kCarrierMixGain;
+        mixed = (sum / cachedCarrierDivisor) * kCarrierMixGain;
         if (usesSharedTypeABase(renderModel))
             mixed *= trimForModel(renderModel).outputGain;
     }

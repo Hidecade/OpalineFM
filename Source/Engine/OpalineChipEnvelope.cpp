@@ -7,7 +7,7 @@ namespace opaline
 {
 namespace
 {
-// NEW EGは0が最大音量、1023が無音側の10bitインデックスを直接扱う。
+// The EG index ranges from 0 at maximum level to 1023 at silence.
 constexpr double kEgIndexMax = 1023.0;
 constexpr double kEgIndexDbRange = 128.0;
 constexpr double kQuietDb = 96.0;
@@ -160,7 +160,7 @@ void OpalineChipEnvelope::advanceAttack()
     if (increment <= 0)
         return;
 
-    // Attackだけは現在値に比例して減るため、直線ではなくカーブした立ち上がりになる。
+    // Attack falls in proportion to the current level, producing a curved rise.
     if (currentParams.attackRate >= 31)
         egLevel = 0.0;
     else

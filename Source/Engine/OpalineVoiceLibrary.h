@@ -12,7 +12,7 @@ namespace opaline
 constexpr int kOpalineVoiceBankCount = 8;
 constexpr int kOpalineVoiceBankSize = kOpalineBulkVoiceCount;
 
-// UI/ホスト側で扱う音色バンク。compatibleに合わせて1バンク32音色。
+// Voice bank shared with the UI and host, with 32 voices per compatible bank.
 struct OpalineVoiceBank
 {
     std::string name;

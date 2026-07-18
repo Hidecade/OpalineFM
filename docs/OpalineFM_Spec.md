@@ -58,6 +58,19 @@ Main concepts:
 
 The internal names still use `opaline` because they describe compatibility-level data structures and SysEx semantics.
 
+### Real-Time Safety
+
+- Desktop and iOS audio render paths do not acquire the mutex used to protect UI and library snapshots.
+- Note On/Off, Pitch Bend, Mod Wheel, Sustain, Portamento Foot Switch, and Panic are delivered to the audio thread through a fixed-capacity `RealtimeCommandQueue`.
+- Complete voice, effect, and performance settings are published through a fixed-slot `RealtimeStateMailbox` and applied at buffer boundaries.
+- The audio render path is the only consumer of the queue and mailbox; the UI thread never executes queued real-time commands.
+- During WAV recording, the audio thread writes only to a preallocated ring buffer. Buffer growth, collection, and file output happen on a collector thread or the UI side.
+- The desktop audio callback does not query the audio device or compare device-name strings. It reads an atomic output-trim value determined when the device starts.
+
+### iOS Audio Lifecycle
+
+The iOS standalone app observes output-route changes, `AVAudioSession.interruptionNotification`, `mediaServicesWereResetNotification`, and SwiftUI `scenePhase`. Audio is suspended during interruptions or background transitions. On recovery, the app reacquires the session sample rate and route and rebuilds `AVAudioEngine`. Phone, Siri, Bluetooth, and headphone recovery remain part of physical-device regression testing.
+
 ## Four-Operator FM Architecture
 
 Each voice contains four sine-wave operators. An operator produces audio at `baseFrequency * ratio + detune`. The algorithm table determines whether that output is sent to the final carrier mixer or used as phase modulation for another operator.
@@ -349,13 +362,13 @@ The desired state suffix is `.opalinefmstate`.
 
 ## Release Notes and Legal Notes
 
-The v0.3.2 public release provides the following installer formats:
+The v1.0.7 public release provides the following installer formats:
 
-- Windows x64 standalone installer: `OpalineFM-Standalone-v0.3.2-Windows-x64.exe`
-- Windows x64 VST3 installer: `OpalineFM-VST3-v0.3.2-Windows-x64.exe`
+- Windows x64 standalone installer: `OpalineFM-Standalone-v1.0.7-Windows-x64.exe`
+- Windows x64 VST3 installer: `OpalineFM-VST3-v1.0.7-Windows-x64.exe`
 - Signed and notarized macOS standalone, VST3, and Audio Unit packages
 
-The Windows VST3 installer targets `C:\Program Files\Common Files\VST3\Opaline FM.vst3`. Windows installers are currently unsigned; macOS packages are signed and notarized. Published installers must be obtained from the [official GitHub Release](https://github.com/Hidecade/OpalineFM/releases/tag/v0.3.2).
+The Windows VST3 installer targets `C:\Program Files\Common Files\VST3\Opaline FM.vst3`. Windows installers are currently unsigned; macOS packages are signed and notarized. Published installers must be obtained from the [official GitHub Release](https://github.com/Hidecade/OpalineFM/releases/tag/v1.0.7).
 
 Public release documentation should state:
 
@@ -368,7 +381,8 @@ Public release documentation should state:
 
 ## Known Technical Debt
 
-- Audio-thread locking remains an area for future RT-safety work.
 - The plugin state and APVTS sync path is practical but not fully sample accurate.
 - Dual/Split behavior and exact manual LFO sharing rules are not complete.
+- Per-sample `pow` calls, voice-retirement scans, and effect processing remain in the engine. Any precomputation or zero-setting short circuit should follow the addition of audio-output regression comparisons.
+- iOS interruption recovery and AUv3 support are implemented, but physical-device regression testing must continue for phone calls, Siri, Bluetooth changes, and long sessions.
 - The JUCE submodule has been locally modified for standalone state suffix behavior; for public release this should either be managed as a fork or replaced with a non-invasive solution.

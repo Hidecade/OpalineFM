@@ -4,7 +4,7 @@
 
 namespace opaline
 {
-// NEWモデル用EG。10bit EGインデックスを直接進めてチップ寄りの段差を残す。
+// Chip-style envelope that advances a 10-bit EG index directly to retain stepped behavior.
 class OpalineChipEnvelope
 {
 public:

@@ -7,7 +7,7 @@ namespace opaline
 {
 namespace
 {
-// PL50を中心に、実機録音から得た上下方向のテーブルを使う。
+// Tables measured from hardware map levels above and below the PL50 center.
 constexpr double kPegRateReferenceCents = 4800.0;
 constexpr double kPegRate0Seconds = 63.55;
 constexpr double kPegRate99Seconds = 0.004;
@@ -114,7 +114,7 @@ void OpalinePitchEnvelope::noteOn(const OpalinePitchEnvelopeParams& params)
 {
     currentParams = params;
 
-    // compatibleのPEGはPL3を初期値として、PR1/PL1からPR2/PL2へ進む。
+    // The compatible PEG starts at PL3, then advances through PR1/PL1 and PR2/PL2.
     currentCents = levelToCents(currentParams.level3);
     startSegment(Stage::Stage1, currentParams.level1, currentParams.rate1);
 }

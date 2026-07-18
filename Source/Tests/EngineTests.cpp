@@ -13,6 +13,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -426,6 +427,71 @@ void testEngineRendering()
         engine.renderSample();
 
     expect(engine.activeVoiceCount() == 0, "released voice is removed");
+}
+
+void testEnginePcmRegression()
+{
+    opaline::OpalinePatch patch;
+    patch.algorithm = 6;
+    patch.feedback = 5;
+    patch.transpose = -3;
+    patch.lfo.speed = 47;
+    patch.lfo.delay = 28;
+    patch.lfo.pitchDepth = 34;
+    patch.lfo.ampDepth = 23;
+    patch.lfo.pitchSensitivity = 4;
+    patch.lfo.ampSensitivity = 2;
+    patch.lfo.wave = 2;
+    patch.pitchEnvelope.rate1 = 72;
+    patch.pitchEnvelope.rate2 = 61;
+    patch.pitchEnvelope.rate3 = 49;
+    patch.pitchEnvelope.level1 = 58;
+    patch.pitchEnvelope.level2 = 45;
+    patch.pitchEnvelope.level3 = 50;
+
+    for (int index = 0; index < opaline::kOperatorCount; ++index)
+    {
+        auto& op = patch.operators[static_cast<std::size_t>(index)];
+        op.ratioIndex = 4 + index * 5;
+        op.detune = index - 2;
+        op.level = 82 - index * 6;
+        op.levelScale = 12 + index * 7;
+        op.velocity = 3 + index;
+        op.ampModEnable = (index & 1) == 0;
+        op.envelope.attackRate = 25 + index;
+        op.envelope.decay1Rate = 15 + index;
+        op.envelope.decay1Level = 8 + index;
+        op.envelope.decay2Rate = 6 + index;
+        op.envelope.releaseRate = 9 + index;
+    }
+
+    opaline::OpalineEngine engine;
+    engine.prepare(48000.0, 8);
+    engine.setEffectsEnabled(false);
+    engine.setPatch(patch);
+    engine.setPitchBend(0.21);
+    engine.setPitchBendRange(7);
+    engine.setModWheel(0.37);
+    engine.setModWheelRanges(43, 31);
+    engine.noteOn(57, 96);
+
+    std::uint64_t hash = 1469598103934665603ULL;
+    for (int frame = 0; frame < 16384; ++frame)
+    {
+        const auto sample = engine.renderSample();
+        for (const float channel : { sample.left, sample.right })
+        {
+            std::uint32_t bits = 0;
+            std::memcpy(&bits, &channel, sizeof(bits));
+            for (int byte = 0; byte < 4; ++byte)
+            {
+                hash ^= static_cast<std::uint8_t>(bits >> (byte * 8));
+                hash *= 1099511628211ULL;
+            }
+        }
+    }
+
+    expect(hash == 11726145091780288947ULL, "PCM regression hash is " + std::to_string(hash));
 }
 
 void testRealtimeAudioRecorder()
@@ -914,6 +980,7 @@ int main()
     testChipEnvelopeSustainLevels();
     testPitchEnvelope();
     testEngineRendering();
+    testEnginePcmRegression();
     testRealtimeAudioRecorder();
     testVoiceLimit();
     testEngineEffectsRendering();

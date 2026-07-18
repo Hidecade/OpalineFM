@@ -4,7 +4,7 @@
 
 namespace opaline
 {
-// compatibleのPitch EG。音量EGとは別に、音程をセント単位で段階遷移させる。
+// Compatible pitch EG with staged cent offsets independent of the amplitude EG.
 class OpalinePitchEnvelope
 {
 public:

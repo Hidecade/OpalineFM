@@ -9,7 +9,7 @@ constexpr int kOperatorCount = 4;
 constexpr int kDefaultMaxVoices = 8;
 constexpr double kPi = 3.14159265358979323846264338327950288;
 
-// compatibleの音色パラメータをエンジン内部で扱うための基本構造体群。
+// Core structures for compatible voice parameters used by the engine.
 struct OpalineEnvelopeParams
 {
     int attackRate = 20;

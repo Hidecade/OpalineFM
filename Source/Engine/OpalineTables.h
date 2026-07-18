@@ -4,7 +4,7 @@
 
 namespace opaline
 {
-// carriersは最終出力、depsは各OPへ入る上流モジュレータを表す。
+// carriers feed the final output; deps lists upstream modulators for each operator.
 struct Algorithm
 {
     std::array<int, 4> carriers {};

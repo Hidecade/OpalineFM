@@ -485,7 +485,7 @@
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 11;
 				DEVELOPMENT_TEAM = 8H7SC722UJ;
 				HEADER_SEARCH_PATHS = (
 					../../Source,
@@ -498,7 +498,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.6;
+				MARKETING_VERSION = 1.0.7;
 				PRODUCT_BUNDLE_IDENTIFIER = com.hidekikonishi.opalinefm.mobile.auv3;
 				PRODUCT_MODULE_NAME = OpalineFMAUv3Extension;
 				PRODUCT_NAME = OpalineFMAUv3Extension;
@@ -514,7 +514,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 11;
 				DEVELOPMENT_TEAM = 8H7SC722UJ;
 				HEADER_SEARCH_PATHS = (
 					../../Source,
@@ -526,7 +526,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.6;
+				MARKETING_VERSION = 1.0.7;
 				PRODUCT_BUNDLE_IDENTIFIER = com.hidekikonishi.opalinefm.mobile;
 				PRODUCT_NAME = "Opaline FM";
 				SDKROOT = iphoneos;
@@ -544,7 +544,7 @@
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 11;
 				DEVELOPMENT_TEAM = 8H7SC722UJ;
 				HEADER_SEARCH_PATHS = (
 					../../Source,
@@ -557,7 +557,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.6;
+				MARKETING_VERSION = 1.0.7;
 				PRODUCT_BUNDLE_IDENTIFIER = com.hidekikonishi.opalinefm.mobile.auv3;
 				PRODUCT_MODULE_NAME = OpalineFMAUv3Extension;
 				PRODUCT_NAME = OpalineFMAUv3Extension;
@@ -636,7 +636,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 11;
 				DEVELOPMENT_TEAM = 8H7SC722UJ;
 				HEADER_SEARCH_PATHS = (
 					../../Source,
@@ -648,7 +648,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.6;
+				MARKETING_VERSION = 1.0.7;
 				PRODUCT_BUNDLE_IDENTIFIER = com.hidekikonishi.opalinefm.mobile;
 				PRODUCT_NAME = "Opaline FM";
 				SDKROOT = iphoneos;

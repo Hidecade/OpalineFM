@@ -9,7 +9,7 @@
 
 namespace opaline
 {
-// compatible 32音色バルクVMEMの固定サイズ。
+// Fixed sizes for a compatible 32-voice bulk VMEM dump.
 constexpr int kOpalineBulkVoiceCount = 32;
 constexpr int kOpalineVmemVoiceSize = 128;
 constexpr int kOpalineBulkVoiceDataOffset = 6;
@@ -24,7 +24,7 @@ struct OpalineVmemPreset
 
 struct OpalinePatchWithMetadata
 {
-    // patchは編集用、vmemは元SysExを保つためのバックアップ。
+    // patch is editable; vmem preserves the original SysEx representation.
     OpalinePatch patch;
     std::string name;
     bool effectsEnabled = true;
