@@ -1653,7 +1653,7 @@ private struct RotaryKnob: View {
 
         for index in 0..<31 {
             let ratio = Double(index) / 30.0
-            let angle = Double.pi * (135 + 270 * ratio) / 180.0
+            let angle = CGFloat.pi * CGFloat(135 + 270 * ratio) / 180.0
             let dotCenter = CGPoint(
                 x: center.x + cos(angle) * radius,
                 y: center.y + sin(angle) * radius
