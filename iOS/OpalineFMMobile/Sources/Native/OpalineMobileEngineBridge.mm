@@ -11,6 +11,7 @@
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <limits>
@@ -22,6 +23,104 @@
 namespace
 {
 constexpr int kPreparedScratchFrames = 4096;
+
+enum class RealtimeCommandType
+{
+    noteOn,
+    noteOff,
+    pitchBend,
+    modWheel,
+    sustainPedal,
+    portamentoFootSwitch
+};
+
+struct RealtimeCommand
+{
+    RealtimeCommandType type {};
+    int value1 = 0;
+    int value2 = 0;
+    double normalizedValue = 0.0;
+};
+
+template <std::size_t Capacity>
+class RealtimeCommandQueue
+{
+    static_assert(Capacity > 1 && (Capacity & (Capacity - 1)) == 0,
+                  "Realtime command queue capacity must be a power of two");
+
+public:
+    RealtimeCommandQueue()
+    {
+        for (std::size_t index = 0; index < Capacity; ++index)
+            slots[index].sequence.store(index, std::memory_order_relaxed);
+    }
+
+    bool push(const RealtimeCommand& command) noexcept
+    {
+        std::size_t position = enqueuePosition.load(std::memory_order_relaxed);
+        for (;;)
+        {
+            auto& slot = slots[position & (Capacity - 1)];
+            const std::size_t sequence = slot.sequence.load(std::memory_order_acquire);
+            const auto difference = static_cast<std::intptr_t>(sequence)
+                - static_cast<std::intptr_t>(position);
+            if (difference == 0)
+            {
+                if (enqueuePosition.compare_exchange_weak(position, position + 1,
+                                                          std::memory_order_relaxed))
+                {
+                    slot.command = command;
+                    slot.sequence.store(position + 1, std::memory_order_release);
+                    return true;
+                }
+            }
+            else if (difference < 0)
+            {
+                return false;
+            }
+            else
+            {
+                position = enqueuePosition.load(std::memory_order_relaxed);
+            }
+        }
+    }
+
+    bool pop(RealtimeCommand& command) noexcept
+    {
+        auto& slot = slots[dequeuePosition & (Capacity - 1)];
+        const std::size_t sequence = slot.sequence.load(std::memory_order_acquire);
+        const auto difference = static_cast<std::intptr_t>(sequence)
+            - static_cast<std::intptr_t>(dequeuePosition + 1);
+        if (difference != 0)
+            return false;
+
+        command = slot.command;
+        slot.sequence.store(dequeuePosition + Capacity, std::memory_order_release);
+        ++dequeuePosition;
+        return true;
+    }
+
+private:
+    struct Slot
+    {
+        std::atomic<std::size_t> sequence { 0 };
+        RealtimeCommand command {};
+    };
+
+    std::array<Slot, Capacity> slots {};
+    std::atomic<std::size_t> enqueuePosition { 0 };
+    std::size_t dequeuePosition = 0;
+};
+
+constexpr std::size_t kRealtimeCommandCapacity = 1024;
+
+void enqueueRealtimeCommand(RealtimeCommandQueue<kRealtimeCommandCapacity>& queue,
+                            std::atomic<bool>& overflowed,
+                            const RealtimeCommand& command) noexcept
+{
+    if (!queue.push(command))
+        overflowed.store(true, std::memory_order_release);
+}
 }
 
 @interface OpalineMobileEngineBridge ()
@@ -47,10 +146,12 @@ constexpr int kPreparedScratchFrames = 4096;
     std::array<float, 128> scopeSmoothedDisplay;
     int scopeSmoothedNote;
     BOOL scopeHasSmoothedDisplay;
+    RealtimeCommandQueue<kRealtimeCommandCapacity> realtimeCommands;
+    std::atomic<bool> realtimeCommandOverflowed;
     std::mutex engineMutex;
     double currentSampleRate;
-    double currentPitchBend;
-    double currentModWheel;
+    std::atomic<double> currentPitchBend;
+    std::atomic<double> currentModWheel;
     int currentBank;
     int currentVoice;
     int currentVoiceB;
@@ -77,6 +178,7 @@ constexpr int kPreparedScratchFrames = 4096;
 - (void)syncCurrentVoiceToLibraryNoLock;
 - (void)mixEngineBNoLockLeft:(float*)left right:(float*)right frames:(int)frames;
 - (void)pushScopeSamplesNoLock:(const float*)left frames:(int)frames;
+- (void)applyRealtimeCommandsNoLock;
 @end
 
 static std::string xmlEscaped(const std::string& text)
@@ -135,8 +237,8 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
         currentVoiceName = opaline::voiceAt(library, 0, 0).name;
         currentVoiceBName = opaline::voiceAt(library, 0, 16).name;
         currentSampleRate = 44100.0;
-        currentPitchBend = 0.0;
-        currentModWheel = 0.0;
+        currentPitchBend.store(0.0, std::memory_order_relaxed);
+        currentModWheel.store(0.0, std::memory_order_relaxed);
         currentBank = 0;
         currentVoice = 0;
         currentVoiceB = 16;
@@ -163,6 +265,7 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
         scopeSmoothedDisplay.fill(0.0f);
         scopeSmoothedNote = -1;
         scopeHasSmoothedDisplay = NO;
+        realtimeCommandOverflowed.store(false, std::memory_order_relaxed);
         for (auto& sample : scopeSamples)
             sample.store(0.0f, std::memory_order_relaxed);
     }
@@ -870,62 +973,22 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
 
 - (void)noteOn:(int)note velocity:(int)velocity
 {
-    std::lock_guard<std::mutex> lock(engineMutex);
-    const int safeNote = std::max(0, std::min(note, 127));
-    ++scopeHeldNoteCounts[static_cast<std::size_t>(safeNote)];
-    if (scopeHeldNoteTotal == 0 || safeNote >= scopeTriggerNote.load(std::memory_order_relaxed))
-        scopeTriggerNote.store(safeNote, std::memory_order_release);
-    ++scopeHeldNoteTotal;
-    switch (performanceMode)
-    {
-        case 1:
-            engine->noteOn(note, velocity);
-            engineB->noteOn(note, velocity);
-            break;
-
-        case 2:
-            if (note <= splitPoint)
-                engine->noteOn(note, velocity);
-            else
-                engineB->noteOn(note, velocity);
-            break;
-
-        default:
-            engine->noteOn(note, velocity);
-            break;
-    }
+    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
+                           { RealtimeCommandType::noteOn, note, velocity, 0.0 });
 }
 
 - (void)noteOff:(int)note
 {
-    std::lock_guard<std::mutex> lock(engineMutex);
-    const int safeNote = std::max(0, std::min(note, 127));
-    auto& heldCount = scopeHeldNoteCounts[static_cast<std::size_t>(safeNote)];
-    if (heldCount > 0)
-    {
-        --heldCount;
-        scopeHeldNoteTotal = std::max(0, scopeHeldNoteTotal - 1);
-    }
-    if (scopeHeldNoteTotal > 0)
-    {
-        for (int triggerNote = 127; triggerNote >= 0; --triggerNote)
-        {
-            if (scopeHeldNoteCounts[static_cast<std::size_t>(triggerNote)] > 0)
-            {
-                scopeTriggerNote.store(triggerNote, std::memory_order_release);
-                break;
-            }
-        }
-    }
-    engine->noteOff(note);
-    engineB->noteOff(note);
+    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
+                           { RealtimeCommandType::noteOff, note, 0, 0.0 });
 }
 
 - (void)setPitchBend:(double)value
 {
-    std::lock_guard<std::mutex> lock(engineMutex);
-    currentPitchBend = std::max(-1.0, std::min(value, 1.0));
-    [self applyPitchBendNoLock];
+    const double normalized = std::max(-1.0, std::min(value, 1.0));
+    currentPitchBend.store(normalized, std::memory_order_release);
+    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
+                           { RealtimeCommandType::pitchBend, 0, 0, normalized });
 }
 
 - (void)setPitchBendRange:(int)value
@@ -962,16 +1025,14 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
 
 - (void)setPortamentoFootSwitch:(BOOL)down
 {
-    std::lock_guard<std::mutex> lock(engineMutex);
-    engine->setPortamentoFootSwitch(down);
-    engineB->setPortamentoFootSwitch(down);
+    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
+                           { RealtimeCommandType::portamentoFootSwitch, down ? 1 : 0, 0, 0.0 });
 }
 
 - (void)setSustainPedal:(BOOL)down
 {
-    std::lock_guard<std::mutex> lock(engineMutex);
-    engine->setSustainPedal(down);
-    engineB->setSustainPedal(down);
+    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
+                           { RealtimeCommandType::sustainPedal, down ? 1 : 0, 0, 0.0 });
 }
 
 - (void)setModWheelPitchRange:(int)value ampRange:(int)ampRange
@@ -985,10 +1046,10 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
 
 - (void)setModWheel:(double)value
 {
-    std::lock_guard<std::mutex> lock(engineMutex);
-    currentModWheel = std::max(0.0, std::min(value, 1.0));
-    engine->setModWheel(currentModWheel);
-    engineB->setModWheel(currentModWheel);
+    const double normalized = std::max(0.0, std::min(value, 1.0));
+    currentModWheel.store(normalized, std::memory_order_release);
+    enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
+                           { RealtimeCommandType::modWheel, 0, 0, normalized });
 }
 
 - (void)setMonoMode:(BOOL)enabled
@@ -1013,12 +1074,124 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
     engineB->setPortamentoMode(portamentoModeB);
 }
 
+- (void)applyRealtimeCommandsNoLock
+{
+    const auto panicAndResetScope = [&]
+    {
+        engine->panic();
+        engineB->panic();
+        scopeHeldNoteCounts.fill(0);
+        scopeHeldNoteTotal = 0;
+        scopeTriggerNote.store(-1, std::memory_order_release);
+    };
+
+    RealtimeCommand command;
+    if (realtimeCommandOverflowed.exchange(false, std::memory_order_acq_rel))
+    {
+        while (realtimeCommands.pop(command)) {}
+        panicAndResetScope();
+        return;
+    }
+
+    while (realtimeCommands.pop(command))
+    {
+        switch (command.type)
+        {
+            case RealtimeCommandType::noteOn:
+            {
+                const int note = command.value1;
+                const int velocity = command.value2;
+                const int safeNote = std::max(0, std::min(note, 127));
+                ++scopeHeldNoteCounts[static_cast<std::size_t>(safeNote)];
+                if (scopeHeldNoteTotal == 0 || safeNote >= scopeTriggerNote.load(std::memory_order_relaxed))
+                    scopeTriggerNote.store(safeNote, std::memory_order_release);
+                ++scopeHeldNoteTotal;
+
+                switch (performanceMode)
+                {
+                    case 1:
+                        engine->noteOn(note, velocity);
+                        engineB->noteOn(note, velocity);
+                        break;
+                    case 2:
+                        if (note <= splitPoint)
+                            engine->noteOn(note, velocity);
+                        else
+                            engineB->noteOn(note, velocity);
+                        break;
+                    default:
+                        engine->noteOn(note, velocity);
+                        break;
+                }
+                break;
+            }
+
+            case RealtimeCommandType::noteOff:
+            {
+                const int note = command.value1;
+                const int safeNote = std::max(0, std::min(note, 127));
+                auto& heldCount = scopeHeldNoteCounts[static_cast<std::size_t>(safeNote)];
+                if (heldCount > 0)
+                {
+                    --heldCount;
+                    scopeHeldNoteTotal = std::max(0, scopeHeldNoteTotal - 1);
+                }
+                if (scopeHeldNoteTotal > 0)
+                {
+                    for (int triggerNote = 127; triggerNote >= 0; --triggerNote)
+                    {
+                        if (scopeHeldNoteCounts[static_cast<std::size_t>(triggerNote)] > 0)
+                        {
+                            scopeTriggerNote.store(triggerNote, std::memory_order_release);
+                            break;
+                        }
+                    }
+                }
+                engine->noteOff(note);
+                engineB->noteOff(note);
+                break;
+            }
+
+            case RealtimeCommandType::pitchBend:
+            {
+                engine->setPitchBend(command.normalizedValue);
+                const double detunedB = std::max(-1.0, std::min(1.0,
+                    command.normalizedValue + static_cast<double>(dualDetune) / 64.0));
+                engineB->setPitchBend(detunedB);
+                break;
+            }
+
+            case RealtimeCommandType::modWheel:
+                engine->setModWheel(command.normalizedValue);
+                engineB->setModWheel(command.normalizedValue);
+                break;
+
+            case RealtimeCommandType::sustainPedal:
+                engine->setSustainPedal(command.value1 != 0);
+                engineB->setSustainPedal(command.value1 != 0);
+                break;
+
+            case RealtimeCommandType::portamentoFootSwitch:
+                engine->setPortamentoFootSwitch(command.value1 != 0);
+                engineB->setPortamentoFootSwitch(command.value1 != 0);
+                break;
+        }
+    }
+
+    if (realtimeCommandOverflowed.exchange(false, std::memory_order_acq_rel))
+    {
+        while (realtimeCommands.pop(command)) {}
+        panicAndResetScope();
+    }
+}
+
 - (void)renderLeft:(float*)left right:(float*)right frames:(int)frames
 {
     if (left == nullptr || right == nullptr || frames <= 0)
         return;
 
     std::lock_guard<std::mutex> lock(engineMutex);
+    [self applyRealtimeCommandsNoLock];
     for (int offset = 0; offset < frames; offset += kPreparedScratchFrames)
     {
         const int chunkFrames = std::min(frames - offset, kPreparedScratchFrames);
@@ -1042,6 +1215,7 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
 
     const auto bufferCount = audioBufferList->mNumberBuffers;
     std::lock_guard<std::mutex> lock(engineMutex);
+    [self applyRealtimeCommandsNoLock];
     for (int offset = 0; offset < frames; offset += kPreparedScratchFrames)
     {
         const int chunkFrames = std::min(frames - offset, kPreparedScratchFrames);
@@ -1243,8 +1417,9 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
     engineB->setPortamento(portamento);
     engine->setModWheelRanges(modWheelPitchRange, modWheelAmpRange);
     engineB->setModWheelRanges(modWheelPitchRange, modWheelAmpRange);
-    engine->setModWheel(currentModWheel);
-    engineB->setModWheel(currentModWheel);
+    const double modWheel = currentModWheel.load(std::memory_order_acquire);
+    engine->setModWheel(modWheel);
+    engineB->setModWheel(modWheel);
     engine->setEffectsEnabled(effectsEnabled);
     engineB->setEffectsEnabled(effectsEnabled);
     [self applyPitchBendNoLock];
@@ -1265,8 +1440,9 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
 
 - (void)applyPitchBendNoLock
 {
-    engine->setPitchBend(currentPitchBend);
-    const double detunedB = std::max(-1.0, std::min(1.0, currentPitchBend + static_cast<double>(dualDetune) / 64.0));
+    const double pitchBend = currentPitchBend.load(std::memory_order_acquire);
+    engine->setPitchBend(pitchBend);
+    const double detunedB = std::max(-1.0, std::min(1.0, pitchBend + static_cast<double>(dualDetune) / 64.0));
     engineB->setPitchBend(detunedB);
 }
 
