@@ -249,7 +249,6 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
     if (data == nil || data.length == 0)
         return NO;
 
-    std::lock_guard<std::mutex> lock(engineMutex);
     const auto* bytes = static_cast<const std::uint8_t*>(data.bytes);
     std::vector<std::uint8_t> sysex(bytes, bytes + data.length);
     try
@@ -257,9 +256,12 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
         const std::string bankName = name != nil && name.length > 0
             ? std::string(name.UTF8String)
             : "Imported";
+        auto importedBank = opaline::voiceBankFromSysex(sysex, bankName);
+
+        std::lock_guard<std::mutex> lock(engineMutex);
         engine->panic();
         engineB->panic();
-        library.banks[static_cast<std::size_t>(currentBank)] = opaline::voiceBankFromSysex(sysex, bankName);
+        library.banks[static_cast<std::size_t>(currentBank)] = std::move(importedBank);
         currentVoice = std::max(0, std::min(currentVoice, opaline::kOpalineVoiceBankSize - 1));
         currentVoiceB = std::max(0, std::min(currentVoiceB, opaline::kOpalineVoiceBankSize - 1));
         currentPatch = opaline::normalizePatch(opaline::voiceAt(library, currentBank, currentVoice).patch);
@@ -277,11 +279,15 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
 
 - (NSData*)currentVoiceBankSysexData
 {
-    std::lock_guard<std::mutex> lock(engineMutex);
     try
     {
-        [self syncCurrentVoiceToLibraryNoLock];
-        const auto bytes = opaline::voiceBankToSysex(library.banks[static_cast<std::size_t>(currentBank)]);
+        opaline::OpalineVoiceBank bankSnapshot;
+        {
+            std::lock_guard<std::mutex> lock(engineMutex);
+            [self syncCurrentVoiceToLibraryNoLock];
+            bankSnapshot = library.banks[static_cast<std::size_t>(currentBank)];
+        }
+        const auto bytes = opaline::voiceBankToSysex(bankSnapshot);
         return [NSData dataWithBytes:bytes.data() length:bytes.size()];
     }
     catch (...)
@@ -292,14 +298,19 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
 
 - (NSData*)voiceLibraryXMLData
 {
-    std::lock_guard<std::mutex> lock(engineMutex);
-    [self syncCurrentVoiceToLibraryNoLock];
+    opaline::OpalineVoiceLibrary librarySnapshot;
+    {
+        std::lock_guard<std::mutex> lock(engineMutex);
+        [self syncCurrentVoiceToLibraryNoLock];
+        librarySnapshot = library;
+    }
+
     std::ostringstream xml;
     xml << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
     xml << "<compatibleVoiceLibrary version=\"2\">\n";
     for (int bankIndex = 0; bankIndex < opaline::kOpalineVoiceBankCount; ++bankIndex)
     {
-        const auto& bank = library.banks[static_cast<std::size_t>(bankIndex)];
+        const auto& bank = librarySnapshot.banks[static_cast<std::size_t>(bankIndex)];
         xml << "  <Bank index=\"" << bankIndex << "\" name=\"" << xmlEscaped(bank.name) << "\">\n";
         for (int voiceIndex = 0; voiceIndex < opaline::kOpalineVoiceBankSize; ++voiceIndex)
         {
@@ -354,38 +365,47 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
 
 - (NSData*)currentSingleVoiceXMLData
 {
-    std::lock_guard<std::mutex> lock(engineMutex);
+    opaline::OpalinePatch patchSnapshot;
+    std::string voiceNameSnapshot;
+    BOOL effectsEnabledSnapshot = NO;
+    {
+        std::lock_guard<std::mutex> lock(engineMutex);
+        patchSnapshot = currentPatch;
+        voiceNameSnapshot = currentVoiceName;
+        effectsEnabledSnapshot = effectsEnabled;
+    }
+
     std::ostringstream xml;
     xml << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
-    xml << "<opalineVoice version=\"1\" name=\"" << xmlEscaped(currentVoiceName) << "\">\n";
+    xml << "<opalineVoice version=\"1\" name=\"" << xmlEscaped(voiceNameSnapshot) << "\">\n";
     xml << "  <Patch>\n";
-    xml << "    <Parameter key=\"alg\" value=\"" << currentPatch.algorithm << "\"/>\n";
-    xml << "    <Parameter key=\"fb\" value=\"" << currentPatch.feedback << "\"/>\n";
-    xml << "    <Parameter key=\"pr1\" value=\"" << currentPatch.pitchEnvelope.rate1 << "\"/>\n";
-    xml << "    <Parameter key=\"pr2\" value=\"" << currentPatch.pitchEnvelope.rate2 << "\"/>\n";
-    xml << "    <Parameter key=\"pr3\" value=\"" << currentPatch.pitchEnvelope.rate3 << "\"/>\n";
-    xml << "    <Parameter key=\"pl1\" value=\"" << currentPatch.pitchEnvelope.level1 << "\"/>\n";
-    xml << "    <Parameter key=\"pl2\" value=\"" << currentPatch.pitchEnvelope.level2 << "\"/>\n";
-    xml << "    <Parameter key=\"pl3\" value=\"" << currentPatch.pitchEnvelope.level3 << "\"/>\n";
-    xml << "    <Parameter key=\"lfo.speed\" value=\"" << currentPatch.lfo.speed << "\"/>\n";
-    xml << "    <Parameter key=\"lfo.delay\" value=\"" << currentPatch.lfo.delay << "\"/>\n";
-    xml << "    <Parameter key=\"lfo.pmd\" value=\"" << currentPatch.lfo.pitchDepth << "\"/>\n";
-    xml << "    <Parameter key=\"lfo.amd\" value=\"" << currentPatch.lfo.ampDepth << "\"/>\n";
-    xml << "    <Parameter key=\"lfo.pms\" value=\"" << currentPatch.lfo.pitchSensitivity << "\"/>\n";
-    xml << "    <Parameter key=\"lfo.ams\" value=\"" << currentPatch.lfo.ampSensitivity << "\"/>\n";
-    xml << "    <Parameter key=\"lfo.wave\" value=\"" << currentPatch.lfo.wave << "\"/>\n";
-    xml << "    <Parameter key=\"lfo.sync\" value=\"" << (currentPatch.lfo.sync ? 1 : 0) << "\"/>\n";
-    xml << "    <Parameter key=\"fx.reverb\" value=\"" << currentPatch.effects.reverb << "\"/>\n";
-    xml << "    <Parameter key=\"fx.delay\" value=\"" << currentPatch.effects.delay << "\"/>\n";
-    xml << "    <Parameter key=\"fx.chorus\" value=\"" << currentPatch.effects.chorus << "\"/>\n";
-    xml << "    <Parameter key=\"fx.revmix\" value=\"" << currentPatch.effects.mix << "\"/>\n";
-    xml << "    <Parameter key=\"fx.dlymix\" value=\"" << currentPatch.effects.echoMix << "\"/>\n";
-    xml << "    <Parameter key=\"fx.tone\" value=\"" << currentPatch.effects.tone << "\"/>\n";
-    xml << "    <Parameter key=\"fx.enabled\" value=\"" << (effectsEnabled ? 1 : 0) << "\"/>\n";
+    xml << "    <Parameter key=\"alg\" value=\"" << patchSnapshot.algorithm << "\"/>\n";
+    xml << "    <Parameter key=\"fb\" value=\"" << patchSnapshot.feedback << "\"/>\n";
+    xml << "    <Parameter key=\"pr1\" value=\"" << patchSnapshot.pitchEnvelope.rate1 << "\"/>\n";
+    xml << "    <Parameter key=\"pr2\" value=\"" << patchSnapshot.pitchEnvelope.rate2 << "\"/>\n";
+    xml << "    <Parameter key=\"pr3\" value=\"" << patchSnapshot.pitchEnvelope.rate3 << "\"/>\n";
+    xml << "    <Parameter key=\"pl1\" value=\"" << patchSnapshot.pitchEnvelope.level1 << "\"/>\n";
+    xml << "    <Parameter key=\"pl2\" value=\"" << patchSnapshot.pitchEnvelope.level2 << "\"/>\n";
+    xml << "    <Parameter key=\"pl3\" value=\"" << patchSnapshot.pitchEnvelope.level3 << "\"/>\n";
+    xml << "    <Parameter key=\"lfo.speed\" value=\"" << patchSnapshot.lfo.speed << "\"/>\n";
+    xml << "    <Parameter key=\"lfo.delay\" value=\"" << patchSnapshot.lfo.delay << "\"/>\n";
+    xml << "    <Parameter key=\"lfo.pmd\" value=\"" << patchSnapshot.lfo.pitchDepth << "\"/>\n";
+    xml << "    <Parameter key=\"lfo.amd\" value=\"" << patchSnapshot.lfo.ampDepth << "\"/>\n";
+    xml << "    <Parameter key=\"lfo.pms\" value=\"" << patchSnapshot.lfo.pitchSensitivity << "\"/>\n";
+    xml << "    <Parameter key=\"lfo.ams\" value=\"" << patchSnapshot.lfo.ampSensitivity << "\"/>\n";
+    xml << "    <Parameter key=\"lfo.wave\" value=\"" << patchSnapshot.lfo.wave << "\"/>\n";
+    xml << "    <Parameter key=\"lfo.sync\" value=\"" << (patchSnapshot.lfo.sync ? 1 : 0) << "\"/>\n";
+    xml << "    <Parameter key=\"fx.reverb\" value=\"" << patchSnapshot.effects.reverb << "\"/>\n";
+    xml << "    <Parameter key=\"fx.delay\" value=\"" << patchSnapshot.effects.delay << "\"/>\n";
+    xml << "    <Parameter key=\"fx.chorus\" value=\"" << patchSnapshot.effects.chorus << "\"/>\n";
+    xml << "    <Parameter key=\"fx.revmix\" value=\"" << patchSnapshot.effects.mix << "\"/>\n";
+    xml << "    <Parameter key=\"fx.dlymix\" value=\"" << patchSnapshot.effects.echoMix << "\"/>\n";
+    xml << "    <Parameter key=\"fx.tone\" value=\"" << patchSnapshot.effects.tone << "\"/>\n";
+    xml << "    <Parameter key=\"fx.enabled\" value=\"" << (effectsEnabledSnapshot ? 1 : 0) << "\"/>\n";
 
     for (int opIndex = 0; opIndex < opaline::kOperatorCount; ++opIndex)
     {
-        const auto& op = currentPatch.operators[static_cast<std::size_t>(opIndex)];
+        const auto& op = patchSnapshot.operators[static_cast<std::size_t>(opIndex)];
         xml << "    <Operator index=\"" << opIndex << "\" ratio=\"" << op.ratioIndex
             << "\" detune=\"" << op.detune
             << "\" level=\"" << op.level
@@ -417,8 +437,13 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
     if (xml == nil || [xml rangeOfString:@"<opalineVoice"].location == NSNotFound)
         return NO;
 
-    std::lock_guard<std::mutex> lock(engineMutex);
-    opaline::OpalinePatch patch = currentPatch;
+    opaline::OpalinePatch patch;
+    BOOL importedEffectsEnabled = NO;
+    {
+        std::lock_guard<std::mutex> lock(engineMutex);
+        patch = currentPatch;
+        importedEffectsEnabled = effectsEnabled;
+    }
 
     const auto clamp = [](const int v, const int low, const int high) { return std::max(low, std::min(v, high)); };
     const auto applyParameter = [&](NSString* key, const int value)
@@ -468,7 +493,7 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
         else if ([key isEqualToString:@"fx.tone"])
             patch.effects.tone = clamp(value, 0, 99);
         else if ([key isEqualToString:@"fx.enabled"])
-            effectsEnabled = value != 0;
+            importedEffectsEnabled = value != 0;
     };
 
     NSError* regexError = nil;
@@ -532,11 +557,15 @@ static std::string encodedVoiceData(const opaline::OpalinePatchWithMetadata& voi
     if (voiceName == nil || voiceName.length == 0)
         voiceName = name;
 
-    engine->panic();
-    engineB->panic();
-    currentPatch = opaline::normalizePatch(patch);
-    currentVoiceName = voiceName != nil && voiceName.length > 0 ? std::string(voiceName.UTF8String) : "INIT VOICE";
-    [self applyCurrentPatchNoLock];
+    {
+        std::lock_guard<std::mutex> lock(engineMutex);
+        engine->panic();
+        engineB->panic();
+        currentPatch = opaline::normalizePatch(patch);
+        currentVoiceName = voiceName != nil && voiceName.length > 0 ? std::string(voiceName.UTF8String) : "INIT VOICE";
+        effectsEnabled = importedEffectsEnabled;
+        [self applyCurrentPatchNoLock];
+    }
     return YES;
 }
 
