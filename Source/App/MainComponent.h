@@ -3,6 +3,7 @@
 #include "App/OpalineAppState.h"
 #include "Engine/OpalineEngine.h"
 #include "Engine/RealtimeAudioRecorder.h"
+#include "Engine/RealtimeCommandQueue.h"
 #include "Engine/OpalineSysex.h"
 #include "Engine/OpalineVoiceLibrary.h"
 
@@ -251,6 +252,25 @@ private:
     using PerformanceMode = opalineapp::PerformanceMode;
     using PerformanceState = opalineapp::PerformanceState;
 
+    enum class RealtimeCommandType
+    {
+        noteOn,
+        noteOff,
+        panic,
+        pitchBend,
+        modWheel,
+        sustainPedal,
+        portamentoFootSwitch
+    };
+
+    struct RealtimeCommand
+    {
+        RealtimeCommandType type {};
+        int value1 = 0;
+        int value2 = 0;
+        double normalizedValue = 0.0;
+    };
+
     class SplitPointSlider final : public juce::Slider
     {
     public:
@@ -358,6 +378,8 @@ private:
     void noteOff(int note);
     void performNoteOnNoLock(int note, int velocity);
     void performNoteOffNoLock(int note);
+    void enqueueRealtimeCommand(const RealtimeCommand& command);
+    void applyRealtimeCommandsNoLock();
     void allNotesOff();
     bool isMidiUiNoteHeld(int note) const;
     int heldVelocityForNote(int note) const;
@@ -504,6 +526,8 @@ private:
     std::unique_ptr<juce::FileChooser> fileChooser;
     std::vector<std::unique_ptr<juce::MidiInput>> midiInputs;
     std::mutex engineMutex;
+    opaline::RealtimeCommandQueue<RealtimeCommand, 1024> realtimeCommands;
+    std::atomic<bool> realtimeCommandOverflowed { false };
     opaline::RealtimeAudioRecorder wavRecorder;
     std::atomic<bool> wavRecording { false };
     std::array<bool, 128> pcKeyboardHeldNotes {};

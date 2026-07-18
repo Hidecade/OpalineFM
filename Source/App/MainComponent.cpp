@@ -2476,6 +2476,7 @@ void MainComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo& buffer
     const float outputGain = masterVolume * outputTrim;
 
     std::lock_guard<std::mutex> lock(engineMutex);
+    applyRealtimeCommandsNoLock();
     for (int i = 0; i < bufferToFill.numSamples; ++i)
     {
         const auto sampleA = engine.renderSample();
@@ -4081,8 +4082,7 @@ void MainComponent::noteOn(const int note, const int velocity)
         return;
     }
 
-    std::lock_guard<std::mutex> lock(engineMutex);
-    performNoteOnNoLock(note, velocity);
+    enqueueRealtimeCommand({ RealtimeCommandType::noteOn, note, velocity });
 }
 
 void MainComponent::noteOff(const int note)
@@ -4101,8 +4101,69 @@ void MainComponent::noteOff(const int note)
         return;
     }
 
-    std::lock_guard<std::mutex> lock(engineMutex);
-    performNoteOffNoLock(note);
+    enqueueRealtimeCommand({ RealtimeCommandType::noteOff, note });
+}
+
+void MainComponent::enqueueRealtimeCommand(const RealtimeCommand& command)
+{
+    if (!realtimeCommands.push(command))
+        realtimeCommandOverflowed.store(true, std::memory_order_release);
+}
+
+void MainComponent::applyRealtimeCommandsNoLock()
+{
+    const auto panic = [this]
+    {
+        engine.panic();
+        performanceEngineB.panic();
+    };
+
+    RealtimeCommand command;
+    if (realtimeCommandOverflowed.exchange(false, std::memory_order_acq_rel))
+    {
+        while (realtimeCommands.pop(command)) {}
+        panic();
+        return;
+    }
+
+    while (realtimeCommands.pop(command))
+    {
+        switch (command.type)
+        {
+            case RealtimeCommandType::noteOn:
+                performNoteOnNoLock(command.value1, command.value2);
+                break;
+            case RealtimeCommandType::noteOff:
+                performNoteOffNoLock(command.value1);
+                break;
+            case RealtimeCommandType::panic:
+                panic();
+                break;
+            case RealtimeCommandType::pitchBend:
+                engine.setPitchBend(command.normalizedValue);
+                performanceEngineB.setPitchBend(juce::jlimit(-1.0, 1.0,
+                    command.normalizedValue + static_cast<double>(performanceState.dualDetune) / 64.0));
+                break;
+            case RealtimeCommandType::modWheel:
+                engine.setModWheel(command.normalizedValue);
+                performanceEngineB.setModWheel(command.normalizedValue);
+                break;
+            case RealtimeCommandType::sustainPedal:
+                engine.setSustainPedal(command.value1 != 0);
+                performanceEngineB.setSustainPedal(command.value1 != 0);
+                break;
+            case RealtimeCommandType::portamentoFootSwitch:
+                engine.setPortamentoFootSwitch(command.value1 != 0);
+                performanceEngineB.setPortamentoFootSwitch(command.value1 != 0);
+                break;
+        }
+    }
+
+    if (realtimeCommandOverflowed.exchange(false, std::memory_order_acq_rel))
+    {
+        while (realtimeCommands.pop(command)) {}
+        panic();
+    }
 }
 
 void MainComponent::performNoteOnNoLock(const int note, const int velocity)
@@ -4150,9 +4211,7 @@ void MainComponent::allNotesOff()
         return;
     }
 
-    std::lock_guard<std::mutex> lock(engineMutex);
-    engine.panic();
-    performanceEngineB.panic();
+    enqueueRealtimeCommand({ RealtimeCommandType::panic });
 }
 
 bool MainComponent::isMidiUiNoteHeld(const int note) const
@@ -4341,9 +4400,7 @@ void MainComponent::handleIncomingMidiMessage(juce::MidiInput*, const juce::Midi
                                           1.0,
                                           (static_cast<double>(message.getPitchWheelValue()) - 8192.0) / 8192.0);
         currentPitchBend = value;
-        std::lock_guard<std::mutex> lock(engineMutex);
-        engine.setPitchBend(value);
-        performanceEngineB.setPitchBend(juce::jlimit(-1.0, 1.0, value + static_cast<double>(performanceState.dualDetune) / 64.0));
+        enqueueRealtimeCommand({ RealtimeCommandType::pitchBend, 0, 0, value });
         juce::MessageManager::callAsync([this, value]
         {
             pitchWheelSlider.setValue(value, juce::dontSendNotification);
@@ -4353,9 +4410,7 @@ void MainComponent::handleIncomingMidiMessage(juce::MidiInput*, const juce::Midi
     {
         const double value = static_cast<double>(message.getControllerValue()) / 127.0;
         currentModWheel = value;
-        std::lock_guard<std::mutex> lock(engineMutex);
-        engine.setModWheel(value);
-        performanceEngineB.setModWheel(value);
+        enqueueRealtimeCommand({ RealtimeCommandType::modWheel, 0, 0, value });
         juce::MessageManager::callAsync([this, value]
         {
             modWheelSlider.setValue(value, juce::dontSendNotification);
@@ -4364,16 +4419,12 @@ void MainComponent::handleIncomingMidiMessage(juce::MidiInput*, const juce::Midi
     else if (message.isController() && message.getControllerNumber() == 64)
     {
         const bool pedalDown = message.getControllerValue() >= 64;
-        std::lock_guard<std::mutex> lock(engineMutex);
-        engine.setSustainPedal(pedalDown);
-        performanceEngineB.setSustainPedal(pedalDown);
+        enqueueRealtimeCommand({ RealtimeCommandType::sustainPedal, pedalDown ? 1 : 0 });
     }
     else if (message.isController() && message.getControllerNumber() == 65)
     {
         const bool pedalDown = message.getControllerValue() >= 64;
-        std::lock_guard<std::mutex> lock(engineMutex);
-        engine.setPortamentoFootSwitch(pedalDown);
-        performanceEngineB.setPortamentoFootSwitch(pedalDown);
+        enqueueRealtimeCommand({ RealtimeCommandType::portamentoFootSwitch, pedalDown ? 1 : 0 });
     }
     else if (message.isAllNotesOff())
     {
@@ -4755,9 +4806,7 @@ void MainComponent::sliderValueChanged(juce::Slider* slider)
             return;
         }
 
-        std::lock_guard<std::mutex> lock(engineMutex);
-        engine.setPitchBend(currentPitchBend);
-        performanceEngineB.setPitchBend(juce::jlimit(-1.0, 1.0, currentPitchBend + static_cast<double>(performanceState.dualDetune) / 64.0));
+        enqueueRealtimeCommand({ RealtimeCommandType::pitchBend, 0, 0, currentPitchBend });
     }
     else if (slider == &modWheelSlider)
     {
@@ -4769,9 +4818,7 @@ void MainComponent::sliderValueChanged(juce::Slider* slider)
             return;
         }
 
-        std::lock_guard<std::mutex> lock(engineMutex);
-        engine.setModWheel(modWheelSlider.getValue());
-        performanceEngineB.setModWheel(modWheelSlider.getValue());
+        enqueueRealtimeCommand({ RealtimeCommandType::modWheel, 0, 0, currentModWheel });
     }
     else if (slider == &dualDetuneSlider || slider == &splitPointSlider || slider == &balanceSlider)
     {
