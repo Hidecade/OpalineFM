@@ -2048,7 +2048,7 @@ MainComponent::MainComponent(const HostMode mode, const bool allowPluginPcKeyboa
         button->setLookAndFeel(&opalineLookAndFeel);
         button->addListener(this);
         addAndMakeVisible(*button);
-        button->setVisible(hostMode == HostMode::StandaloneApp);
+        button->setVisible(hostMode == HostMode::StandaloneApp || pluginPcKeyboardAllowed);
     }
     midiTestButton.setVisible(false);
 
@@ -2555,7 +2555,7 @@ void MainComponent::resized()
     titleLabel.setVisible(false);
     effectsEnableButton.setBounds(header.removeFromRight(68).withSizeKeepingCentre(68, 23));
     header.removeFromRight(panelGap);
-    if (hostMode == HostMode::StandaloneApp)
+    if (hostMode == HostMode::StandaloneApp || pluginPcKeyboardAllowed)
     {
         voiceExportButton.setBounds(header.removeFromRight(88).withSizeKeepingCentre(88, 23));
         header.removeFromRight(panelGap);

@@ -3,7 +3,7 @@
 #endif
 
 #ifndef BuildRoot
-  #define BuildRoot "..\build\standalone-vs-debug\OpalineFM_Standalone_artefacts\Release"
+  #define BuildRoot "..\build\standalone-vs-debug\OpalineFM_Plugin_artefacts\Release"
 #endif
 
 [Setup]
@@ -27,7 +27,7 @@ CloseApplications=yes
 RestartApplications=no
 
 [Files]
-Source: "{#BuildRoot}\Opaline FM.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#BuildRoot}\Standalone\Opaline FM.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\Opaline FM"; Filename: "{app}\Opaline FM.exe"; WorkingDir: "{app}"
