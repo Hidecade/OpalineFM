@@ -292,7 +292,7 @@ DX21のRate Scaling実測には、次の4音色を使用します。
 3. 録音を開始して、内部測定用の`MIDI KEY TEST`を実行する。
 4. RateSc 0、1、2、3について同じ操作を繰り返す。
 
-MIDI Key Testはノート`0, 12, 24, 36, 48, 60, 72, 84, 96, 108, 120, 127`を、各3秒間鳴らします。このボタンはv1.0.9の通常UIでは非表示です。録音ファイル名は`DX21_RateScale_RS0.wav`から`DX21_RateScale_RS3.wav`とします。各ノートの開始点から一定減衰量（例: ピークから-30 dB）へ到達するまでの時間を比較し、実測テーブルを決定します。
+MIDI Key Testはノート`0, 12, 24, 36, 48, 60, 72, 84, 96, 108, 120, 127`を、各3秒間鳴らします。このボタンはv1.0.10の通常UIでは非表示です。録音ファイル名は`DX21_RateScale_RS0.wav`から`DX21_RateScale_RS3.wav`とします。各ノートの開始点から一定減衰量（例: ピークから-30 dB）へ到達するまでの時間を比較し、実測テーブルを決定します。
 
 2026年7月19日のDX21実機録音から取得した、ピークから`-20 dB`までのD1減衰時間（秒）:
 
@@ -393,13 +393,13 @@ DAWはJUCE `ValueTree`を使用する`getStateInformation()` / `setStateInformat
 
 ## リリースおよび法的注意事項
 
-v1.0.9公開リリースでは、次のインストーラーを配布します。
+v1.0.10公開リリースでは、次のインストーラーを配布します。
 
-- Windows x64スタンドアロン: `OpalineFM-Standalone-v1.0.9-Windows-x64.exe`
-- Windows x64 VST3: `OpalineFM-VST3-v1.0.9-Windows-x64.exe`
+- Windows x64スタンドアロン: `OpalineFM-Standalone-v1.0.10-Windows-x64.exe`
+- Windows x64 VST3: `OpalineFM-VST3-v1.0.10-Windows-x64.exe`
 - 署名・公証済みmacOS Standalone、VST3、Audio Unitパッケージ
 
-Windows VST3版は`C:\Program Files\Common Files\VST3\Opaline FM.vst3`へインストールします。Windows版は現在未署名で、macOS版は署名・公証済みです。公開インストーラーは[公式GitHub Release](https://github.com/Hidecade/OpalineFM/releases/tag/v1.0.9)から取得します。
+Windows VST3版は`C:\Program Files\Common Files\VST3\Opaline FM.vst3`へインストールします。Windows版は現在未署名で、macOS版は署名・公証済みです。公開インストーラーは[公式GitHub Release](https://github.com/Hidecade/OpalineFM/releases/tag/v1.0.10)から取得します。
 
 公開リリース文書には次を記載します。
 

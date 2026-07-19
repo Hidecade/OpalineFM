@@ -292,7 +292,7 @@ Each voice uses only OP1 as a carrier, with `AR=31`, `D1R=10`, `D1L=0`, and `Lev
 3. Start recording and run the internal `MIDI KEY TEST` measurement function.
 4. Repeat for RateSc 0, 1, 2, and 3.
 
-MIDI Key Test plays notes `0, 12, 24, 36, 48, 60, 72, 84, 96, 108, 120, 127` for three seconds each. The button is hidden from the normal v1.0.9 UI. Name the recordings `DX21_RateScale_RS0.wav` through `DX21_RateScale_RS3.wav`. Compare the elapsed time from each note onset to a fixed attenuation threshold, such as 30 dB below peak, to derive the measured table.
+MIDI Key Test plays notes `0, 12, 24, 36, 48, 60, 72, 84, 96, 108, 120, 127` for three seconds each. The button is hidden from the normal v1.0.10 UI. Name the recordings `DX21_RateScale_RS0.wav` through `DX21_RateScale_RS3.wav`. Compare the elapsed time from each note onset to a fixed attenuation threshold, such as 30 dB below peak, to derive the measured table.
 
 D1 decay time in seconds from peak to `-20 dB`, measured from a DX21 recording on July 19, 2026:
 
@@ -393,13 +393,13 @@ The desired state suffix is `.opalinefmstate`.
 
 ## Release Notes and Legal Notes
 
-The v1.0.9 public release provides the following installer formats:
+The v1.0.10 public release provides the following installer formats:
 
-- Windows x64 standalone installer: `OpalineFM-Standalone-v1.0.9-Windows-x64.exe`
-- Windows x64 VST3 installer: `OpalineFM-VST3-v1.0.9-Windows-x64.exe`
+- Windows x64 standalone installer: `OpalineFM-Standalone-v1.0.10-Windows-x64.exe`
+- Windows x64 VST3 installer: `OpalineFM-VST3-v1.0.10-Windows-x64.exe`
 - Signed and notarized macOS standalone, VST3, and Audio Unit packages
 
-The Windows VST3 installer targets `C:\Program Files\Common Files\VST3\Opaline FM.vst3`. Windows installers are currently unsigned; macOS packages are signed and notarized. Published installers must be obtained from the [official GitHub Release](https://github.com/Hidecade/OpalineFM/releases/tag/v1.0.9).
+The Windows VST3 installer targets `C:\Program Files\Common Files\VST3\Opaline FM.vst3`. Windows installers are currently unsigned; macOS packages are signed and notarized. Published installers must be obtained from the [official GitHub Release](https://github.com/Hidecade/OpalineFM/releases/tag/v1.0.10).
 
 Public release documentation should state:
 
