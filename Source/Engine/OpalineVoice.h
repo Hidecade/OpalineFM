@@ -13,6 +13,13 @@ namespace opaline
 {
 struct Algorithm;
 
+namespace detail
+{
+// Generated once during module initialization; rendering only reads the tables.
+const std::array<int, 256>& chipLogSinRom();
+const std::array<int, 256>& chipExpRom();
+}
+
 // DX21-compatible per-operator keyboard level-scaling offset.
 int keyboardLevelScaleOffset(int midiNote, int levelScale);
 

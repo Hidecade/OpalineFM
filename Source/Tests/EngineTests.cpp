@@ -66,6 +66,41 @@ void testTables()
     expectNear(opaline::opalineLfoSpeedToHz(99), 55.0, 0.0001, "LFO speed 99 matches Webcompatible");
 }
 
+std::uint64_t romFingerprint(const std::array<int, 256>& values)
+{
+    std::uint64_t hash = 14695981039346656037ULL;
+    for (const int value : values)
+    {
+        hash ^= static_cast<std::uint64_t>(value);
+        hash *= 1099511628211ULL;
+    }
+    return hash;
+}
+
+void testGeneratedChipRomTables()
+{
+    const auto& logSin = opaline::detail::chipLogSinRom();
+    const auto& exponential = opaline::detail::chipExpRom();
+
+    expect(logSin.front() == 0x859, "generated log-sine first value");
+    expect(logSin.back() == 0x000, "generated log-sine last value");
+    expect(exponential.front() == 0x7fa, "generated exponential first value");
+    expect(exponential.back() == 0x400, "generated exponential last value");
+
+    for (std::size_t i = 1; i < logSin.size(); ++i)
+    {
+        expect(logSin[i] <= logSin[i - 1], "generated log-sine table is monotonic");
+        expect(exponential[i] <= exponential[i - 1], "generated exponential table is monotonic");
+    }
+
+    // These fingerprints cover every generated element and preserve the exact
+    // quantization of the previous fixed tables without retaining their data.
+    expect(romFingerprint(logSin) == 0x40c2578eb57d1535ULL,
+           "generated log-sine table matches all 256 reference values");
+    expect(romFingerprint(exponential) == 0xff727c424ceb6bbeULL,
+           "generated exponential table matches all 256 reference values");
+}
+
 void testKeyboardLevelScaling()
 {
     constexpr std::array<int, 5> scales { 0, 25, 50, 75, 99 };
@@ -1057,6 +1092,7 @@ void testOptionalAssetSysex()
 int main()
 {
     testTables();
+    testGeneratedChipRomTables();
     testKeyboardLevelScaling();
     testPatchNormalization();
     testRealtimeStateMailbox();
