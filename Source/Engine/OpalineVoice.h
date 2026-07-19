@@ -13,6 +13,9 @@ namespace opaline
 {
 struct Algorithm;
 
+// DX21-compatible per-operator keyboard level-scaling offset.
+int keyboardLevelScaleOffset(int midiNote, int levelScale);
+
 // Per-operator audio and phase-modulation bus outputs.
 struct OperatorRender
 {

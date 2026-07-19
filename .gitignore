@@ -5,6 +5,9 @@ audio/
 assets/*.syx
 !assets/factory.syx
 assets/*.opalinevoice
+!assets/DX21_LevelScale_Test.opalinevoice
+!assets/DX21_ModLevelScale_LS*.opalinevoice
+!assets/DX21_RateScale_RS*.opalinevoice
 assets/opaline_collection.md
 *.user
 *.suo

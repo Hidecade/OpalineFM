@@ -118,7 +118,6 @@ final class MobileSynthModel: ObservableObject {
     private var resumeAudioAfterInterruption = false
     private var resumeAudioOnForeground = false
     private var isAppInForeground = true
-    private var activeTransposedNotes: [Int: [Int]] = [:]
     private var externalNoteCounts: [Int: Int] = [:]
 
     init() {
@@ -217,17 +216,12 @@ final class MobileSynthModel: ObservableObject {
     }
 
     func noteOn(_ midiNote: Int, velocity: Int = 100) {
-        let transposedNote = max(0, min(127, midiNote + Int(transpose.rounded())))
-        activeTransposedNotes[midiNote, default: []].append(transposedNote)
-        engine.noteOn(Int32(transposedNote), velocity: Int32(max(1, min(127, velocity))))
+        let safeNote = max(0, min(127, midiNote))
+        engine.noteOn(Int32(safeNote), velocity: Int32(max(1, min(127, velocity))))
     }
 
     func noteOff(_ midiNote: Int) {
-        let transposedNote = activeTransposedNotes[midiNote]?.popLast() ?? max(0, min(127, midiNote + Int(transpose.rounded())))
-        if activeTransposedNotes[midiNote]?.isEmpty == true {
-            activeTransposedNotes.removeValue(forKey: midiNote)
-        }
-        engine.noteOff(Int32(transposedNote))
+        engine.noteOff(Int32(max(0, min(127, midiNote))))
     }
 
     func midiNoteOn(_ midiNote: Int, velocity: Int) {
@@ -340,6 +334,7 @@ final class MobileSynthModel: ObservableObject {
 
     func setTranspose(_ value: Double) {
         transpose = max(-24, min(24, value))
+        engine.setPerformanceTranspose(Int32(transpose.rounded()))
         scheduleLibraryAutosave()
     }
 

@@ -221,6 +221,7 @@ void enqueueRealtimeCommand(opaline::RealtimeCommandQueue<RealtimeCommand, kReal
     int dualDetune;
     int splitPoint;
     int abBalance;
+    int performanceTranspose;
     int pitchBendRange;
     int portamento;
     int portamentoModeA;
@@ -386,6 +387,7 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
         dualDetune = 0;
         splitPoint = 60;
         abBalance = 0;
+        performanceTranspose = 0;
         pitchBendRange = 2;
         portamento = 0;
         portamentoModeA = 0;
@@ -1136,6 +1138,13 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
     [self publishEngineStateNoLock];
 }
 
+- (void)setPerformanceTranspose:(int)value
+{
+    std::lock_guard<std::mutex> lock(engineMutex);
+    performanceTranspose = std::max(-24, std::min(value, 24));
+    [self publishEngineStateNoLock];
+}
+
 - (void)noteOn:(int)note velocity:(int)velocity
 {
     enqueueRealtimeCommand(realtimeCommands, realtimeCommandOverflowed,
@@ -1652,6 +1661,8 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
     MobileEngineState state;
     state.patchA = currentPatch;
     state.patchB = currentPatchB;
+    state.patchA.transpose = std::max(-24, std::min(state.patchA.transpose + performanceTranspose, 24));
+    state.patchB.transpose = std::max(-24, std::min(state.patchB.transpose + performanceTranspose, 24));
     state.performanceMode = performanceMode;
     state.dualDetune = dualDetune;
     state.splitPoint = splitPoint;

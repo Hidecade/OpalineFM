@@ -21,6 +21,7 @@ constexpr int kPcKeyboardTranspose = 12;
 constexpr int kPreferredAudioBufferSize = 128;
 constexpr int kMaxLowLatencyAudioBufferSize = 128;
 constexpr std::array<int, 4> kLowLatencyAudioBufferSizes { 32, 64, 96, 128 };
+constexpr std::array<int, 12> kMidiKeyTestNotes { 0, 12, 24, 36, 48, 60, 72, 84, 96, 108, 120, 127 };
 constexpr float kAsioOutputTrim = 0.50f;
 constexpr bool kShowEngineModelButton = false;
 
@@ -2039,6 +2040,18 @@ MainComponent::MainComponent(const HostMode mode, const bool allowPluginPcKeyboa
     wavRecordButton.addListener(this);
     addAndMakeVisible(wavRecordButton);
 
+    for (auto* button : { &voiceExportButton, &midiTestButton })
+    {
+        button->setName("dx21BlueButton");
+        button->setColour(juce::TextButton::buttonColourId, juce::Colour(0xff17242a));
+        button->setColour(juce::TextButton::textColourOffId, kTextPrimary);
+        button->setLookAndFeel(&opalineLookAndFeel);
+        button->addListener(this);
+        addAndMakeVisible(*button);
+        button->setVisible(hostMode == HostMode::StandaloneApp);
+    }
+    midiTestButton.setVisible(false);
+
     effectsEnableButton.setClickingTogglesState(true);
     effectsEnableButton.setToggleState(true, juce::dontSendNotification);
     effectsEnableButton.setName("dx21ToggleButton");
@@ -2314,6 +2327,7 @@ MainComponent::MainComponent(const HostMode mode, const bool allowPluginPcKeyboa
 
 MainComponent::~MainComponent()
 {
+    stopMidiTest(false);
     if (hostMode == HostMode::StandaloneApp)
         saveVoiceLibraryState();
     stopTimer();
@@ -2349,6 +2363,8 @@ MainComponent::~MainComponent()
                           &voiceBPreviousButton, &voiceBNextButton })
         button->setLookAndFeel(nullptr);
     wavRecordButton.setLookAndFeel(nullptr);
+    voiceExportButton.setLookAndFeel(nullptr);
+    midiTestButton.setLookAndFeel(nullptr);
     effectsEnableButton.setLookAndFeel(nullptr);
     engineModelButton.setLookAndFeel(nullptr);
     lfoSyncButton.setLookAndFeel(nullptr);
@@ -2513,7 +2529,7 @@ void MainComponent::paint(juce::Graphics& g)
 
     auto area = getLocalBounds().reduced(20);
     auto header = area.removeFromTop(34);
-    drawHeaderTitle(g, header.removeFromLeft(210).toFloat());
+    drawHeaderTitle(g, header.removeFromLeft(190).toFloat());
 
     area.removeFromTop(panelGap);
     const auto top = area.removeFromTop(198).toFloat();
@@ -2535,10 +2551,15 @@ void MainComponent::resized()
 
     auto area = getLocalBounds().reduced(20);
     auto header = area.removeFromTop(34);
-    titleLabel.setBounds(header.removeFromLeft(210));
+    titleLabel.setBounds(header.removeFromLeft(190));
     titleLabel.setVisible(false);
     effectsEnableButton.setBounds(header.removeFromRight(68).withSizeKeepingCentre(68, 23));
     header.removeFromRight(panelGap);
+    if (hostMode == HostMode::StandaloneApp)
+    {
+        voiceExportButton.setBounds(header.removeFromRight(88).withSizeKeepingCentre(88, 23));
+        header.removeFromRight(panelGap);
+    }
     wavRecordButton.setBounds(header.removeFromRight(68).withSizeKeepingCentre(68, 23));
     header.removeFromRight(panelGap);
     if constexpr (kShowEngineModelButton)
@@ -2553,9 +2574,9 @@ void MainComponent::resized()
     }
     if (hostMode == HostMode::StandaloneApp)
     {
-        midiInputSelect.setBounds(header.removeFromRight(180));
+        midiInputSelect.setBounds(header.removeFromRight(170));
         header.removeFromRight(panelGap);
-        audioOutputSelect.setBounds(header.removeFromRight(235));
+        audioOutputSelect.setBounds(header.removeFromRight(225));
         header.removeFromRight(panelGap);
     }
     statusLabel.setBounds(header);
@@ -4083,6 +4104,135 @@ void MainComponent::writeWavRecordingToFile(const juce::File& file)
 
     statusLabel.setText("WAV saved: " + file.getFileName(), juce::dontSendNotification);
 }
+
+void MainComponent::chooseMidiOutput(const MidiOutputAction action)
+{
+    const auto devices = juce::MidiOutput::getAvailableDevices();
+    if (devices.isEmpty())
+    {
+        statusLabel.setText("MIDI: no output device", juce::dontSendNotification);
+        return;
+    }
+
+    if (devices.size() == 1)
+    {
+        performMidiOutputAction(action, devices.getReference(0));
+        return;
+    }
+
+    juce::PopupMenu menu;
+    for (int index = 0; index < devices.size(); ++index)
+        menu.addItem(index + 1, devices.getReference(index).name);
+
+    auto* target = action == MidiOutputAction::voiceExport ? &voiceExportButton : &midiTestButton;
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(target),
+                       [safeThis = juce::Component::SafePointer<MainComponent>(this), devices, action](const int result)
+                       {
+                           if (safeThis != nullptr && result > 0 && result <= devices.size())
+                               safeThis->performMidiOutputAction(action, devices.getReference(result - 1));
+                       });
+}
+
+void MainComponent::performMidiOutputAction(const MidiOutputAction action, const juce::MidiDeviceInfo& device)
+{
+    if (action == MidiOutputAction::voiceExport)
+        exportCurrentVoice(device);
+    else
+        startMidiTest(device);
+}
+
+void MainComponent::exportCurrentVoice(const juce::MidiDeviceInfo& device)
+{
+    auto output = juce::MidiOutput::openDevice(device.identifier);
+    if (!output)
+    {
+        statusLabel.setText("Voice export: failed to open " + device.name, juce::dontSendNotification);
+        return;
+    }
+
+    updatePatchFromGlobalControls();
+    opaline::OpalinePatchWithMetadata voice;
+    voice.patch = currentPatch;
+    voice.name = currentVoiceName.toStdString();
+    const auto sysex = opaline::encodeCompatibleVcedVoice(voice);
+    output->sendMessageNow(juce::MidiMessage(sysex.data(), static_cast<int>(sysex.size())));
+    statusLabel.setText("Voice exported to " + device.name, juce::dontSendNotification);
+}
+
+void MainComponent::startMidiTest(const juce::MidiDeviceInfo& device)
+{
+    stopMidiTest(false);
+    midiTestOutput = juce::MidiOutput::openDevice(device.identifier);
+    if (!midiTestOutput)
+    {
+        statusLabel.setText("MIDI key test: failed to open " + device.name, juce::dontSendNotification);
+        return;
+    }
+
+    midiTestNoteIndex = 0;
+    midiTestState = MidiTestState::waitingToStart;
+    midiTestNextActionMs = juce::Time::getMillisecondCounterHiRes() + 250.0;
+    midiTestButton.setButtonText("STOP");
+    voiceExportButton.setEnabled(false);
+    statusLabel.setText("MIDI key test: " + device.name, juce::dontSendNotification);
+}
+
+void MainComponent::advanceMidiTest(const double nowMilliseconds)
+{
+    if (midiTestState == MidiTestState::idle || !midiTestOutput || nowMilliseconds < midiTestNextActionMs)
+        return;
+
+    constexpr int midiChannel = 1;
+    constexpr juce::uint8 velocity = 64;
+    constexpr double noteDurationMs = 3000.0;
+    constexpr double noteGapMs = 250.0;
+    const int note = kMidiKeyTestNotes[static_cast<std::size_t>(midiTestNoteIndex)];
+
+    if (midiTestState == MidiTestState::waitingToStart || midiTestState == MidiTestState::gap)
+    {
+        midiTestOutput->sendMessageNow(juce::MidiMessage::noteOn(midiChannel, note, velocity));
+        midiTestState = MidiTestState::noteOn;
+        midiTestNextActionMs = nowMilliseconds + noteDurationMs;
+        statusLabel.setText("MIDI key test: Note " + juce::String(note),
+                            juce::dontSendNotification);
+        return;
+    }
+
+    midiTestOutput->sendMessageNow(juce::MidiMessage::noteOff(midiChannel, note, velocity));
+    if (midiTestNoteIndex >= static_cast<int>(kMidiKeyTestNotes.size()) - 1)
+    {
+        stopMidiTest(true);
+        return;
+    }
+
+    ++midiTestNoteIndex;
+    midiTestState = MidiTestState::gap;
+    midiTestNextActionMs = nowMilliseconds + noteGapMs;
+}
+
+void MainComponent::stopMidiTest(const bool completed)
+{
+    if (midiTestOutput)
+    {
+        if (midiTestState == MidiTestState::noteOn)
+        {
+            const int note = kMidiKeyTestNotes[static_cast<std::size_t>(midiTestNoteIndex)];
+            midiTestOutput->sendMessageNow(juce::MidiMessage::noteOff(1, note, static_cast<juce::uint8>(64)));
+        }
+        midiTestOutput->sendMessageNow(juce::MidiMessage::allNotesOff(1));
+    }
+
+    const bool wasRunning = midiTestState != MidiTestState::idle;
+    midiTestState = MidiTestState::idle;
+    midiTestNextActionMs = 0.0;
+    midiTestOutput.reset();
+    midiTestButton.setButtonText("MIDI KEY TEST");
+    voiceExportButton.setEnabled(true);
+    if (completed)
+        statusLabel.setText("MIDI key test complete", juce::dontSendNotification);
+    else if (wasRunning)
+        statusLabel.setText("MIDI test stopped", juce::dontSendNotification);
+}
 void MainComponent::noteOn(const int note, const int velocity)
 {
     if (!powerOn && !startPlayback())
@@ -4357,6 +4507,7 @@ void MainComponent::timerCallback()
 {
     syncPcKeyboardNotes();
     const double now = juce::Time::getMillisecondCounterHiRes();
+    advanceMidiTest(now);
     for (auto* slider : { &volumeSlider, &transposeSlider, &balanceSlider })
     {
         const double displayUntil = static_cast<double>(slider->getProperties().getWithDefault("valueDisplayUntil", 0.0));
@@ -4579,6 +4730,17 @@ void MainComponent::buttonClicked(juce::Button* button)
             stopWavRecordingAndChooseFile();
         else
             startWavRecording();
+    }
+    else if (button == &midiTestButton)
+    {
+        if (midiTestState == MidiTestState::idle)
+            chooseMidiOutput(MidiOutputAction::keyTest);
+        else
+            stopMidiTest(false);
+    }
+    else if (button == &voiceExportButton)
+    {
+        chooseMidiOutput(MidiOutputAction::voiceExport);
     }
     else if (button == &effectsEnableButton)
     {

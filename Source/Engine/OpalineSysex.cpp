@@ -181,6 +181,80 @@ std::array<std::uint8_t, kOpalineVmemVoiceSize> encodeCompatibleVmemVoice(const 
     return vmem;
 }
 
+std::vector<std::uint8_t> encodeCompatibleVcedVoice(const OpalinePatchWithMetadata& voice,
+                                                    const std::uint8_t midiChannel)
+{
+    const auto patch = normalizePatch(voice.patch);
+    std::array<std::uint8_t, kOpalineVcedVoiceSize> vced {};
+
+    for (int block = 0; block < kOperatorCount; ++block)
+    {
+        const int opIndex = kOpalineVmemOperatorOrder[static_cast<std::size_t>(block)];
+        const auto& op = patch.operators[static_cast<std::size_t>(opIndex)];
+        const auto base = static_cast<std::size_t>(block * 13);
+        vced[base + 0] = static_cast<std::uint8_t>(clampInt(op.envelope.attackRate, 0, 31));
+        vced[base + 1] = static_cast<std::uint8_t>(clampInt(op.envelope.decay1Rate, 0, 31));
+        vced[base + 2] = static_cast<std::uint8_t>(clampInt(op.envelope.decay2Rate, 0, 31));
+        vced[base + 3] = static_cast<std::uint8_t>(clampInt(op.envelope.releaseRate, 0, 15));
+        vced[base + 4] = static_cast<std::uint8_t>(clampInt(op.envelope.decay1Level, 0, 15));
+        vced[base + 5] = static_cast<std::uint8_t>(clampInt(op.levelScale, 0, 99));
+        vced[base + 6] = static_cast<std::uint8_t>(clampInt(op.rateScale, 0, 3));
+        vced[base + 7] = 0;
+        vced[base + 8] = static_cast<std::uint8_t>(op.ampModEnable ? 1 : 0);
+        vced[base + 9] = static_cast<std::uint8_t>(clampInt(op.velocity, 0, 7));
+        vced[base + 10] = static_cast<std::uint8_t>(op.enabled ? clampInt(op.level, 0, 99) : 0);
+        vced[base + 11] = static_cast<std::uint8_t>(clampInt(op.ratioIndex, 0, 63));
+        vced[base + 12] = static_cast<std::uint8_t>(clampInt(op.detune + 3, 0, 6));
+    }
+
+    vced[52] = static_cast<std::uint8_t>(clampInt(patch.algorithm, 1, 8) - 1);
+    vced[53] = static_cast<std::uint8_t>(clampInt(patch.feedback, 0, 7));
+    vced[54] = static_cast<std::uint8_t>(clampInt(patch.lfo.speed, 0, 99));
+    vced[55] = static_cast<std::uint8_t>(clampInt(patch.lfo.delay, 0, 99));
+    vced[56] = static_cast<std::uint8_t>(clampInt(patch.lfo.pitchDepth, 0, 99));
+    vced[57] = static_cast<std::uint8_t>(clampInt(patch.lfo.ampDepth, 0, 99));
+    vced[58] = static_cast<std::uint8_t>(patch.lfo.sync ? 1 : 0);
+    vced[59] = static_cast<std::uint8_t>(clampInt(patch.lfo.wave, 0, 3));
+    vced[60] = static_cast<std::uint8_t>(clampInt(patch.lfo.pitchSensitivity, 0, 7));
+    vced[61] = static_cast<std::uint8_t>(clampInt(patch.lfo.ampSensitivity, 0, 3));
+    vced[62] = static_cast<std::uint8_t>(clampInt(patch.transpose, -24, 24) + 24);
+    vced[63] = 0; // Poly
+    vced[64] = 2; // Pitch bend range
+    vced[65] = 0; // Portamento mode
+    vced[66] = 0; // Portamento time
+    vced[67] = 0; // Foot volume range
+    vced[68] = 1; // Sustain pedal enabled
+    vced[69] = 0; // Portamento foot switch
+    vced[70] = 0; // Chorus
+    vced[71] = 0; // Mod wheel pitch range
+    vced[72] = 0; // Mod wheel amplitude range
+
+    for (int i = 77; i <= 86; ++i)
+        vced[static_cast<std::size_t>(i)] = static_cast<std::uint8_t>(' ');
+    const auto& name = voice.name.empty() ? std::string("INIT VOICE") : voice.name;
+    for (std::size_t i = 0; i < 10 && i < name.size(); ++i)
+    {
+        const auto ch = static_cast<unsigned char>(name[i]);
+        vced[77 + i] = static_cast<std::uint8_t>((ch >= 0x20 && ch <= 0x7e) ? ch : ' ');
+    }
+
+    vced[87] = static_cast<std::uint8_t>(clampInt(patch.pitchEnvelope.rate1, 0, 99));
+    vced[88] = static_cast<std::uint8_t>(clampInt(patch.pitchEnvelope.rate2, 0, 99));
+    vced[89] = static_cast<std::uint8_t>(clampInt(patch.pitchEnvelope.rate3, 0, 99));
+    vced[90] = static_cast<std::uint8_t>(clampInt(patch.pitchEnvelope.level1, 0, 99));
+    vced[91] = static_cast<std::uint8_t>(clampInt(patch.pitchEnvelope.level2, 0, 99));
+    vced[92] = static_cast<std::uint8_t>(clampInt(patch.pitchEnvelope.level3, 0, 99));
+
+    std::vector<std::uint8_t> bytes;
+    bytes.reserve(vced.size() + 8);
+    bytes.insert(bytes.end(), { 0xf0u, 0x43u, static_cast<std::uint8_t>(midiChannel & 0x0fu),
+                                0x03u, 0x00u, 0x5du });
+    bytes.insert(bytes.end(), vced.begin(), vced.end());
+    bytes.push_back(yamahaChecksum(bytes, 6, vced.size()));
+    bytes.push_back(0xf7u);
+    return bytes;
+}
+
 std::vector<std::uint8_t> encodeCompatibleBulkVmem(const std::vector<OpalinePatchWithMetadata>& voices)
 {
     if (voices.empty())

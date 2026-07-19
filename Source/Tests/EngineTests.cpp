@@ -8,6 +8,7 @@
 #include "Engine/RealtimeScopeBuffer.h"
 #include "Engine/OpalineSysex.h"
 #include "Engine/OpalineTables.h"
+#include "Engine/OpalineVoice.h"
 #include "Engine/OpalineVoiceLibrary.h"
 
 #include <array>
@@ -63,6 +64,40 @@ void testTables()
     expect(algorithms[7].carrierCount == 4, "algorithm 8 has four carriers");
     expectNear(opaline::opalineLfoSpeedToHz(35), 6.7, 0.02, "LFO speed 35 matches compatible manual");
     expectNear(opaline::opalineLfoSpeedToHz(99), 55.0, 0.0001, "LFO speed 99 matches Webcompatible");
+}
+
+void testKeyboardLevelScaling()
+{
+    constexpr std::array<int, 5> scales { 0, 25, 50, 75, 99 };
+    constexpr std::array<int, 6> notes { 36, 48, 60, 72, 84, 96 };
+    constexpr std::array<std::array<int, 6>, 5> measured {{
+        {{ 0, 0, 0, 0, 0, 0 }},
+        {{ 0, 1, 2, 4, 8, 16 }},
+        {{ 1, 2, 4, 8, 16, 33 }},
+        {{ 1, 3, 6, 12, 25, 50 }},
+        {{ 1, 3, 7, 16, 33, 67 }}
+    }};
+
+    for (std::size_t scale = 0; scale < scales.size(); ++scale)
+    {
+        for (std::size_t note = 0; note < notes.size(); ++note)
+        {
+            expect(opaline::keyboardLevelScaleOffset(notes[note], scales[scale]) == measured[scale][note],
+                   "keyboard level scaling matches measured DX21 anchor");
+        }
+    }
+
+    expect(opaline::keyboardLevelScaleOffset(60, 0) == 0, "zero LevelSc has no effect");
+    expect(opaline::keyboardLevelScaleOffset(127, 99) == 127, "level scaling clamps at TL maximum");
+    expect(opaline::keyboardLevelScaleOffset(-12, 99) == 0, "level scaling clamps low MIDI notes");
+
+    // DX21 keyboard scaling follows the transposed key. MIDI note 60 at -12 and
+    // MIDI note 48 at zero transpose therefore use the same scaling amount.
+    const int transposedKeyOffset = opaline::keyboardLevelScaleOffset(60 - 12, 99);
+    const int untransposedKeyOffset = opaline::keyboardLevelScaleOffset(48, 99);
+    expect(transposedKeyOffset == 3, "LevelSc uses the key after transpose");
+    expect(transposedKeyOffset == untransposedKeyOffset,
+           "equal sounding keys retain equal LevelSc after transpose");
 }
 
 void testPatchNormalization()
@@ -514,7 +549,7 @@ void testEnginePcmRegression()
         }
     }
 
-    expect(hash == 11726145091780288947ULL, "PCM regression hash is " + std::to_string(hash));
+    expect(hash == 3608085268966677603ULL, "PCM regression hash is " + std::to_string(hash));
 }
 
 void testRealtimeAudioRecorder()
@@ -783,6 +818,33 @@ void testSysexEncoding()
     expect(presets.size() == opaline::kOpalineBulkVoiceCount, "encoded bulk parses as 32 voices");
     expect(presets[0].name == "ROUNDTRIP", "encoded bulk contains first voice name");
     expect(presets[31].name == "ROUNDTRIP", "bulk encoder repeats short banks to 32 voices");
+
+    decoded.patch.operators[3].level = 83;
+    decoded.patch.operators[3].levelScale = 75;
+    decoded.patch.operators[3].ratioIndex = 11;
+    decoded.patch.operators[3].detune = -2;
+    const auto vced = opaline::encodeCompatibleVcedVoice(decoded, 3);
+    expect(vced.size() == static_cast<std::size_t>(opaline::kOpalineVcedVoiceSize + 8),
+           "VCED encoder writes complete single voice message");
+    expect(vced[0] == 0xf0u && vced[1] == 0x43u && vced[2] == 3u,
+           "VCED encoder writes Yamaha header and MIDI channel");
+    expect(vced[3] == 0x03u && vced[4] == 0x00u && vced[5] == 0x5du,
+           "VCED encoder writes single voice format header");
+    expect(vced[6 + 5] == 75u && vced[6 + 10] == 83u,
+           "VCED first block contains Opaline OP4 scaling and level");
+    expect(vced[6 + 11] == 11u && vced[6 + 12] == 1u,
+           "VCED first block contains Opaline OP4 ratio and detune");
+    expect(vced[6 + 52] == static_cast<std::uint8_t>(decoded.patch.algorithm - 1),
+           "VCED encoder writes algorithm");
+    expect(vced[6 + 62] == static_cast<std::uint8_t>(decoded.patch.transpose + 24),
+           "VCED encoder writes transpose");
+    expect(std::string(vced.begin() + 6 + 77, vced.begin() + 6 + 87) == "ROUNDTRIP ",
+           "VCED encoder writes voice name");
+    int vcedChecksumTotal = 0;
+    for (std::size_t i = 6; i < vced.size() - 1; ++i)
+        vcedChecksumTotal += vced[i];
+    expect((vcedChecksumTotal & 0x7f) == 0, "VCED encoder writes valid Yamaha checksum");
+    expect(vced.back() == 0xf7u, "VCED encoder writes SysEx end");
 }
 
 void testVoiceLibrary()
@@ -995,6 +1057,7 @@ void testOptionalAssetSysex()
 int main()
 {
     testTables();
+    testKeyboardLevelScaling();
     testPatchNormalization();
     testRealtimeStateMailbox();
     testRealtimeScopeBuffer();

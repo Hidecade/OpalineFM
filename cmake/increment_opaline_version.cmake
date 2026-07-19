@@ -20,7 +20,10 @@ if (major STREQUAL "" OR minor STREQUAL "" OR patch STREQUAL "" OR tweak STREQUA
     message(FATAL_ERROR "Could not parse Opaline version file")
 endif()
 
-set(current_version "${major}.${minor}.${patch}.${tweak}")
+set(current_version "${major}.${minor}.${patch}")
+if (NOT tweak STREQUAL "0")
+    string(APPEND current_version ".${tweak}")
+endif()
 if (DEFINED EXPECTED_VERSION AND NOT current_version STREQUAL EXPECTED_VERSION)
     message(STATUS "Opaline FM version already advanced from ${EXPECTED_VERSION} to ${current_version}; skipping bump")
     return()

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<opalineVoice version="1" name="MOD LS50">
+  <Patch algorithm="1" feedback="0" transpose="0">
+    <Lfo speed="0" delay="0" pitchDepth="0" ampDepth="0" pitchSensitivity="0" ampSensitivity="0" sync="0" wave="2"/>
+    <PitchEnvelope rate1="99" rate2="99" rate3="99" level1="50" level2="50" level3="50"/>
+    <Effects reverb="0" mix="0" echoMix="0" tone="50" chorus="0" delay="0"/>
+    <Operator index="0" ratioIndex="4" detune="0" level="99" rateScale="0" levelScale="0" velocity="0" ampModEnable="0" enabled="1">
+      <Envelope attackRate="31" decay1Rate="0" decay1Level="15" decay2Rate="0" releaseRate="15"/>
+    </Operator>
+    <Operator index="1" ratioIndex="8" detune="0" level="75" rateScale="0" levelScale="50" velocity="0" ampModEnable="0" enabled="1">
+      <Envelope attackRate="31" decay1Rate="0" decay1Level="15" decay2Rate="0" releaseRate="15"/>
+    </Operator>
+    <Operator index="2" ratioIndex="4" detune="0" level="0" rateScale="0" levelScale="0" velocity="0" ampModEnable="0" enabled="0">
+      <Envelope attackRate="31" decay1Rate="0" decay1Level="15" decay2Rate="0" releaseRate="15"/>
+    </Operator>
+    <Operator index="3" ratioIndex="4" detune="0" level="0" rateScale="0" levelScale="0" velocity="0" ampModEnable="0" enabled="0">
+      <Envelope attackRate="31" decay1Rate="0" decay1Level="15" decay2Rate="0" releaseRate="15"/>
+    </Operator>
+  </Patch>
+</opalineVoice>

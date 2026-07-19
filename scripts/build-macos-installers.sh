@@ -50,7 +50,7 @@ minor="$(sed -nE 's/.*OPALINE_VERSION_MINOR[[:space:]]+([0-9]+).*/\1/p' "$versio
 patch="$(sed -nE 's/.*OPALINE_VERSION_PATCH[[:space:]]+([0-9]+).*/\1/p' "$version_file")"
 tweak="$(sed -nE 's/.*OPALINE_VERSION_TWEAK[[:space:]]+([0-9]+).*/\1/p' "$version_file")"
 version="$major.$minor.$patch"
-if [[ -n "$tweak" ]]; then
+if [[ -n "$tweak" && "$tweak" != "0" ]]; then
     version="$version.$tweak"
 fi
 

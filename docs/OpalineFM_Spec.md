@@ -257,17 +257,13 @@ High-rate values around PR90-98 use measured correction data. PR99 is not a true
 
 ## Keyboard Level Scaling
 
-Keyboard Level Scaling (`LevelSc`) follows measurements from a DX21 recording. MIDI note 0 is the normalization point, where the integer TL offset is zero for the supported `LevelSc` range. The attenuation doubles for every octave above MIDI note 0. MIDI note numbers are normative; octave names such as C0 or C1 are not used as the specification because their naming differs between hosts.
+Keyboard Level Scaling (`LevelSc`) follows separate DX21 measurements of carrier and modulator operators. Both operator roles produce the same scaling values, so they share one measured table. MIDI note numbers are normative; octave names such as C0 or C1 are not used as the specification because their naming differs between hosts.
 
-The TL offset is calculated as:
+The implementation uses the table below as lookup anchors instead of relying on a single approximate expression. Values between note anchors follow a curve that approximately doubles per octave, while intermediate `LevelSc` values are interpolated linearly between adjacent measured rows. The result is rounded to the nearest integer and clamped to `0..127`. Notes below 36 and above 96 are extrapolated with the same octave ratio.
 
-```text
-octaveFactor = 2 ^ (midiNote / 12)
-levelScaleTl = floor(LevelSc / 384 * octaveFactor)
-levelScaleTl = clamp(levelScaleTl, 0, 127)
-```
+`LevelSc` and Rate Scaling use the sounding key after Transpose has been added to the received MIDI note. For example, MIDI note 60 with Transpose -12 uses note 48 for oscillator pitch, `LevelSc`, and Rate Scaling. It therefore has the same timbre as MIDI note 48 with Transpose 0. This matches the DX21 behavior in which changing Transpose does not alter the voice timbre.
 
-This is mathematically equivalent to anchoring the measured expression at MIDI note 36 as `floor(LevelSc / 48 * 2 ^ ((midiNote - 36) / 12))`; the MIDI-note-0 form is used to make the zero-level behavior explicit.
+The detune frequency table uses the same transposed sounding key.
 
 Measured TL-equivalent attenuation at MIDI notes 36, 48, 60, 72, 84, and 96:
 
@@ -280,7 +276,42 @@ LevelSc  36  48  60  72  84  96
      99   1   3   7  16  33  67
 ```
 
-One TL step corresponds to approximately `0.752575 dB`. The renderer subtracts the integer scaling amount from the operator's `0..99` LEVEL first, clamps the effective LEVEL to zero, and then converts it to TL. This ensures that strong scaling can fully silence a low-level operator at high notes. The integer scaling value is rounded down only after the complete expression is evaluated.
+## Keyboard Rate Scaling Measurement
+
+The following four voices are used to measure DX21 Rate Scaling:
+
+- `assets/DX21_RateScale_RS0.opalinevoice`
+- `assets/DX21_RateScale_RS1.opalinevoice`
+- `assets/DX21_RateScale_RS2.opalinevoice`
+- `assets/DX21_RateScale_RS3.opalinevoice`
+
+Each voice uses only OP1 as a carrier, with `AR=31`, `D1R=10`, `D1L=0`, and `LevelSc=0`. AR remains instantaneous so it is excluded from the measurement, while the slower D1 decay provides enough time resolution. This isolates RateSc from level scaling and modulation.
+
+1. Load one measurement voice in Opaline FM.
+2. Send it to the DX21 with `VOICE EXPORT`.
+3. Start recording and run the internal `MIDI KEY TEST` measurement function.
+4. Repeat for RateSc 0, 1, 2, and 3.
+
+MIDI Key Test plays notes `0, 12, 24, 36, 48, 60, 72, 84, 96, 108, 120, 127` for three seconds each. The button is hidden from the normal v1.0.9 UI. Name the recordings `DX21_RateScale_RS0.wav` through `DX21_RateScale_RS3.wav`. Compare the elapsed time from each note onset to a fixed attenuation threshold, such as 30 dB below peak, to derive the measured table.
+
+D1 decay time in seconds from peak to `-20 dB`, measured from a DX21 recording on July 19, 2026:
+
+```text
+Note     0     12     24     36     48     60     72     84     96    108    120    127
+RS 0  1.460  1.455  1.430  1.430  1.150  1.170  0.975  0.975  0.840  0.840  0.840  0.840
+RS 1  1.455  1.455  1.415  1.145  0.960  0.825  0.735  0.585  0.490  0.490  0.490  0.420
+RS 2  1.455  1.485  1.140  0.825  0.580  0.415  0.290  0.215  0.150  0.155  0.150  0.105
+RS 3  1.455  1.455  0.785  0.395  0.200  0.110  0.055  0.030  0.020  0.015  0.015  0.010
+```
+
+For RS 3, decay time approximately halves per octave above note 24. RS 0 is not fully disabled; it retains a weak key-rate change in the upper range. This behavior agrees with the current key-code model:
+
+```text
+keyScaleCode = clamp(round((transposedNote - 24) / 3), 0, 31)
+rateOffset = keyScaleCode >> (RateSc xor 3)
+```
+
+One TL step corresponds to approximately `0.752575 dB`. The renderer subtracts the integer scaling amount from the operator's `0..99` LEVEL first, clamps the effective LEVEL to zero, and then converts it to TL. This ensures that strong scaling can fully silence a low-level operator at high notes.
 
 ## LFO and Modulation
 
@@ -362,13 +393,13 @@ The desired state suffix is `.opalinefmstate`.
 
 ## Release Notes and Legal Notes
 
-The v1.0.8.1 public release provides the following installer formats:
+The v1.0.9 public release provides the following installer formats:
 
-- Windows x64 standalone installer: `OpalineFM-Standalone-v1.0.8.1-Windows-x64.exe`
-- Windows x64 VST3 installer: `OpalineFM-VST3-v1.0.8.1-Windows-x64.exe`
+- Windows x64 standalone installer: `OpalineFM-Standalone-v1.0.9-Windows-x64.exe`
+- Windows x64 VST3 installer: `OpalineFM-VST3-v1.0.9-Windows-x64.exe`
 - Signed and notarized macOS standalone, VST3, and Audio Unit packages
 
-The Windows VST3 installer targets `C:\Program Files\Common Files\VST3\Opaline FM.vst3`. Windows installers are currently unsigned; macOS packages are signed and notarized. Published installers must be obtained from the [official GitHub Release](https://github.com/Hidecade/OpalineFM/releases/tag/v1.0.8.1).
+The Windows VST3 installer targets `C:\Program Files\Common Files\VST3\Opaline FM.vst3`. Windows installers are currently unsigned; macOS packages are signed and notarized. Published installers must be obtained from the [official GitHub Release](https://github.com/Hidecade/OpalineFM/releases/tag/v1.0.9).
 
 Public release documentation should state:
 

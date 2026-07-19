@@ -42,6 +42,15 @@ constexpr double kOppTlSubsteps = 8.0;
 constexpr double kOppTlMax = 127.0;
 constexpr double kCarrierMixGain = 0.86;
 constexpr double kChipCarrierCountCompensationExponent = 0.18;
+constexpr std::array<int, 5> kLevelScaleAnchors { 0, 25, 50, 75, 99 };
+constexpr std::array<int, 6> kLevelScaleNoteAnchors { 36, 48, 60, 72, 84, 96 };
+constexpr std::array<std::array<int, 6>, 5> kMeasuredLevelScaleOffsets {{
+    {{ 0, 0, 0, 0, 0, 0 }},
+    {{ 0, 1, 2, 4, 8, 16 }},
+    {{ 1, 2, 4, 8, 16, 33 }},
+    {{ 1, 3, 6, 12, 25, 50 }},
+    {{ 1, 3, 7, 16, 33, 67 }}
+}};
 constexpr std::array<double, 8> kOpalinePitchSensitivitySemitones {
     2.0,    // PMS=0 uses the compatible vibrato oscillator path; measured like PMS=5.
     0.125,
@@ -144,20 +153,28 @@ double outputLevelToModulatorIndexChipLike(const double level)
     return outputLevelToCarrierAmplitudeChipLike(level) * kChipModulatorIndexScale;
 }
 
-double measuredKeyboardScaleTlOffset(const int note, const int levelScale)
+double measuredOffsetAtNoteAnchor(const int levelScale, const std::size_t noteIndex)
 {
-    const double scale = clampDouble(static_cast<double>(levelScale), 0.0, 99.0);
-    if (scale <= 0.0)
-        return 0.0;
+    const int scale = clampInt(levelScale, kLevelScaleAnchors.front(), kLevelScaleAnchors.back());
+    for (std::size_t upper = 1; upper < kLevelScaleAnchors.size(); ++upper)
+    {
+        if (scale > kLevelScaleAnchors[upper])
+            continue;
 
-    // MIDI note 0 is the normalization point; attenuation doubles every octave.
-    const double octaveFactor = std::pow(2.0, static_cast<double>(note) / 12.0);
-    return clampDouble(std::floor(scale * octaveFactor / 384.0), 0.0, kOppTlMax);
+        const std::size_t lower = upper - 1;
+        const double range = static_cast<double>(kLevelScaleAnchors[upper] - kLevelScaleAnchors[lower]);
+        const double amount = static_cast<double>(scale - kLevelScaleAnchors[lower]) / range;
+        const double low = static_cast<double>(kMeasuredLevelScaleOffsets[lower][noteIndex]);
+        const double high = static_cast<double>(kMeasuredLevelScaleOffsets[upper][noteIndex]);
+        return low + (high - low) * amount;
+    }
+
+    return static_cast<double>(kMeasuredLevelScaleOffsets.back()[noteIndex]);
 }
 
 int keyboardScaledTargetLevel(const int level, const int levelScale, const int note)
 {
-    const int scaleAmount = static_cast<int>(measuredKeyboardScaleTlOffset(note, levelScale));
+    const int scaleAmount = keyboardLevelScaleOffset(note, levelScale);
     return clampInt(level - scaleAmount, 0, 99);
 }
 
@@ -602,6 +619,43 @@ std::pair<double, double> opalineLfoShape(const double phase, const int wave)
 
 }
 
+int keyboardLevelScaleOffset(const int midiNote, const int levelScale)
+{
+    const int note = clampInt(midiNote, 0, 127);
+    const auto quantize = [](const double value)
+    {
+        return clampInt(static_cast<int>(std::floor(value + 0.5)), 0, static_cast<int>(kOppTlMax));
+    };
+
+    if (note < kLevelScaleNoteAnchors.front())
+    {
+        const double anchor = measuredOffsetAtNoteAnchor(levelScale, 0);
+        const double octaveFactor = std::pow(2.0,
+            static_cast<double>(note - kLevelScaleNoteAnchors.front()) / 12.0);
+        return clampInt(static_cast<int>(std::floor(anchor * octaveFactor)), 0,
+                        static_cast<int>(kOppTlMax));
+    }
+
+    for (std::size_t upper = 1; upper < kLevelScaleNoteAnchors.size(); ++upper)
+    {
+        if (note > kLevelScaleNoteAnchors[upper])
+            continue;
+
+        const std::size_t lower = upper - 1;
+        const int lowNote = kLevelScaleNoteAnchors[lower];
+        const double octavePosition = static_cast<double>(note - lowNote) / 12.0;
+        const double amount = std::pow(2.0, octavePosition) - 1.0;
+        const double low = measuredOffsetAtNoteAnchor(levelScale, lower);
+        const double high = measuredOffsetAtNoteAnchor(levelScale, upper);
+        return quantize(low + (high - low) * amount);
+    }
+
+    const double anchor = measuredOffsetAtNoteAnchor(levelScale, kLevelScaleNoteAnchors.size() - 1);
+    const double octaveFactor = std::pow(2.0,
+        static_cast<double>(note - kLevelScaleNoteAnchors.back()) / 12.0);
+    return quantize(anchor * octaveFactor);
+}
+
 void OpalineVoice::start(const OpalinePatch& patch, const int newMidiNote, const int velocity,
                          const double sampleRate, const OpalineRenderModel renderModel,
                          const int portamentoFromNote, const double portamentoSeconds)
@@ -645,22 +699,23 @@ void OpalineVoice::start(const OpalinePatch& patch, const int newMidiNote, const
             operatorVelocityFactor(sensitivity, noteVelocity, false));
     }
 
+    const int scalingNote = midiNote + patch.transpose;
     for (int i = 0; i < kOperatorCount; ++i)
     {
         const auto& op = patch.operators[static_cast<std::size_t>(i)];
         const int targetLevel = renderModel == OpalineRenderModel::TypeB
-            ? keyboardScaledTargetLevel(op.level, op.levelScale, midiNote)
+            ? keyboardScaledTargetLevel(op.level, op.levelScale, scalingNote)
             : op.level;
         operatorOppTlUnits[static_cast<std::size_t>(i)] =
             levelToOppTlTarget(targetLevel, renderModel) * kOppTlSubsteps;
         envelopes[static_cast<std::size_t>(i)].reset(currentSampleRate);
         envelopes[static_cast<std::size_t>(i)].noteOn(patch.operators[static_cast<std::size_t>(i)].envelope,
                                                       patch.operators[static_cast<std::size_t>(i)].rateScale,
-                                                      midiNote);
+                                                      scalingNote);
         chipEnvelopes[static_cast<std::size_t>(i)].reset(currentSampleRate);
         chipEnvelopes[static_cast<std::size_t>(i)].noteOn(patch.operators[static_cast<std::size_t>(i)].envelope,
                                                           patch.operators[static_cast<std::size_t>(i)].rateScale,
-                                                          midiNote);
+                                                          scalingNote);
     }
 }
 
@@ -831,7 +886,9 @@ OperatorRender OpalineVoice::renderOperator(const int opIndex,
         : 0.0;
 
     const double ratio = opalineRatios()[static_cast<std::size_t>(op.ratioIndex)];
-    const double frequency = baseFrequency * ratio + opmStyleDt1FrequencyOffset(baseFrequency, ratio, op.detune, midiNote);
+    const int oscillatorNote = midiNote + patch.transpose;
+    const double frequency = baseFrequency * ratio
+        + opmStyleDt1FrequencyOffset(baseFrequency, ratio, op.detune, oscillatorNote);
     phases[opSize] += opmStylePhaseAdvance(frequency, currentSampleRate);
     if (phases[opSize] > 2.0 * kPi)
         phases[opSize] -= 2.0 * kPi;
@@ -848,11 +905,11 @@ OperatorRender OpalineVoice::renderOperator(const int opIndex,
     }
     const bool carrier = operatorCarrierRoles[opSize];
     auto& scaleCache = operatorScaleCaches[opSize];
-    if (scaleCache.midiNote != midiNote || scaleCache.levelScale != op.levelScale)
+    if (scaleCache.midiNote != oscillatorNote || scaleCache.levelScale != op.levelScale)
     {
-        scaleCache.midiNote = midiNote;
+        scaleCache.midiNote = oscillatorNote;
         scaleCache.levelScale = op.levelScale;
-        scaleCache.tlOffset = measuredKeyboardScaleTlOffset(midiNote, op.levelScale);
+        scaleCache.tlOffset = static_cast<double>(keyboardLevelScaleOffset(oscillatorNote, op.levelScale));
     }
     const auto velocityIndex = static_cast<std::size_t>(clampInt(op.velocity, 0, 7));
     const double ampMod = op.ampModEnable ? operatorAmpModFactor(ampDepth, lfoAm) : 1.0;

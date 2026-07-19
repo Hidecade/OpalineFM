@@ -392,6 +392,17 @@ private:
     void startWavRecording();
     void stopWavRecordingAndChooseFile();
     void writeWavRecordingToFile(const juce::File& file);
+    enum class MidiOutputAction
+    {
+        voiceExport,
+        keyTest
+    };
+    void chooseMidiOutput(MidiOutputAction action);
+    void performMidiOutputAction(MidiOutputAction action, const juce::MidiDeviceInfo& device);
+    void exportCurrentVoice(const juce::MidiDeviceInfo& device);
+    void startMidiTest(const juce::MidiDeviceInfo& device);
+    void advanceMidiTest(double nowMilliseconds);
+    void stopMidiTest(bool completed);
     void noteOn(int note, int velocity);
     void noteOff(int note);
     void performNoteOnNoLock(int note, int velocity);
@@ -432,6 +443,8 @@ private:
     juce::ComboBox lfoWaveSelect;
     juce::TextButton powerButton { "OFF" };
     juce::TextButton wavRecordButton { "WAV" };
+    juce::TextButton voiceExportButton { "VOICE EXPORT" };
+    juce::TextButton midiTestButton { "MIDI KEY TEST" };
     juce::TextButton effectsEnableButton { "EFFECT" };
     juce::TextButton loadVoiceBankButton { "Load" };
     juce::TextButton saveVoiceBankButton { "Save" };
@@ -543,6 +556,17 @@ private:
     juce::AudioSourcePlayer audioSourcePlayer;
     std::unique_ptr<juce::FileChooser> fileChooser;
     std::vector<std::unique_ptr<juce::MidiInput>> midiInputs;
+    enum class MidiTestState
+    {
+        idle,
+        waitingToStart,
+        noteOn,
+        gap
+    };
+    std::unique_ptr<juce::MidiOutput> midiTestOutput;
+    MidiTestState midiTestState = MidiTestState::idle;
+    double midiTestNextActionMs = 0.0;
+    int midiTestNoteIndex = 0;
     opaline::RealtimeCommandQueue<RealtimeCommand, 1024> realtimeCommands;
     std::atomic<bool> realtimeCommandOverflowed { false };
     opaline::RealtimeStateMailbox<EngineState> engineStateUpdates;

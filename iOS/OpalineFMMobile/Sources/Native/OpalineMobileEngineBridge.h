@@ -36,6 +36,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)setDualDetune:(int)value NS_SWIFT_NAME(setDualDetune(_:));
 - (void)setSplitPoint:(int)value NS_SWIFT_NAME(setSplitPoint(_:));
 - (void)setABBalance:(int)value NS_SWIFT_NAME(setABBalance(_:));
+- (void)setPerformanceTranspose:(int)value NS_SWIFT_NAME(setPerformanceTranspose(_:));
 - (void)noteOn:(int)note velocity:(int)velocity NS_SWIFT_NAME(noteOn(_:velocity:));
 - (void)noteOff:(int)note NS_SWIFT_NAME(noteOff(_:));
 - (void)setPitchBend:(double)value;
