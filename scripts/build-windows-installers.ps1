@@ -31,7 +31,8 @@ if ([string]::IsNullOrWhiteSpace($BuildDirectory)) {
     $BuildDirectory = "build\release-$Version"
 }
 $buildRoot = Join-Path $repoRoot $BuildDirectory
-$artifactRoot = Join-Path $buildRoot "OpalineFM_Plugin_artefacts\$Configuration"
+$standaloneArtifactRoot = Join-Path $buildRoot "OpalineFM_Standalone_artefacts\$Configuration"
+$pluginArtifactRoot = Join-Path $buildRoot "OpalineFM_Plugin_artefacts\$Configuration"
 
 if (-not $SkipBuild) {
     $configureArguments = @("-S", $repoRoot, "-B", $buildRoot, "-DOPALINE_AUTO_INCREMENT_VERSION=OFF")
@@ -41,12 +42,12 @@ if (-not $SkipBuild) {
     & cmake @configureArguments
     if ($LASTEXITCODE -ne 0) { throw "CMake configure failed." }
 
-    & cmake --build $buildRoot --config $Configuration --target OpalineFM_Plugin_Standalone OpalineFM_Plugin_VST3
+    & cmake --build $buildRoot --config $Configuration --target OpalineFM_Standalone OpalineFM_Plugin_VST3
     if ($LASTEXITCODE -ne 0) { throw "Application/plugin build failed." }
 }
 
-$standalone = Join-Path $artifactRoot "Standalone\Opaline FM.exe"
-$vst3 = Join-Path $artifactRoot "VST3\Opaline FM.vst3\Contents\x86_64-win\Opaline FM.vst3"
+$standalone = Join-Path $standaloneArtifactRoot "Opaline FM.exe"
+$vst3 = Join-Path $pluginArtifactRoot "VST3\Opaline FM.vst3\Contents\x86_64-win\Opaline FM.vst3"
 if (-not (Test-Path $standalone)) { throw "Standalone artifact was not found: $standalone" }
 if (-not (Test-Path $vst3)) { throw "VST3 artifact was not found: $vst3" }
 
@@ -61,11 +62,12 @@ if (-not $iscc) { throw "Inno Setup compiler (ISCC.exe) was not found." }
 $distDirectory = Join-Path $repoRoot "dist"
 New-Item -ItemType Directory -Force -Path $distDirectory | Out-Null
 
-$definitions = @("/DAppVersion=$Version", "/DBuildRoot=$artifactRoot", "/O$distDirectory")
-& $iscc @definitions (Join-Path $repoRoot "installer\OpalineFM-Standalone.iss")
+$standaloneDefinitions = @("/DAppVersion=$Version", "/DBuildRoot=$standaloneArtifactRoot", "/O$distDirectory")
+& $iscc @standaloneDefinitions (Join-Path $repoRoot "installer\OpalineFM-Standalone.iss")
 if ($LASTEXITCODE -ne 0) { throw "Standalone installer compilation failed." }
 
-& $iscc @definitions (Join-Path $repoRoot "installer\OpalineFM-VST3.iss")
+$pluginDefinitions = @("/DAppVersion=$Version", "/DBuildRoot=$pluginArtifactRoot", "/O$distDirectory")
+& $iscc @pluginDefinitions (Join-Path $repoRoot "installer\OpalineFM-VST3.iss")
 if ($LASTEXITCODE -ne 0) { throw "VST3 installer compilation failed." }
 
 Write-Host "Installers created in $distDirectory"

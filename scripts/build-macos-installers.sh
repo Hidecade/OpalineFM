@@ -61,10 +61,10 @@ fi
 build_root="$repo_root/$build_directory"
 dist_directory="$repo_root/dist"
 stage_root="$build_root/package-stage"
-artifact_root="$build_root/OpalineFM_Plugin_artefacts/$configuration"
-standalone_artifact="$artifact_root/Standalone/Opaline FM.app"
-vst3_artifact="$artifact_root/VST3/Opaline FM.vst3"
-au_artifact="$artifact_root/AU/Opaline FM.component"
+standalone_artifact="$build_root/OpalineFM_Standalone_artefacts/$configuration/Opaline FM.app"
+plugin_artifact_root="$build_root/OpalineFM_Plugin_artefacts/$configuration"
+vst3_artifact="$plugin_artifact_root/VST3/Opaline FM.vst3"
+au_artifact="$plugin_artifact_root/AU/Opaline FM.component"
 
 if [[ "$skip_build" -eq 0 ]]; then
     cmake -S "$repo_root" -B "$build_root" \
@@ -75,7 +75,7 @@ if [[ "$skip_build" -eq 0 ]]; then
         -DOPALINE_BUILD_AU=ON
 
     cmake --build "$build_root" --config "$configuration" --target \
-        OpalineFM_Plugin_Standalone \
+        OpalineFM_Standalone \
         OpalineFM_Plugin_VST3 \
         OpalineFM_Plugin_AU
 fi
