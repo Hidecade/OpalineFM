@@ -162,6 +162,46 @@ else:
 phaseIndex = (basePhaseIndex + pmIndex + feedbackIndex) & 1023
 ```
 
+### Log-sine／指数ROMの生成
+
+波形変換に使う`kGeneratedLogSinRom`と`kGeneratedExpRom`は、既存実装由来の固定数値列を保持せず、モジュール初期化時に次の数式から各256要素を一度だけ生成します。生成後のレンダリング処理は配列を参照するだけで、音声スレッド上では`sin`、`log2`、`exp2`を実行しません。
+
+`kGeneratedLogSinRom`はサイン波の1/4周期を256区間に分け、各区間の中央を標本化した振幅を、1オクターブ256段階の対数減衰値へ変換します。添字を`i = 0...255`とすると、生成式は次のとおりです。
+
+```text
+phase(i) = (i + 0.5) * pi / 512
+kGeneratedLogSinRom[i] = round(-log2(sin(phase(i))) * 256)
+```
+
+1024ステップの`phaseIndex`からは、bit 8で1/4周期を折り返し、bit 9で出力符号を決定します。
+
+```text
+quarterIndex = phaseIndex & 255
+if (phaseIndex & 256) != 0:
+    quarterIndex = quarterIndex XOR 255
+
+waveAttenuation = kGeneratedLogSinRom[quarterIndex]
+sign = (phaseIndex & 512) != 0 ? -1 : 1
+```
+
+`kGeneratedExpRom`は、対数減衰値の下位8 bitを振幅の仮数部へ戻す指数曲線です。
+
+```text
+exponent(i) = (255 - i) / 256
+kGeneratedExpRom[i] = round(2 ^ exponent(i) * 1024)
+```
+
+総減衰値は`0...4095`へ制限し、下位8 bitで指数テーブルを参照します。上位4 bitは1オクターブ単位の右シフトとして適用します。
+
+```text
+atten = clamp(attenuation, 0, 4095)
+mantissa = kGeneratedExpRom[atten & 255]
+integerOutput = (mantissa << 2) >> (atten >> 8)
+audioMagnitude = integerOutput / 8192
+```
+
+生成値の丸めにはC++の`std::round`を使用します。現在の基準値は、log-sineテーブルが先頭`0x859`・末尾`0x000`、指数テーブルが先頭`0x7fa`・末尾`0x400`です。全要素を順番に処理した64 bit FNV-1aフィンガープリントは、それぞれ`0x40c2578eb57d1535`と`0xff727c424ceb6bbe`です。テストではこのフィンガープリント、単調性、端点、およびPCM回帰を検証します。これにより、処理系の数学関数や丸めの差で音声結果が変化した場合はCIで検出されます。
+
 レンダラーは、サイン波を直接`sin()`で計算するのではなく、1024ステップの位相インデックスから符号とlog-sine減衰量を求め、エンベロープ、TL、ベロシティ、AMを加えた総減衰量を指数テーブルで音声値へ戻します。
 
 ```text

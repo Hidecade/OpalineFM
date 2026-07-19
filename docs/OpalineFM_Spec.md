@@ -162,6 +162,46 @@ The final sine-table position wraps at 1024 steps.
 phaseIndex = (basePhaseIndex + pmIndex + feedbackIndex) & 1023
 ```
 
+### Log-sine and exponential ROM generation
+
+`kGeneratedLogSinRom` and `kGeneratedExpRom` do not retain fixed value lists taken from an existing implementation. Each 256-element table is generated once from the following mathematical definitions during module initialization. Rendering only reads the completed arrays, so the audio thread does not call `sin`, `log2`, or `exp2`.
+
+`kGeneratedLogSinRom` divides one quarter of a sine cycle into 256 intervals, samples the center of each interval, and converts the amplitude to logarithmic attenuation with 256 steps per octave. For `i = 0...255`:
+
+```text
+phase(i) = (i + 0.5) * pi / 512
+kGeneratedLogSinRom[i] = round(-log2(sin(phase(i))) * 256)
+```
+
+For the 1024-step `phaseIndex`, bit 8 mirrors the quarter-cycle index and bit 9 selects the output sign.
+
+```text
+quarterIndex = phaseIndex & 255
+if (phaseIndex & 256) != 0:
+    quarterIndex = quarterIndex XOR 255
+
+waveAttenuation = kGeneratedLogSinRom[quarterIndex]
+sign = (phaseIndex & 512) != 0 ? -1 : 1
+```
+
+`kGeneratedExpRom` is the exponential curve that converts the low eight bits of logarithmic attenuation back to an amplitude mantissa.
+
+```text
+exponent(i) = (255 - i) / 256
+kGeneratedExpRom[i] = round(2 ^ exponent(i) * 1024)
+```
+
+Total attenuation is clamped to `0...4095`. Its low eight bits select the exponential table entry, while the upper four bits apply an octave-scaled right shift.
+
+```text
+atten = clamp(attenuation, 0, 4095)
+mantissa = kGeneratedExpRom[atten & 255]
+integerOutput = (mantissa << 2) >> (atten >> 8)
+audioMagnitude = integerOutput / 8192
+```
+
+Generation uses C++ `std::round`. The current reference endpoints are `0x859` and `0x000` for the log-sine table, and `0x7fa` and `0x400` for the exponential table. Their 64-bit FNV-1a fingerprints, calculated in element order, are `0x40c2578eb57d1535` and `0xff727c424ceb6bbe`, respectively. Tests verify these fingerprints, monotonic ordering, endpoints, and PCM regression output. CI therefore detects platform math-library or rounding differences that could alter the rendered sound.
+
 The renderer does not compute the operator waveform with a direct `sin()` call. It maps the 1024-step phase index to sign and log-sine attenuation, adds envelope, TL, velocity, and AM attenuation, then converts the total attenuation back to an audio value through the exponential table.
 
 ```text
