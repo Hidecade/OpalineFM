@@ -2,16 +2,14 @@
 
 Opaline FM is a 4-operator FM synthesizer implemented in C++/JUCE. It is inspired by classic 1980s 4-op digital FM instruments and focuses on practical compatible voice-bank handling. It uses FM synthesis, but it is not a chip emulator and does not attempt to perfectly reproduce any specific FM hardware instrument.
 
-Detailed research notes are kept outside the repository in a private documentation folder. This file is the repository-facing summary for development, release notes, and public documentation.
-
 For installation and operation, see the [English README](../README.md) or [Japanese README](../README_ja.md). This document defines engine behavior, parameter ownership, file compatibility, and implementation constraints for developers and maintainers.
 
-## Goals
+## Implemented Scope
 
-- Provide a standalone app, VST3 instrument, plugin standalone build, and macOS AU build path.
-- Load and save compatible 32-voice SysEx banks.
-- Keep the engine usable as both a musical instrument and a reference implementation for measured 4-op FM behavior.
-- Keep the public identity as Opaline FM while preserving internal compatible terminology where it describes file formats or parameter compatibility.
+- Provides a standalone app, VST3 instrument, plugin standalone build, and macOS AU.
+- Loads and saves compatible 32-voice SysEx banks.
+- Uses one shared engine as both a musical instrument and a reference implementation for measured 4-op FM behavior.
+- Uses Opaline FM as the public identity and retains compatibility terminology only in internal names that describe file formats or parameter compatibility.
 
 ## Product Names
 
@@ -39,7 +37,7 @@ cmake --preset macos-debug
 cmake --build --preset plugin-au-macos-debug
 ```
 
-Expected AU output:
+AU output:
 
 ```text
 build/macos-debug/OpalineFM_Plugin_artefacts/Debug/AU/Opaline FM.component
@@ -69,7 +67,7 @@ The internal names still use `opaline` because they describe compatibility-level
 
 ### iOS Audio Lifecycle
 
-The iOS standalone app observes output-route changes, `AVAudioSession.interruptionNotification`, `mediaServicesWereResetNotification`, and SwiftUI `scenePhase`. Audio is suspended during interruptions or background transitions. On recovery, the app reacquires the session sample rate and route and rebuilds `AVAudioEngine`. Phone, Siri, Bluetooth, and headphone recovery remain part of physical-device regression testing.
+The iOS standalone app observes output-route changes, `AVAudioSession.interruptionNotification`, `mediaServicesWereResetNotification`, and SwiftUI `scenePhase`. Audio is suspended during interruptions or background transitions. On recovery, the app reacquires the session sample rate and route and rebuilds `AVAudioEngine`.
 
 ## Four-Operator FM Architecture
 
@@ -118,11 +116,12 @@ The renderer separates each operator result into an `audio` value and a `modulat
 Main constants:
 
 ```text
-phaseSteps = 1048576
-sineIndexSteps = 1024
-operatorBusPeak = 8192
-tlSubsteps = 8
-tlMax = 127
+phaseSteps = 1048576              # Internal fixed-point phase steps per cycle (2^20)
+sineIndexSteps = 1024             # Phase indices per cycle for log-sine lookup
+operatorBusPeak = 8192            # Signed modulation-bus reference corresponding to audio 1.0
+tlSubsteps = 8                    # Internal log-attenuation steps per TL unit
+tlMax = 127                       # Maximum attenuation in the chip-compatible TL range
+# dB per internal log step (one octave divided by 256)
 logAttenuationDbPerStep = 6.020599913279624 / 256
 ```
 
@@ -263,7 +262,7 @@ Supported user-facing file types:
 - `.opalinelibrary.xml`: Opaline/Opaline-style multi-bank library export.
 - `.opalinefmstate`: plugin standalone full state file.
 
-Public releases should avoid bundling copyrighted factory banks unless their redistribution status is confirmed. Users can load their own `.syx` files.
+Public releases include the project-owned `assets/factory.syx`. Third-party factory banks with unconfirmed redistribution rights are not bundled, and users can load their own `.syx` files.
 
 ## Pitch Envelope Generator
 
@@ -316,23 +315,9 @@ LevelSc  36  48  60  72  84  96
      99   1   3   7  16  33  67
 ```
 
-## Keyboard Rate Scaling Measurement
+## Keyboard Rate Scaling
 
-The following four voices are used to measure DX21 Rate Scaling:
-
-- `assets/DX21_RateScale_RS0.opalinevoice`
-- `assets/DX21_RateScale_RS1.opalinevoice`
-- `assets/DX21_RateScale_RS2.opalinevoice`
-- `assets/DX21_RateScale_RS3.opalinevoice`
-
-Each voice uses only OP1 as a carrier, with `AR=31`, `D1R=10`, `D1L=0`, and `LevelSc=0`. AR remains instantaneous so it is excluded from the measurement, while the slower D1 decay provides enough time resolution. This isolates RateSc from level scaling and modulation.
-
-1. Load one measurement voice in Opaline FM.
-2. Send it to the DX21 with `VOICE EXPORT`.
-3. Start recording and run the internal `MIDI KEY TEST` measurement function.
-4. Repeat for RateSc 0, 1, 2, and 3.
-
-MIDI Key Test plays notes `0, 12, 24, 36, 48, 60, 72, 84, 96, 108, 120, 127` for three seconds each. The button is hidden from the normal v1.0.10 UI. Name the recordings `DX21_RateScale_RS0.wav` through `DX21_RateScale_RS3.wav`. Compare the elapsed time from each note onset to a fixed attenuation threshold, such as 30 dB below peak, to derive the measured table.
+Rate Scaling derives a key code from the sounding key after Transpose and adds a `RateSc`-dependent offset to the envelope rate. Its coefficients and key-code model are based on DX21 hardware measurements that isolate RateSc with a single OP1 carrier and no level scaling or modulation.
 
 D1 decay time in seconds from peak to `-20 dB`, measured from a DX21 recording on July 19, 2026:
 
@@ -439,21 +424,13 @@ The v1.0.10 public release provides the following installer formats:
 - Windows x64 VST3 installer: `OpalineFM-VST3-v1.0.10-Windows-x64.exe`
 - Signed and notarized macOS standalone, VST3, and Audio Unit packages
 
-The Windows VST3 installer targets `C:\Program Files\Common Files\VST3\Opaline FM.vst3`. Windows installers are currently unsigned; macOS packages are signed and notarized. Published installers must be obtained from the [official GitHub Release](https://github.com/Hidecade/OpalineFM/releases/tag/v1.0.10).
+The Windows VST3 installer targets `C:\Program Files\Common Files\VST3\Opaline FM.vst3`. Windows installers are currently unsigned; macOS packages are signed and notarized. Published installers are distributed through the [official GitHub Release](https://github.com/Hidecade/OpalineFM/releases/tag/v1.0.10).
 
-Public release documentation should state:
+Identification, distribution, and licensing follow these rules:
 
 - Opaline FM uses FM synthesis, but it is not a chip emulator and does not attempt to perfectly reproduce any specific FM hardware instrument.
 - Compatible product names, if mentioned, are used only to describe compatibility.
 - `assets/factory.syx` is an original Opaline FM factory bank created for this project.
 - Third-party factory voice banks are not redistributed unless rights are confirmed.
-- JUCE licensing must be satisfied before binary distribution.
-- VST3 SDK notices and other third-party notices should be included.
-
-## Known Technical Debt
-
-- The plugin state and APVTS sync path is practical but not fully sample accurate.
-- Dual/Split behavior and exact manual LFO sharing rules are not complete.
-- Per-sample `pow` calls, voice-retirement scans, and effect processing remain in the engine. Any precomputation or zero-setting short circuit should follow the addition of audio-output regression comparisons.
-- iOS interruption recovery and AUv3 support are implemented, but physical-device regression testing must continue for phone calls, Siri, Bluetooth changes, and long sessions.
-- The JUCE submodule has been locally modified for standalone state suffix behavior; for public release this should either be managed as a fork or replaced with a non-invasive solution.
+- Binary distribution follows the JUCE license terms.
+- VST3 SDK and other third-party notices are maintained in `NOTICE.md` and `THIRD_PARTY_NOTICES.md`.

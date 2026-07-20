@@ -4,6 +4,8 @@ dist/
 audio/
 assets/*.syx
 !assets/factory.syx
+!assets/factory_original_v1.syx
+!assets/factory_variant_v1.syx
 assets/*.opalinevoice
 !assets/DX21_LevelScale_Test.opalinevoice
 !assets/DX21_ModLevelScale_LS*.opalinevoice

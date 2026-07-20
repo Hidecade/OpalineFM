@@ -2,115 +2,140 @@
 
 <compatibleVoiceLibrary version="2" source="factory.syx">
   <Bank index="0" name="factory">
-    <Voice index="0" name="NoirGrand" vmem="128.XDP.C.PECHDAMXQ.BP.CKMfT.PAFEDv..b0.xXABTjP.EvP.ELFASnyH....BfA.D.vXx....HC.N8VZxcjbg4FYfL1XiIiLx..........................................................................">
-      <Effects enabled="1" reverb="48" mix="22" delay="0" echoMix="0" chorus="4" tone="46"/>
+    <Voice index="0" name="GrandPiano" vmem="128.efv.Ez..CHCAL7AABTfCiEfQJ.vGEPPAMLFAEAQAcvgAF7..BnEASnyH....hw..D.vXx....HC.GIWXtQFToElauM1XiIiLx..........................................................................">
+      <Effects enabled="1" reverb="46" mix="20" delay="0" echoMix="0" chorus="5"
+               tone="52"/>
     </Voice>
-    <Voice index="1" name="SunlitKey" vmem="128.Xfw.OzvXBbiBVTwDQHvCxLPRBLgEK.v.Obk.JQ.FWDQ.C3.CDLFAdryH....hgA.D.vXx....HC.SUmarkFcKUVdfL1XiIiLx..........................................................................">
-      <Effects enabled="1" reverb="42" mix="18" delay="0" echoMix="0" chorus="8" tone="58"/>
+    <Voice index="1" name="NeoElectro" vmem="128.e3vCNj.LC7BMF7wCErfCJUfRDrvGRX.BNrh.iQv.eHgAH3..BLFAKPCE....hw..D.vXx....HC.NU1aEwVYiQmbuM1XiIiLx..........................................................................">
+      <Effects enabled="1" reverb="38" mix="16" delay="0" echoMix="0" chorus="10"
+               tone="58"/>
     </Voice>
     <Voice index="2" name="IceTines" vmem="128.er..F.PCD3hHK7AB.b...PfR.PvGI.vC..PAiQ..efPEI...ELFA.vhF.H..hgQ.D.vXx.fL.HC.IMVYTklakMGHfL1XiIiLx..........................................................................">
-      <Effects enabled="1" reverb="50" mix="24" delay="18" echoMix="8" chorus="12" tone="62"/>
+      <Effects enabled="1" reverb="50" mix="24" delay="18" echoMix="8" chorus="12"
+               tone="62"/>
     </Voice>
     <Voice index="3" name="CedarKeys" vmem="128.ez.BHL..CXDAB7QAGfvC.LfPDrvGI..B..PAiA.Bej..H...ELF.KvyE.b..RgQ.D.vXx.fL.HC.CUFYgI2Rkk2bfL1XiIiLx..........................................................................">
-      <Effects enabled="1" reverb="38" mix="16" delay="0" echoMix="0" chorus="5" tone="50"/>
+      <Effects enabled="1" reverb="38" mix="16" delay="0" echoMix="0" chorus="5"
+               tone="50"/>
     </Voice>
-    <Voice index="4" name="HaloBells" vmem="128.aP..F.fXDfjBV7wA.PP..PvNp.vGG.vA..PAiQvBef..G...EbUC.vCE....hwf.D.vXx.fL.HC.HEFauITYrw1bfL1XiIiLx..........................................................................">
-      <Effects enabled="1" reverb="70" mix="34" delay="18" echoMix="8" chorus="6" tone="65"/>
+    <Voice index="4" name="HaloBells" vmem="128.af..F.fXE.jBV7wA.PP..PvNp.vGG.vA..PAiQvBef..G...EbUC.vCE....hwf.D.vXx.fL.HC.HEFauITYrw1bfL1XiIiLx..........................................................................">
+      <Effects enabled="1" reverb="70" mix="34" delay="18" echoMix="8" chorus="6"
+               tone="65"/>
     </Voice>
     <Voice index="5" name="BlueRotor" vmem="128.ezP.K...CLlBF7wGAnvC.LvXD.vGR3fBO.v.hMgAe7A.J7..CMFAEbxC.H..NwvAF.vXxHiL.HC.BwVckI0az8lbfL1XiIiLx..........................................................................">
-      <Effects enabled="1" reverb="35" mix="17" delay="0" echoMix="0" chorus="35" tone="50"/>
+      <Effects enabled="1" reverb="35" mix="17" delay="0" echoMix="0" chorus="35"
+               tone="50"/>
     </Voice>
-    <Voice index="6" name="QuietPipe" vmem="128.V...J7fOBvTFFDA..rvCiIvUMXvE..fBO.f.XQfAW.P.J7..BLF.B7vH....BfA.D.vX.....HC.QUWZkQGToAWYfL1XiIiLx..........................................................................">
-      <Effects enabled="1" reverb="62" mix="28" delay="0" echoMix="0" chorus="4" tone="45"/>
+    <Voice index="6" name="QuietPipe" vmem="128.V...J7fOCzTFFDA..rvCiIvUMXvE..fBO.f.XQfAW.P.J7..BLF.B7vH....BfA.D.vX.....HC.QUWZkQGToAWYfL1XiIiLx..........................................................................">
+      <Effects enabled="1" reverb="62" mix="28" delay="0" echoMix="0" chorus="4"
+               tone="45"/>
     </Voice>
     <Voice index="7" name="SatinStrng" vmem="128.ej..C3.ABfD.PrwG.XvCbIPQ.3PBH.PA..f.CAPDKL..F7..CrE.KHSGYf..hgg.F.vXiAvX.HC.SEFco41TzImamMFTiAiLx..........................................................................">
-      <Effects enabled="1" reverb="55" mix="24" delay="0" echoMix="0" chorus="22" tone="48"/>
+      <Effects enabled="1" reverb="55" mix="24" delay="0" echoMix="0" chorus="22"
+               tone="48"/>
     </Voice>
     <Voice index="8" name="PinchPluk" vmem="128.afQEOn..DrDAC7wG.7.C.PvRDPvGM..B..fAiQv.e.A.E...FLFAKPyH....hgACF.vXx....HC.PklaigFTrU2ZfL1XiIiLx..........................................................................">
-      <Effects enabled="1" reverb="32" mix="14" delay="22" echoMix="10" chorus="3" tone="62"/>
+      <Effects enabled="1" reverb="32" mix="14" delay="22" echoMix="10" chorus="3"
+               tone="62"/>
     </Voice>
     <Voice index="9" name="BrassWave" vmem="128.M7ACG7..CDDAB3vG.fvC.TPRDX.De.PBO.PAiQv.O7A.H7..ELFAFzyH....hwf.F.vXiA...HC.BIWXyM2UgYWYfL1XiIiLx..........................................................................">
-      <Effects enabled="1" reverb="42" mix="18" delay="0" echoMix="0" chorus="8" tone="55"/>
+      <Effects enabled="1" reverb="42" mix="18" delay="0" echoMix="0" chorus="8"
+               tone="55"/>
     </Voice>
     <Voice index="10" name="MellowHrn" vmem="128.LT..H...BrCAL7vG.fvC.HfLDLvGO..B..f.7rv.P3A.I7..DLFALHSIYP..hgg.F.vXiA...HC.MUFar81cHImafL1XiIiLx..........................................................................">
-      <Effects enabled="1" reverb="48" mix="21" delay="0" echoMix="0" chorus="10" tone="45"/>
+      <Effects enabled="1" reverb="48" mix="21" delay="0" echoMix="0" chorus="10"
+               tone="45"/>
     </Voice>
     <Voice index="11" name="SpaceLead" vmem="128.bfv..3..CHDBC7gCC.fC.LPRHHfED.fAK.PAiQv.VP..Fr..EHFACPiFKz.J.PxAF.vXiA...HC.SAWXiUFSkEFYfL1XiIiLx..........................................................................">
-      <Effects enabled="1" reverb="58" mix="27" delay="32" echoMix="16" chorus="14" tone="60"/>
+      <Effects enabled="1" reverb="58" mix="27" delay="32" echoMix="16" chorus="14"
+               tone="60"/>
     </Voice>
     <Voice index="12" name="FMLead" vmem="128.eX..O...AvC.C7wG.7vC.DvR.LvGeDvCO.P.PA.Ae7A.O7..AjE.CfCHT3AJ.fg.D.vXx.fL.HC.F0DSkEFYf.BHfL1XiIiLx..........................................................................">
-      <Effects enabled="1" reverb="38" mix="17" delay="24" echoMix="12" chorus="8" tone="58"/>
+      <Effects enabled="1" reverb="38" mix="17" delay="24" echoMix="12" chorus="8"
+               tone="58"/>
     </Voice>
     <Voice index="13" name="NightJazz" vmem="128.ev..O...B7hJCvgA.7..iIfNJLvGJ.vC.Ll.8nPAen..O...DLFAC.yG....hwf.D.vXx.fL.HC.Nk1YnQmRgomdfL1XiIiLx..........................................................................">
-      <Effects enabled="1" reverb="45" mix="20" delay="0" echoMix="0" chorus="12" tone="40"/>
+      <Effects enabled="1" reverb="45" mix="20" delay="0" echoMix="0" chorus="12"
+               tone="40"/>
     </Voice>
-    <Voice index="14" name="CloudHarp" vmem="128.e3PADnfGCXjBD7gCHXPB.LvNHL.FNT.AKjw.4fvDeDQAD7..EoEASLyG....Rgg.D.vXx.fL.HC.Cw1a0QFRgIGbfLFViIiLx..........................................................................">
-      <Effects enabled="1" reverb="68" mix="32" delay="16" echoMix="7" chorus="15" tone="58"/>
+    <Voice index="14" name="CloudHarp" vmem="128.e3PADnfGCXjBD7gCHXPB.LvNHL.FNT.AKjw.AgvDeDQAD7..EoEASLyG....Rgg.D.vXx.fL.HC.Cw1a0QFRgIGbfLFViIiLx..........................................................................">
+      <Effects enabled="1" reverb="68" mix="32" delay="16" echoMix="7" chorus="15"
+               tone="58"/>
     </Voice>
     <Voice index="15" name="StarChime" vmem="128.eLQAEn.JDTTKE7gCEHPB.PPLP..FQfPAO.PAiQfCeDABE7..EoEA.vxH....9PRAF.vXigB..HC.SQWXxMDZo0VYfL1XiIiLx..........................................................................">
-      <Effects enabled="1" reverb="72" mix="35" delay="22" echoMix="10" chorus="9" tone="68"/>
+      <Effects enabled="1" reverb="72" mix="35" delay="22" echoMix="10" chorus="9"
+               tone="68"/>
     </Voice>
     <Voice index="16" name="Tinesbrass" vmem="128.LL..GzvGCrDANXACHPvBzLPMpXQDADPAM.PAeQ.DVPP.Ez..E7EAPPyH....hgQAF.vXiA...HC.TklakMmXxE1byM1XiIiLx..........................................................................">
-      <Effects enabled="1" reverb="46" mix="21" delay="10" echoMix="5" chorus="13" tone="55"/>
+      <Effects enabled="1" reverb="46" mix="21" delay="10" echoMix="5" chorus="13"
+               tone="55"/>
     </Voice>
     <Voice index="17" name="AuraVibes" vmem="128.ePwAGz..EMFAF7ADUX...TDWp3vGTrvAM.PQi0fAePgAGz..EMFA.7fE..fJlwf.F.vXHHC..HC.AUmbgYUZhU1bfLFPiIiLx..........................................................................">
-      <Effects enabled="1" reverb="58" mix="27" delay="12" echoMix="6" chorus="17" tone="56"/>
+      <Effects enabled="1" reverb="58" mix="27" delay="12" echoMix="6" chorus="17"
+               tone="56"/>
     </Voice>
     <Voice index="18" name="RoseMallet" vmem="128.YbAFGr.HD.DDLvgCKPfC.PPNPr.GVDQAL.fAiQvBbDgBFv..FLFAKPyH....hwPAF.vXx....HC.R81bk0TXrwVYzM1XiIiLx..........................................................................">
-      <Effects enabled="1" reverb="48" mix="22" delay="8" echoMix="4" chorus="8" tone="58"/>
+      <Effects enabled="1" reverb="48" mix="22" delay="8" echoMix="4" chorus="8"
+               tone="58"/>
     </Voice>
-    <Voice index="19" name="PulseTom" vmem="128.X7wEO7.....ACTwGZ7vC.P.WBT.Fe.wCO....PfASXQCJ7..FLF.HLwH....hgACF.vXx....HC.PUGayUFUu0FHfLVSiwSEj..........................................................................">
-      <Effects enabled="1" reverb="24" mix="11" delay="0" echoMix="0" chorus="0" tone="48"/>
+    <Voice index="19" name="PulseTom" vmem="128.X7wEO7.....ACbwGZ7vC.P.WBT.Fe.wCO....PfASXQCJ7..FLF.HLwH....hgACF.vXx....HC.PUGayUFUu0FHfLVSiETEj..........................................................................">
+      <Effects enabled="1" reverb="24" mix="11" delay="0" echoMix="0" chorus="0"
+               tone="48"/>
     </Voice>
     <Voice index="20" name="GearPulse" vmem="128.eHA.E...CLF.DnAGAL.C.LjVCLPFRbw.C.PAhEv.eLQCGT..ELFECvPS.zwIev.AF.vXx....HC.GUVXxAUcrMWYfL1XiIiLx..........................................................................">
-      <Effects enabled="1" reverb="30" mix="13" delay="16" echoMix="7" chorus="6" tone="60"/>
+      <Effects enabled="1" reverb="30" mix="13" delay="16" echoMix="7" chorus="6"
+               tone="60"/>
     </Voice>
     <Voice index="21" name="DeepKettle" vmem="128.cHA.C...DjC.C7QFLPvC.PPM.LvGOLw.LrCANIf.ejACE7..FLF.CHyD.L..pwvAF.vXx....HC.DUVYvsTYzQGakMVMlHiLx..........................................................................">
-      <Effects enabled="1" reverb="34" mix="15" delay="0" echoMix="0" chorus="0" tone="42"/>
+      <Effects enabled="1" reverb="34" mix="15" delay="0" echoMix="0" chorus="0"
+               tone="42"/>
     </Voice>
-    <Voice index="22" name="BossBrass" vmem="128.O3.A.3..DjCAC7AAELfC.LfQSPvF..fBO.v.AQv.ef.AH...ELFAC.CHT3AJ.fg.F.vXx....HC.B81byIjbgM2bfL1XiIiLx..........................................................................">
-      <Effects enabled="1" reverb="38" mix="16" delay="0" echoMix="0" chorus="5" tone="55"/>
+    <Voice index="22" name="BossBrass" vmem="128.O3.A.3..DbAACv.AELfC.LfQHP.E..fBO.v.pPv.ef.AH...ELFAC.CHT3AJ.fg.F.vXx....HC.B81byIjbgM2bfL1XiIiLx..........................................................................">
+      <Effects enabled="1" reverb="38" mix="16" delay="0" echoMix="0" chorus="5"
+               tone="55"/>
     </Voice>
-    <Voice index="23" name="HollowSky" vmem="128.ez..JrvDBDDBB7wG.zvC.LfUDLvGe.PCO.v.VQ.Ae7A.M7..CXEACTyH....hgwAF.vXx....HC.H8Far81cSsVdfL1XiIiLx..........................................................................">
-      <Effects enabled="1" reverb="64" mix="30" delay="20" echoMix="9" chorus="18" tone="52"/>
+    <Voice index="23" name="HollowSky" vmem="128.ez..JrvDBDDBB7wG.zvC.LfUDLvGe.PCO.v.VQ.Ae7A.M7..CXEACTiGHj..hgwAF.vXx....HC.H8Far81cSsVdfL1XiIiLx..........................................................................">
+      <Effects enabled="1" reverb="64" mix="30" delay="20" echoMix="9" chorus="18"
+               tone="52"/>
     </Voice>
-    <Voice index="24" name="NeonSax" vmem="128.cLP.F3..CbDAJzwG.LvCQL.ODfPGO..BJ.v.7XxBP7A.J7..EnEBKHyHWv..Rgg.MbyXxDfL.HC.NU1atMUX3ABHfLlTiAiLx..........................................................................">
-      <Effects enabled="1" reverb="45" mix="20" delay="12" echoMix="5" chorus="14" tone="48"/>
+    <Voice index="24" name="SuperBrass" vmem="128.PbvAFnPIBHEAC3.C.jfBqDPVDLvGS.PB..f.Dkv.T7w.I7..ALEACnB......fg.MbyXxDfL.HC.SUGbkImPxE1byM1XiIiLx..........................................................................">
+      <Effects enabled="1" reverb="36" mix="15" delay="0" echoMix="0" chorus="6"
+               tone="56"/>
     </Voice>
     <Voice index="25" name="AmberReed" vmem="128.SHA.IzfHCbDBK7AE.TfC7LvNDLvGQ.fALn0PNAg.P7A.L7..EnEAKHCHTn.Fdwf.D.vXx.fL.HC.A0lXkImTkUFYfL1XiIiLx..........................................................................">
-      <Effects enabled="1" reverb="50" mix="22" delay="0" echoMix="0" chorus="10" tone="45"/>
+      <Effects enabled="1" reverb="50" mix="22" delay="0" echoMix="0" chorus="10"
+               tone="45"/>
     </Voice>
     <Voice index="26" name="SoftCelest" vmem="128.YvA.FD..DPzAI7AD.XP..PfLV3vGJ.fAA.PAiQfCez..DD..E.FA.PQF....RQB.D.vXx.fL.HC.S8lYzMTYrU1bzM1XiIiLx..........................................................................">
-      <Effects enabled="1" reverb="65" mix="30" delay="12" echoMix="5" chorus="12" tone="64"/>
+      <Effects enabled="1" reverb="65" mix="30" delay="12" echoMix="5" chorus="12"
+               tone="64"/>
     </Voice>
     <Voice index="27" name="VoxMist" vmem="128.SHAADnfNBPjBFrvGDjvCVI.RD.PEOXfBILl..gA.N7Q.I7..C7EAFHyGSj..hgg.F.vXx....HC.V8FdMk1bzABHfL1XiIiLx..........................................................................">
-      <Effects enabled="1" reverb="70" mix="33" delay="16" echoMix="7" chorus="20" tone="48"/>
+      <Effects enabled="1" reverb="70" mix="33" delay="16" echoMix="7" chorus="20"
+               tone="48"/>
     </Voice>
     <Voice index="28" name="AnchorBass" vmem="128.e.gAHL..CbCAD7QB.f...L.Q.rvGQ..B..v.6P.Bej..H...FLF.KjyF.b..Rwf.D.vXx.fL.HC.A41Xn8lbBE1byM1XiIiLx..........................................................................">
-      <Effects enabled="1" reverb="18" mix="7" delay="0" echoMix="0" chorus="2" tone="42"/>
+      <Effects enabled="1" reverb="18" mix="7" delay="0" echoMix="0" chorus="2"
+               tone="42"/>
     </Voice>
     <Voice index="29" name="SnapBass" vmem="128.eHwAHL..CjyGC7QB.f...PPP.nvGQ..B...A2P.Bej..G...FLF.KDyE.b..Rwf.D.vXx....HC.S4VXvITXyMGHfL1XiIiLx..........................................................................">
-      <Effects enabled="1" reverb="14" mix="5" delay="0" echoMix="0" chorus="0" tone="55"/>
+      <Effects enabled="1" reverb="14" mix="5" delay="0" echoMix="0" chorus="0"
+               tone="55"/>
     </Voice>
-    <Voice index="30" name="FMEPiano" vmem="128.er..F..CEbiHK7ABAb...PfQDPvGI.vC..PAiQ..efPEH...ELFA.vhF.H..hwf.D.vXx.fL.HC.F0TQPkVXt8FHfL1XiIiLx..........................................................................">
-      <Effects enabled="1" reverb="45" mix="20" delay="0" echoMix="0" chorus="10" tone="56"/>
+    <Voice index="30" name="SuperBass" vmem="128.e7A.J7..D3C.C7gCJf.C.D.N.LvGLvvBG.P.Nkw.erPBL3..DrEACHA......vf.D.vXx.fL.HC.SUGbkImPgM2bfL1XiIiLx..........................................................................">
+      <Effects enabled="1" reverb="10" mix="3" delay="0" echoMix="0" chorus="2"
+               tone="45"/>
     </Voice>
     <Voice index="31" name="SlapCore" vmem="128.e3..FrvEDPD.K7wG.bvC.X.S.vvGe.vAO.fAZQfBe7A.G7..FLFALziG....Rwf.D.vXx.fL.HC.SwVXvMzaxUFHf3wXiAiLx..........................................................................">
-      <Effects enabled="1" reverb="18" mix="7" delay="0" echoMix="0" chorus="3" tone="57"/>
+      <Effects enabled="1" reverb="18" mix="7" delay="0" echoMix="0" chorus="3"
+               tone="57"/>
     </Voice>
   </Bank>
-  <Bank index="1" name="Bank 2">
-  </Bank>
-  <Bank index="2" name="Bank 3">
-  </Bank>
-  <Bank index="3" name="Bank 4">
-  </Bank>
-  <Bank index="4" name="Bank 5">
-  </Bank>
-  <Bank index="5" name="Bank 6">
-  </Bank>
-  <Bank index="6" name="Bank 7">
-  </Bank>
-  <Bank index="7" name="Bank 8">
-  </Bank>
+  <Bank index="1" name="Bank 2"/>
+  <Bank index="2" name="Bank 3"/>
+  <Bank index="3" name="Bank 4"/>
+  <Bank index="4" name="Bank 5"/>
+  <Bank index="5" name="Bank 6"/>
+  <Bank index="6" name="Bank 7"/>
+  <Bank index="7" name="Bank 8"/>
 </compatibleVoiceLibrary>

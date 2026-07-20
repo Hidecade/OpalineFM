@@ -99,6 +99,42 @@ endif()
 if (OPALINE_RESOLVED_JUCE_DIR)
     add_subdirectory("${OPALINE_RESOLVED_JUCE_DIR}" "${CMAKE_BINARY_DIR}/JUCE")
 
+    add_executable(opaline_generate_original_factory
+        Source/Tools/GenerateOriginalFactory.cpp
+        Source/App/OpalineVoiceLibraryXml.cpp
+        Source/App/OpalineVoiceLibraryXml.h
+    )
+
+    target_link_libraries(opaline_generate_original_factory
+        PRIVATE
+            opaline_engine
+            juce::juce_data_structures
+    )
+
+    add_executable(opaline_generate_factory_variant
+        Source/Tools/GenerateFactoryVariant.cpp
+        Source/App/OpalineVoiceLibraryXml.cpp
+        Source/App/OpalineVoiceLibraryXml.h
+    )
+
+    target_link_libraries(opaline_generate_factory_variant
+        PRIVATE
+            opaline_engine
+            juce::juce_data_structures
+    )
+
+    add_executable(opaline_generate_default_factory_library
+        Source/Tools/GenerateDefaultFactoryLibrary.cpp
+        Source/App/OpalineVoiceLibraryXml.cpp
+        Source/App/OpalineVoiceLibraryXml.h
+    )
+
+    target_link_libraries(opaline_generate_default_factory_library
+        PRIVATE
+            opaline_engine
+            juce::juce_data_structures
+    )
+
     juce_add_binary_data(OpalineFM_Assets
         NAMESPACE OpalineBinaryData
         HEADER_NAME OpalineBinaryData.h
