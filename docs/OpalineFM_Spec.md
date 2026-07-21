@@ -418,13 +418,13 @@ The desired state suffix is `.opalinefmstate`.
 
 ## Release Notes and Legal Notes
 
-The v1.0.10 public release provides the following installer formats:
+The v1.0.11 public release provides the following installer formats:
 
-- Windows x64 standalone installer: `OpalineFM-Standalone-v1.0.10-Windows-x64.exe`
-- Windows x64 VST3 installer: `OpalineFM-VST3-v1.0.10-Windows-x64.exe`
+- Windows x64 standalone installer: `OpalineFM-Standalone-v1.0.11-Windows-x64.exe`
+- Windows x64 VST3 installer: `OpalineFM-VST3-v1.0.11-Windows-x64.exe`
 - Signed and notarized macOS standalone, VST3, and Audio Unit packages
 
-The Windows VST3 installer targets `C:\Program Files\Common Files\VST3\Opaline FM.vst3`. Windows installers are currently unsigned; macOS packages are signed and notarized. Published installers are distributed through the [official GitHub Release](https://github.com/Hidecade/OpalineFM/releases/tag/v1.0.10).
+The Windows VST3 installer targets `C:\Program Files\Common Files\VST3\Opaline FM.vst3`. Windows installers are currently unsigned; macOS packages are signed and notarized. Published installers are distributed through the [official GitHub Release](https://github.com/Hidecade/OpalineFM/releases/tag/v1.0.11).
 
 Identification, distribution, and licensing follow these rules:
 

@@ -418,13 +418,13 @@ DAWはJUCE `ValueTree`を使用する`getStateInformation()` / `setStateInformat
 
 ## リリースおよび法的注意事項
 
-v1.0.10公開リリースでは、次のインストーラーを配布します。
+v1.0.11公開リリースでは、次のインストーラーを配布します。
 
-- Windows x64スタンドアロン: `OpalineFM-Standalone-v1.0.10-Windows-x64.exe`
-- Windows x64 VST3: `OpalineFM-VST3-v1.0.10-Windows-x64.exe`
+- Windows x64スタンドアロン: `OpalineFM-Standalone-v1.0.11-Windows-x64.exe`
+- Windows x64 VST3: `OpalineFM-VST3-v1.0.11-Windows-x64.exe`
 - 署名・公証済みmacOS Standalone、VST3、Audio Unitパッケージ
 
-Windows VST3版は`C:\Program Files\Common Files\VST3\Opaline FM.vst3`へインストールします。Windows版は現在未署名で、macOS版は署名・公証済みです。公開インストーラーは[公式GitHub Release](https://github.com/Hidecade/OpalineFM/releases/tag/v1.0.10)から取得します。
+Windows VST3版は`C:\Program Files\Common Files\VST3\Opaline FM.vst3`へインストールします。Windows版は現在未署名で、macOS版は署名・公証済みです。公開インストーラーは[公式GitHub Release](https://github.com/Hidecade/OpalineFM/releases/tag/v1.0.11)から取得します。
 
 識別、配布、ライセンスは次の仕様で管理します。
 
