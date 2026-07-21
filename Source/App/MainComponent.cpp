@@ -2536,12 +2536,13 @@ void MainComponent::paint(juce::Graphics& g)
     drawMetalPanel(g, top.reduced(static_cast<float>(panelPad), 0.0f), 2.0f);
 
     area.removeFromTop(panelGap);
-    const auto middle = area.removeFromTop(140).toFloat();
-    drawMetalPanel(g, middle.reduced(static_cast<float>(panelPad), 0.0f), 2.0f);
+    const int operatorPanelHeight = area.getHeight() - panelGap - 140;
+    const auto ops = area.removeFromTop(operatorPanelHeight).toFloat();
+    drawMetalPanel(g, ops.reduced(static_cast<float>(panelPad), 0.0f), 2.0f);
 
     area.removeFromTop(panelGap);
-    const auto ops = area.toFloat();
-    drawMetalPanel(g, ops.reduced(static_cast<float>(panelPad), 0.0f), 2.0f);
+    const auto middle = area.toFloat();
+    drawMetalPanel(g, middle.reduced(static_cast<float>(panelPad), 0.0f), 2.0f);
 }
 
 void MainComponent::resized()
@@ -2782,7 +2783,20 @@ void MainComponent::resized()
     }
 
     area.removeFromTop(panelGap);
-    auto middle = area.removeFromTop(140);
+    const int operatorPanelHeight = area.getHeight() - panelGap - 140;
+    auto ops = area.removeFromTop(operatorPanelHeight);
+    const int panelWidth = ops.getWidth() / opaline::kOperatorCount;
+    const int panelHeight = ops.getHeight();
+    for (int i = 0; i < opaline::kOperatorCount; ++i)
+    {
+        operatorPanels[static_cast<std::size_t>(i)]->setBounds(ops.getX() + i * panelWidth,
+                                                               ops.getY(),
+                                                               panelWidth - panelGap,
+                                                               panelHeight);
+    }
+
+    area.removeFromTop(panelGap);
+    auto middle = area;
     auto pitchArea = middle.removeFromLeft(58).reduced(panelPad, panelPad);
     pitchWheelLabel.setBounds(pitchArea.removeFromBottom(14).translated(0, -2));
     pitchWheelSlider.setBounds(pitchArea.reduced(5, 2));
@@ -2805,18 +2819,6 @@ void MainComponent::resized()
     modWheelAmpRangeSlider.setBounds(modAmpArea.withSizeKeepingCentre(48, 52).translated(0, -6));
     middle.removeFromLeft(panelGap);
     keyboard.setBounds(middle.reduced(2));
-
-    area.removeFromTop(panelGap);
-    auto ops = area;
-    const int panelWidth = ops.getWidth() / opaline::kOperatorCount;
-    const int panelHeight = ops.getHeight();
-    for (int i = 0; i < opaline::kOperatorCount; ++i)
-    {
-        operatorPanels[static_cast<std::size_t>(i)]->setBounds(ops.getX() + i * panelWidth,
-                                                               ops.getY(),
-                                                               panelWidth - panelGap,
-                                                               panelHeight);
-    }
 }
 
 void MainComponent::mouseDown(const juce::MouseEvent&)
