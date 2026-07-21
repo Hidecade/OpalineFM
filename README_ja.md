@@ -6,7 +6,13 @@ Opaline FMは、C++とJUCEで開発された無料の4オペレーターFMシン
 
 Opaline FMはFM音源方式を採用していますが、チップエミュレーションではなく、実際のFM音源機器を完全再現するものではありません。
 
-![Opaline FM ユーザーインターフェース](docs/images/opalinefm-ui.png)
+### macOS版
+
+![Opaline FM macOS版](docs/images/opalinefm-ui.png)
+
+### iOS版
+
+![Opaline FM iOS版](iOS/OpalineFMMobile/AppStoreScreenshots/01-play.png)
 
 ## 主な機能
 

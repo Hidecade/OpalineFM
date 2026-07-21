@@ -6,7 +6,13 @@ Opaline FM is a free 4-operator FM synthesizer built with C++ and JUCE. It is in
 
 Opaline FM uses FM synthesis, but it is not a chip emulator and does not attempt to perfectly reproduce any specific FM hardware instrument.
 
-![Opaline FM user interface](docs/images/opalinefm-ui.png)
+### macOS
+
+![Opaline FM for macOS](docs/images/opalinefm-ui.png)
+
+### iOS
+
+![Opaline FM for iOS](iOS/OpalineFMMobile/AppStoreScreenshots/01-play.png)
 
 ## Features
 

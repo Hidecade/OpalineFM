@@ -8,8 +8,8 @@ struct PlayView: View {
     @State private var importingFile = false
     @State private var exportingData = false
     @State private var exportFileURL: URL?
-    @State private var keyboardBaseNote = 48
-    @State private var keyboardScrollWhiteIndex: CGFloat = 16
+    @State private var keyboardBaseNote = 60
+    @State private var keyboardScrollWhiteIndex: CGFloat = 23
     @State private var activeVoicePicker: VoicePickerTarget?
     @State private var showingBankPicker = false
     @State private var showingModePicker = false
@@ -588,7 +588,7 @@ struct PlayView: View {
     }
 
     private func resetKeyboardToHome() {
-        let homeNote = 48
+        let homeNote = 60
         let homeWhiteIndex = CGFloat(clampedWhiteKeyIndexFromKeyboardStart(homeNote))
         guard keyboardBaseNote != homeNote || keyboardScrollWhiteIndex != homeWhiteIndex else { return }
         withAnimation(.easeInOut(duration: 0.18)) {
