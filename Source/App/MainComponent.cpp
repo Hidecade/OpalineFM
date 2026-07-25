@@ -1299,6 +1299,18 @@ void MainComponent::ScopeComponent::setTrigger(const int midiNote, const double 
     scopeSampleRate.store(sampleRate > 0.0 ? sampleRate : 44100.0, std::memory_order_relaxed);
 }
 
+void MainComponent::ScopeComponent::setVoiceWaveform(
+    const std::array<float, 256>& waveform,
+    const float level,
+    const double frequency)
+{
+    voiceWaveform = waveform;
+    voiceWaveformLevel = juce::jlimit(0.0f, 1.0f, level);
+    voiceWaveformFrequency = std::isfinite(frequency) && frequency > 0.0
+        ? frequency : 261.625565;
+    hasVoiceWaveform = true;
+}
+
 void MainComponent::ScopeComponent::paint(juce::Graphics& g)
 {
     const auto area = getLocalBounds().toFloat().reduced(3.0f);
@@ -1306,6 +1318,46 @@ void MainComponent::ScopeComponent::paint(juce::Graphics& g)
     g.fillRoundedRectangle(area, 4.0f);
     g.setColour(kControlBorder);
     g.drawRoundedRectangle(area, 4.0f, 1.0f);
+
+    if (hasVoiceWaveform)
+    {
+        const auto waveArea = area.reduced(4.0f, 1.0f);
+        const int width = juce::jmax(1, static_cast<int>(waveArea.getWidth()));
+        const double cycles = juce::jlimit(
+            2.0, 8.0, 2.0 * voiceWaveformFrequency / 261.625565);
+        juce::Path path;
+        for (int pixel = 0; pixel <= width; ++pixel)
+        {
+            double phase = std::fmod(
+                0.5 - cycles * 0.5
+                    + static_cast<double>(pixel) / static_cast<double>(width) * cycles,
+                2.0);
+            if (phase < 0.0)
+                phase += 2.0;
+            const double position = phase * 0.5
+                * static_cast<double>(voiceWaveform.size() - 1);
+            const int index = juce::jlimit(
+                0, static_cast<int>(voiceWaveform.size()) - 2,
+                static_cast<int>(position));
+            const double fraction = position - static_cast<double>(index);
+            const float shape = static_cast<float>(
+                voiceWaveform[static_cast<std::size_t>(index)]
+                + (voiceWaveform[static_cast<std::size_t>(index + 1)]
+                   - voiceWaveform[static_cast<std::size_t>(index)]) * fraction);
+            const float x = waveArea.getX() + static_cast<float>(pixel);
+            const float y = waveArea.getCentreY()
+                - juce::jlimit(-1.0f, 1.0f, shape * voiceWaveformLevel)
+                    * waveArea.getHeight() * 0.495f;
+            if (pixel == 0)
+                path.startNewSubPath(x, y);
+            else
+                path.lineTo(x, y);
+        }
+
+        g.setColour(kTeal);
+        g.strokePath(path, juce::PathStrokeType(1.3f));
+        return;
+    }
 
     std::array<float, 4096> history {};
     realtimeSamples.drain(samples, writeIndex);
@@ -1595,7 +1647,7 @@ void MainComponent::OperatorComponent::setRole(juce::String newRole)
 void MainComponent::OperatorComponent::paint(juce::Graphics& g)
 {
     const auto area = getLocalBounds().toFloat().reduced(3.0f);
-    drawMetalPanel(g, area, 3.0f, op.enabled);
+    drawMetalPanel(g, area, 2.0f);
 
     auto graph = getLocalBounds().reduced(10).withTrimmedTop(36).removeFromTop(46).toFloat();
     g.setColour(kControlWell);
@@ -4505,6 +4557,13 @@ void MainComponent::setExternalScopeSamples(const std::array<float, 4096>& sampl
     scope.setSamples(samples);
 }
 
+void MainComponent::setExternalVoiceWaveform(const std::array<float, 256>& waveform,
+                                             const float level,
+                                             const double frequency)
+{
+    scope.setVoiceWaveform(waveform, level, frequency);
+}
+
 void MainComponent::timerCallback()
 {
     syncPcKeyboardNotes();
@@ -4530,6 +4589,18 @@ void MainComponent::timerCallback()
     if (triggerNote >= 0)
         retainedScopeTriggerNote = triggerNote + currentPatch.transpose;
     scope.setTrigger(retainedScopeTriggerNote, audioSampleRate);
+    if (hostMode != HostMode::PluginEditor)
+    {
+        const auto levelA = engine.scopeOutputLevel();
+        const auto levelB = performanceEngineB.scopeOutputLevel();
+        const bool useVoiceB = performanceState.mode != PerformanceMode::Single
+            && levelB > levelA;
+        scope.setVoiceWaveform(useVoiceB ? performanceEngineB.scopeWaveformSnapshot()
+                                        : engine.scopeWaveformSnapshot(),
+                               useVoiceB ? levelB : levelA,
+                               useVoiceB ? performanceEngineB.scopeFrequencyHz()
+                                         : engine.scopeFrequencyHz());
+    }
 }
 
 void MainComponent::handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage& message)

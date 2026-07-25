@@ -69,7 +69,8 @@ struct EditView: View {
             AuditionKeyRow()
                 .frame(width: 336, height: 52)
 
-            EditScopeView(samples: synth.scopeSamples)
+            EditScopeView(samples: synth.scopeSamples,
+                          cycles: synth.displayedWaveformCycles)
                 .frame(minWidth: 120, maxWidth: 220)
                 .frame(height: 52)
         }
@@ -131,6 +132,7 @@ struct EditView: View {
 
 private struct EditScopeView: View {
     let samples: [Float]
+    let cycles: Double
 
     var body: some View {
         Canvas { context, size in
@@ -148,21 +150,34 @@ private struct EditScopeView: View {
 
             guard samples.count > 1 else { return }
 
-            let rect = window.insetBy(dx: 6, dy: 6)
-            var path = Path()
-            for index in samples.indices {
-                let x = rect.minX + rect.width * CGFloat(index) / CGFloat(samples.count - 1)
-                let value = max(-1, min(1, CGFloat(samples[index])))
-                let y = rect.midY - value * rect.height * 0.44
-                if index == samples.startIndex {
-                    path.move(to: CGPoint(x: x, y: y))
-                } else {
-                    path.addLine(to: CGPoint(x: x, y: y))
+            let rect = window.insetBy(dx: 6, dy: 2)
+            let pointCount = max(256, samples.count * 2)
+            let safeCycles = max(2, min(8, cycles))
+            let startPhase = 0.5 - safeCycles * 0.5
+            let makePath: (ClosedRange<Int>) -> Path = { range in
+                var path = Path()
+                for point in range {
+                    var phase = startPhase
+                        + Double(point) / Double(pointCount) * safeCycles
+                    phase -= floor(phase / 2) * 2
+                    let position = phase * 0.5 * Double(samples.count - 1)
+                    let index = min(samples.count - 2, max(0, Int(position)))
+                    let fraction = position - Double(index)
+                    let sample = Double(samples[index])
+                        + (Double(samples[index + 1]) - Double(samples[index])) * fraction
+                    let x = rect.minX + rect.width * CGFloat(point) / CGFloat(pointCount)
+                    let y = rect.midY - CGFloat(max(-1, min(1, sample))) * rect.height * 0.495
+                    if point == range.lowerBound {
+                        path.move(to: CGPoint(x: x, y: y))
+                    } else {
+                        path.addLine(to: CGPoint(x: x, y: y))
+                    }
                 }
+                return path
             }
-
-            context.stroke(path, with: .color(EditSkin.lcdOn.opacity(0.30)), lineWidth: 4.2)
-            context.stroke(path, with: .color(EditSkin.lcdOn.opacity(0.95)), lineWidth: 1.7)
+            context.stroke(makePath(0...pointCount),
+                           with: .color(Color(hexValue: 0x25d9c4)),
+                           lineWidth: 1.3)
         }
         .accessibilityHidden(true)
     }

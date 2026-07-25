@@ -526,6 +526,25 @@ std::array<float, 4096> OpalineAudioProcessor::getScopeSamples() const
     return samples;
 }
 
+std::array<float, 256> OpalineAudioProcessor::getVoiceScopeWaveform() const
+{
+    return performanceEngineB.scopeOutputLevel() > engine.scopeOutputLevel()
+        ? performanceEngineB.scopeWaveformSnapshot()
+        : engine.scopeWaveformSnapshot();
+}
+
+float OpalineAudioProcessor::getVoiceScopeLevel() const
+{
+    return std::max(engine.scopeOutputLevel(), performanceEngineB.scopeOutputLevel());
+}
+
+double OpalineAudioProcessor::getVoiceScopeFrequency() const
+{
+    return performanceEngineB.scopeOutputLevel() > engine.scopeOutputLevel()
+        ? performanceEngineB.scopeFrequencyHz()
+        : engine.scopeFrequencyHz();
+}
+
 void OpalineAudioProcessor::setScopeCaptureEnabled(const bool enabled) noexcept
 {
     scopeCaptureEnabled.store(enabled, std::memory_order_release);

@@ -57,6 +57,9 @@ public:
     double getCurrentModWheel() const;
     std::array<int, 128> getMidiUiVelocities() const;
     std::array<float, 4096> getScopeSamples() const;
+    std::array<float, 256> getVoiceScopeWaveform() const;
+    float getVoiceScopeLevel() const;
+    double getVoiceScopeFrequency() const;
     void setScopeCaptureEnabled(bool enabled) noexcept;
     void startWavRecording();
     void stopWavRecording();

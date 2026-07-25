@@ -98,6 +98,7 @@ final class MobileSynthModel: ObservableObject {
     @Published var balance: Double = 0
     @Published var audioStatus: String = "Audio starting"
     @Published var scopeSamples: [Float] = Array(repeating: 0, count: 128)
+    @Published var scopeFrequencyHz: Double = 261.625565
     @Published var editValues: [String: Int] = [:]
     @Published var canPasteVoice: Bool = false
     @Published var midiInputDevices: [MobileMIDIInputDevice] = []
@@ -568,11 +569,16 @@ final class MobileSynthModel: ObservableObject {
             let samples = self.engine.scopeSnapshotData().withUnsafeBytes { bytes in
                 Array(bytes.bindMemory(to: Float.self))
             }
+            self.scopeFrequencyHz = self.engine.scopeFrequencyHz()
             if samples.count == self.scopeSamples.count {
                 guard samples != self.scopeSamples else { return }
                 self.scopeSamples = samples
             }
         }
+    }
+
+    var displayedWaveformCycles: Double {
+        max(2, min(8, 2 * scopeFrequencyHz / 261.625565))
     }
 
     private func observeAudioSession() {
