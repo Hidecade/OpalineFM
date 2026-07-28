@@ -54,6 +54,13 @@ void OpalineEngine::prepare(const double sampleRate, const int maxVoices)
     }
     voices.clear();
     voices.reserve(static_cast<std::size_t>(maxVoiceCount));
+    scopeCycleSamples.fill(0.0f);
+    scopeCycleSampleCount = 0;
+    scopePhase = 0.0;
+    smoothedScopeLevel = 0.0;
+    for (auto& sample : publishedScopeWaveform)
+        sample.store(0.0f, std::memory_order_relaxed);
+    publishedScopeLevel.store(0.0f, std::memory_order_relaxed);
     updateEffectParameters();
     panic();
 }
@@ -88,6 +95,8 @@ void OpalineEngine::noteOn(const int note, const int velocity)
     {
         voices.back().retargetPitch(safeNote, portamentoSecondsForValue(portamento));
         lastPlayedNote = safeNote;
+        scopeCycleSampleCount = 0;
+        scopePhase = 0.0;
         return;
     }
 
@@ -108,6 +117,8 @@ void OpalineEngine::noteOn(const int note, const int velocity)
                 fromNote, portamentoSecondsForValue(portamento));
     lastPlayedNote = safeNote;
     voices.push_back(voice);
+    scopeCycleSampleCount = 0;
+    scopePhase = 0.0;
 
     if (patch.lfo.sync)
         globalLfoAge = 0.0;
@@ -415,13 +426,24 @@ StereoSample OpalineEngine::renderSample()
 {
     globalLfoAge += 1.0 / currentSampleRate;
     double mixed = 0.0;
+    double scopeVoiceSample = 0.0;
+    double scopeVoiceFrequency = publishedScopeFrequency.load(std::memory_order_relaxed);
+    bool scopeVoiceActive = false;
 
     std::size_t activeVoiceCount = 0;
     for (std::size_t voiceIndex = 0; voiceIndex < voices.size(); ++voiceIndex)
     {
         auto& voice = voices[voiceIndex];
-        mixed += voice.render(patch, pitchBend, pitchBendRange, modWheel, modWheelPitchRange,
-                              modWheelAmpRange, globalLfoAge, renderModel);
+        const double voiceSample =
+            voice.render(patch, pitchBend, pitchBendRange, modWheel, modWheelPitchRange,
+                         modWheelAmpRange, globalLfoAge, renderModel);
+        mixed += voiceSample;
+        if (voice.note() == lastPlayedNote)
+        {
+            scopeVoiceSample = voiceSample * kOutputGain;
+            scopeVoiceFrequency = voice.lastBaseFrequencyHz();
+            scopeVoiceActive = voice.isActive();
+        }
         if (!voice.isActive())
             continue;
 
@@ -430,9 +452,78 @@ StereoSample OpalineEngine::renderSample()
         ++activeVoiceCount;
     }
     voices.resize(activeVoiceCount);
+    updateVoiceScope(scopeVoiceSample, scopeVoiceFrequency, scopeVoiceActive);
 
     const double output = limitAndDeclick(mixed * kOutputGain);
     return processEffects(output);
+}
+
+void OpalineEngine::updateVoiceScope(const double sample,
+                                     const double frequency,
+                                     const bool voiceActive)
+{
+    const double safeSample = std::isfinite(sample) ? sample : 0.0;
+    const double targetLevel = voiceActive
+        ? clampDouble(std::abs(safeSample) * 5.0, 0.0, 1.0) : 0.0;
+    const double response = targetLevel > smoothedScopeLevel ? 0.025 : 0.0012;
+    smoothedScopeLevel += (targetLevel - smoothedScopeLevel) * response;
+    if (!voiceActive && smoothedScopeLevel < 0.001)
+        smoothedScopeLevel = 0.0;
+    publishedScopeLevel.store(static_cast<float>(smoothedScopeLevel),
+                              std::memory_order_release);
+
+    if (!voiceActive || !std::isfinite(frequency) || frequency <= 0.0)
+        return;
+
+    publishedScopeFrequency.store(frequency, std::memory_order_release);
+    if (scopeCycleSampleCount < static_cast<int>(scopeCycleSamples.size()))
+        scopeCycleSamples[static_cast<std::size_t>(scopeCycleSampleCount++)] =
+            static_cast<float>(safeSample);
+
+    scopePhase += frequency / currentSampleRate;
+    // Some FM ratios (notably 0.5) produce alternating A/B shapes on
+    // consecutive fundamental cycles. Capture two cycles as one stable block.
+    constexpr double scopeBlockCycles = 2.0;
+    if (scopePhase < scopeBlockCycles)
+        return;
+
+    scopePhase = std::fmod(scopePhase, scopeBlockCycles);
+    if (scopeCycleSampleCount >= 2)
+    {
+        double average = 0.0;
+        for (int i = 0; i < scopeCycleSampleCount; ++i)
+            average += scopeCycleSamples[static_cast<std::size_t>(i)];
+        average /= static_cast<double>(scopeCycleSampleCount);
+
+        double peak = 0.0;
+        for (int i = 0; i < scopeCycleSampleCount; ++i)
+            peak = std::max(peak, std::abs(
+                static_cast<double>(scopeCycleSamples[static_cast<std::size_t>(i)]) - average));
+        const double gain = peak > 1.0e-9 ? 0.98 / peak : 0.0;
+        for (std::size_t point = 0; point < publishedScopeWaveform.size(); ++point)
+        {
+            const double position = static_cast<double>(scopeCycleSampleCount - 1)
+                * static_cast<double>(point)
+                / static_cast<double>(publishedScopeWaveform.size() - 1);
+            const int index = std::min(scopeCycleSampleCount - 2,
+                                       static_cast<int>(position));
+            const double fraction = position - static_cast<double>(index);
+            const double first = scopeCycleSamples[static_cast<std::size_t>(index)] - average;
+            const double second = scopeCycleSamples[static_cast<std::size_t>(index + 1)] - average;
+            publishedScopeWaveform[point].store(
+                static_cast<float>((first + (second - first) * fraction) * gain),
+                std::memory_order_release);
+        }
+    }
+    scopeCycleSampleCount = 0;
+}
+
+std::array<float, 256> OpalineEngine::scopeWaveformSnapshot() const
+{
+    std::array<float, 256> snapshot {};
+    for (std::size_t i = 0; i < snapshot.size(); ++i)
+        snapshot[i] = publishedScopeWaveform[i].load(std::memory_order_acquire);
+    return snapshot;
 }
 
 void OpalineEngine::renderBlock(float* left, float* right, const int numSamples)

@@ -1448,6 +1448,28 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
 
 - (NSData*)scopeSnapshotData
 {
+    if (engine != nullptr && engineB != nullptr)
+    {
+        const auto levelA = engine->scopeOutputLevel();
+        const auto levelB = engineB->scopeOutputLevel();
+        const auto& selected = levelB > levelA ? engineB : engine;
+        const auto waveform = selected->scopeWaveformSnapshot();
+        const auto level = std::max(levelA, levelB);
+        std::array<float, 128> snapshot {};
+        for (std::size_t point = 0; point < snapshot.size(); ++point)
+        {
+            const double position = static_cast<double>(waveform.size() - 1)
+                * static_cast<double>(point) / static_cast<double>(snapshot.size() - 1);
+            const auto index = std::min(waveform.size() - 2,
+                                        static_cast<std::size_t>(position));
+            const double fraction = position - static_cast<double>(index);
+            snapshot[point] = static_cast<float>(
+                (waveform[index] + (waveform[index + 1] - waveform[index]) * fraction)
+                * level);
+        }
+        return [NSData dataWithBytes:snapshot.data() length:sizeof(snapshot)];
+    }
+
     constexpr int historySize = 4096;
     constexpr int displaySize = 128;
 
@@ -1599,6 +1621,14 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
         snapshot[i] = std::max(-1.0f, std::min(1.0f, scopeSmoothedDisplay[i]));
 
     return [NSData dataWithBytes:snapshot.data() length:sizeof(snapshot)];
+}
+
+- (double)scopeFrequencyHz
+{
+    if (engine == nullptr || engineB == nullptr)
+        return 261.625565;
+    return engineB->scopeOutputLevel() > engine->scopeOutputLevel()
+        ? engineB->scopeFrequencyHz() : engine->scopeFrequencyHz();
 }
 
 - (void)setScopeCaptureEnabled:(BOOL)enabled

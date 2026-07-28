@@ -1,18 +1,18 @@
 # Opaline FM
 
-[日本語](README_ja.md) | [Technical specification](docs/OpalineFM_Spec.md)
+[日本語](README_ja.md) | [Japanese user manual](docs/OpalineFM_Manual_ja.md) | [Japanese product specification](docs/OpalineFM_Spec_ja.md)
 
 Opaline FM is a free 4-operator FM synthesizer built with C++ and JUCE. It is inspired by classic 1980s digital FM instruments and can load and save compatible 32-voice SysEx banks.
 
 Opaline FM uses FM synthesis, but it is not a chip emulator and does not attempt to perfectly reproduce any specific FM hardware instrument.
 
-### macOS
+### Desktop
 
-![Opaline FM for macOS](docs/images/opalinefm-ui.png)
+![Opaline FM desktop version](docs/images/opalinefm-desktop.png)
 
-### iOS
+### iPhone
 
-![Opaline FM for iOS](iOS/OpalineFMMobile/AppStoreScreenshots/01-play.png)
+![Opaline FM for iPhone](docs/images/opalinefm-iphone.png)
 
 ## Features
 
@@ -31,15 +31,15 @@ Opaline FM uses FM synthesis, but it is not a chip emulator and does not attempt
 
 ## Downloads
 
-The current public release is **v1.0.11**. Download Windows and macOS installers from the [v1.0.11 release page](https://github.com/Hidecade/OpalineFM/releases/tag/v1.0.11).
+The current public release is **v1.0.12**. Download Windows and macOS installers from the [v1.0.12 release page](https://github.com/Hidecade/OpalineFM/releases/tag/v1.0.12).
 
 Choose the package for the format you need:
 
-- `OpalineFM-Standalone-1.0.11-macOS.pkg`: standalone app. Use this if you want to play Opaline FM without a DAW.
-- `OpalineFM-AU-1.0.11-macOS.pkg`: Audio Unit instrument for Logic Pro, GarageBand, and AU hosts.
-- `OpalineFM-VST3-1.0.11-macOS.pkg`: VST3 instrument installer for VST3-compatible DAWs.
-- `OpalineFM-Standalone-v1.0.11-Windows-x64.exe`: standalone application for 64-bit Windows.
-- `OpalineFM-VST3-v1.0.11-Windows-x64.exe`: VST3 instrument installer for 64-bit Windows.
+- `OpalineFM-Standalone-1.0.12-macOS.pkg`: standalone app. Use this if you want to play Opaline FM without a DAW.
+- `OpalineFM-AU-1.0.12-macOS.pkg`: Audio Unit instrument for Logic Pro, GarageBand, and AU hosts.
+- `OpalineFM-VST3-1.0.12-macOS.pkg`: VST3 instrument installer for VST3-compatible DAWs.
+- `OpalineFM-Standalone-v1.0.12-Windows-x64.exe`: standalone application for 64-bit Windows.
+- `OpalineFM-VST3-v1.0.12-Windows-x64.exe`: VST3 instrument installer for 64-bit Windows.
 
 The macOS packages are signed and notarized. The Windows installers are currently unsigned, so Windows may display a publisher warning during installation.
 
@@ -129,9 +129,9 @@ Carrier levels mainly change loudness. Modulator levels mainly change harmonic b
 
 ## Waveform Display
 
-The display above the voice controls shows the recent left-channel output waveform. While a note is held, the view uses that note as a trigger reference so the waveform stays visually stable instead of drifting across the screen.
+The display above the voice controls shows the pre-effect FM voice waveform for the most recently played note. While a note is held, the view uses that note as a trigger reference so the waveform stays visually stable instead of drifting across the screen.
 
-The display removes DC offset, chooses a short window around the current note period, and applies automatic gain so quiet and loud patches remain readable. It is intended as a sound-design aid for checking envelope shape, feedback, modulation depth, and the effect of algorithm changes; it is not a calibrated level meter.
+The display removes DC offset, chooses a short window around the current note period, and applies automatic gain so quiet and loud patches remain readable. It is intended as a sound-design aid for checking envelope shape, feedback, modulation depth, and algorithm changes; it is not the post-effect final waveform or a calibrated level meter.
 
 ## LFO and Modulation
 
@@ -181,8 +181,8 @@ In the standalone application, press **WAV** to begin recording. The button chan
 
 Run the installer for the format you need:
 
-- `OpalineFM-Standalone-v1.0.11-Windows-x64.exe`
-- `OpalineFM-VST3-v1.0.11-Windows-x64.exe`
+- `OpalineFM-Standalone-v1.0.12-Windows-x64.exe`
+- `OpalineFM-VST3-v1.0.12-Windows-x64.exe`
 
 The standalone installer adds the Opaline FM application. The VST3 installer places the plug-in in the standard system VST3 directory:
 
@@ -196,9 +196,9 @@ Restart the DAW or rescan VST3 plug-ins after installation. The Windows installe
 
 Run the signed and notarized macOS package for the build you want:
 
-- `OpalineFM-Standalone-1.0.11-macOS.pkg`
-- `OpalineFM-VST3-1.0.11-macOS.pkg`
-- `OpalineFM-AU-1.0.11-macOS.pkg`
+- `OpalineFM-Standalone-1.0.12-macOS.pkg`
+- `OpalineFM-VST3-1.0.12-macOS.pkg`
+- `OpalineFM-AU-1.0.12-macOS.pkg`
 
 The packages install to the standard macOS application and plug-in locations:
 
@@ -240,7 +240,7 @@ cmake --build --preset plugin-au-macos-debug
 Windows development installers require Inno Setup 6 or 7:
 
 ```powershell
-.\scripts\build-windows-installers.ps1 -Version 1.0.11
+.\scripts\build-windows-installers.ps1 -Version 1.0.12
 ```
 
 Generated installers are written to `dist/`.
@@ -260,9 +260,9 @@ Generated installers are written to `dist/`.
 
 ## Documentation
 
-- [Technical specification](docs/OpalineFM_Spec.md)
-- [Japanese technical specification](docs/OpalineFM_Spec_ja.md)
-- [YM2151/YM2612 voice import specification (Japanese)](docs/YM2151_YM2612_VOICE_IMPORT_SPEC_ja.md)
+- [Japanese user manual](docs/OpalineFM_Manual_ja.md)
+- [Japanese product specification](docs/OpalineFM_Spec_ja.md)
+- [iPhone/AUv3 implementation notes](iOS/OpalineFMMobile/README.md)
 - [Japanese README](README_ja.md)
 
 ## Legal and Project Status

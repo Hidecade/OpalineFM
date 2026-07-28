@@ -67,6 +67,9 @@ public:
     void setExternalMidiNoteState(const std::array<int, 128>& velocities);
     void setExternalControllerState(double pitchBend, double modWheel);
     void setExternalScopeSamples(const std::array<float, 4096>& samples, double sampleRate);
+    void setExternalVoiceWaveform(const std::array<float, 256>& waveform,
+                                  float level,
+                                  double frequency);
 
     void prepareToPlay(int samplesPerBlockExpected, double sampleRate) override;
     void getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferToFill) override;
@@ -155,6 +158,9 @@ private:
         void pushSamples(const float* samples, int numSamples);
         void setSamples(const std::array<float, 4096>& newSamples);
         void setTrigger(int midiNote, double sampleRate);
+        void setVoiceWaveform(const std::array<float, 256>& waveform,
+                              float level,
+                              double frequency);
         void paint(juce::Graphics& g) override;
 
     private:
@@ -168,6 +174,10 @@ private:
         std::array<float, 256> smoothedDisplaySamples {};
         int smoothedDisplayNote = -1;
         bool hasSmoothedDisplay = false;
+        std::array<float, 256> voiceWaveform {};
+        float voiceWaveformLevel = 0.0f;
+        double voiceWaveformFrequency = 261.625565;
+        bool hasVoiceWaveform = false;
     };
 
     class PitchEnvelopeGraphComponent final : public juce::Component
@@ -381,6 +391,7 @@ private:
     void populateMidiInputSelect();
     void refreshAlgorithmAndRoles();
     void refreshStatus();
+    void refreshHostDeviceStatus();
     bool ensureAudioStarted();
     bool startPlayback();
     void restartAudioOutput();
@@ -610,4 +621,5 @@ private:
     WavRecordingSaveCallback onExternalWavRecordingSave;
     juce::String midiStatus = "MIDI: not connected";
     juce::String audioStatus = "Audio: off";
+    juce::String lastHostDeviceStatus;
 };

@@ -4,6 +4,7 @@
 #include "Engine/OpalineVoice.h"
 
 #include <array>
+#include <atomic>
 #include <vector>
 
 namespace opaline
@@ -35,6 +36,9 @@ public:
     void renderBlock(float* left, float* right, int numSamples);
     StereoSample renderSample();
     int activeVoiceCount() const { return static_cast<int>(voices.size()); }
+    std::array<float, 256> scopeWaveformSnapshot() const;
+    float scopeOutputLevel() const { return publishedScopeLevel.load(std::memory_order_acquire); }
+    double scopeFrequencyHz() const { return publishedScopeFrequency.load(std::memory_order_acquire); }
 
 private:
     double limitAndDeclick(double sample);
@@ -42,6 +46,7 @@ private:
     double readDelay(const std::vector<double>& buffer, int writeIndex, double delaySamples) const;
     void resetEffects();
     void updateEffectParameters();
+    void updateVoiceScope(double sample, double frequency, bool voiceActive);
 
     OpalinePatch patch;
     std::vector<OpalineVoice> voices;
@@ -74,6 +79,13 @@ private:
     int modWheelAmpRange = 0;
     OpalineRenderModel renderModel = OpalineRenderModel::TypeB;
     double globalLfoAge = 0.0;
+    std::array<float, 8192> scopeCycleSamples {};
+    int scopeCycleSampleCount = 0;
+    double scopePhase = 0.0;
+    double smoothedScopeLevel = 0.0;
+    std::array<std::atomic<float>, 256> publishedScopeWaveform {};
+    std::atomic<float> publishedScopeLevel { 0.0f };
+    std::atomic<double> publishedScopeFrequency { 261.625565 };
     double chorusPhase = 0.0;
     double toneLeft = 0.0;
     double toneRight = 0.0;

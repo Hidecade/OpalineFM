@@ -52,6 +52,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)setMonoModeB:(BOOL)enabled;
 - (void)setScopeCaptureEnabled:(BOOL)enabled NS_SWIFT_NAME(setScopeCaptureEnabled(_:));
 - (NSData*)scopeSnapshotData NS_SWIFT_NAME(scopeSnapshotData());
+- (double)scopeFrequencyHz NS_SWIFT_NAME(scopeFrequencyHz());
 - (void)renderLeft:(float*)left right:(float*)right frames:(int)frames;
 - (void)renderToAudioBufferList:(AudioBufferList*)audioBufferList frames:(int)frames;
 

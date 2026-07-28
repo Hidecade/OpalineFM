@@ -7,6 +7,10 @@
 #include "Engine/OpalineTables.h"
 #include "OpalineBinaryData.h"
 
+#if defined(JucePlugin_Build_Standalone) && JucePlugin_Build_Standalone
+#include <juce_audio_plugin_client/Standalone/juce_StandaloneFilterWindow.h>
+#endif
+
 #include <algorithm>
 #include <cstring>
 #include <fstream>
@@ -24,6 +28,41 @@ constexpr std::array<int, 4> kLowLatencyAudioBufferSizes { 32, 64, 96, 128 };
 constexpr std::array<int, 12> kMidiKeyTestNotes { 0, 12, 24, 36, 48, 60, 72, 84, 96, 108, 120, 127 };
 constexpr float kAsioOutputTrim = 0.50f;
 constexpr bool kShowEngineModelButton = false;
+
+juce::String audioDeviceStatus(juce::AudioDeviceManager& manager)
+{
+    if (auto* device = manager.getCurrentAudioDevice())
+        return "Audio: " + device->getName();
+
+    return "Audio: off";
+}
+
+juce::String midiDeviceStatus(juce::AudioDeviceManager& manager)
+{
+    const auto devices = juce::MidiInput::getAvailableDevices();
+    juce::StringArray enabledNames;
+    for (const auto& device : devices)
+        if (manager.isMidiInputDeviceEnabled(device.identifier))
+            enabledNames.add(device.name);
+
+    if (enabledNames.isEmpty())
+        return devices.isEmpty() ? "MIDI: no input" : "MIDI: off";
+    if (enabledNames.size() == devices.size())
+        return "MIDI: all inputs";
+    if (enabledNames.size() == 1)
+        return "MIDI: " + enabledNames[0];
+
+    return "MIDI: " + enabledNames.joinIntoString(", ");
+}
+
+bool containsNonAscii(const juce::String& text)
+{
+    for (const auto character : text)
+        if (static_cast<juce::uint32>(character) > 0x7f)
+            return true;
+
+    return false;
+}
 
 struct PcKeyNote
 {
@@ -193,12 +232,6 @@ std::vector<juce::String> wasapiLowLatencyTypeOrder(const juce::String& requeste
     return types;
 }
 #endif
-
-juce::String lfoWaveName(const int wave)
-{
-    static constexpr std::array<const char*, 4> names { "SAW UP", "SQUARE", "TRIANGLE", "S/H" };
-    return names[static_cast<std::size_t>(juce::jlimit(0, 3, wave))];
-}
 
 juce::String operatorRole(const opaline::OpalinePatch& patch, const int opIndex)
 {
@@ -1299,6 +1332,18 @@ void MainComponent::ScopeComponent::setTrigger(const int midiNote, const double 
     scopeSampleRate.store(sampleRate > 0.0 ? sampleRate : 44100.0, std::memory_order_relaxed);
 }
 
+void MainComponent::ScopeComponent::setVoiceWaveform(
+    const std::array<float, 256>& waveform,
+    const float level,
+    const double frequency)
+{
+    voiceWaveform = waveform;
+    voiceWaveformLevel = juce::jlimit(0.0f, 1.0f, level);
+    voiceWaveformFrequency = std::isfinite(frequency) && frequency > 0.0
+        ? frequency : 261.625565;
+    hasVoiceWaveform = true;
+}
+
 void MainComponent::ScopeComponent::paint(juce::Graphics& g)
 {
     const auto area = getLocalBounds().toFloat().reduced(3.0f);
@@ -1306,6 +1351,46 @@ void MainComponent::ScopeComponent::paint(juce::Graphics& g)
     g.fillRoundedRectangle(area, 4.0f);
     g.setColour(kControlBorder);
     g.drawRoundedRectangle(area, 4.0f, 1.0f);
+
+    if (hasVoiceWaveform)
+    {
+        const auto waveArea = area.reduced(4.0f, 1.0f);
+        const int width = juce::jmax(1, static_cast<int>(waveArea.getWidth()));
+        const double cycles = juce::jlimit(
+            2.0, 8.0, 2.0 * voiceWaveformFrequency / 261.625565);
+        juce::Path path;
+        for (int pixel = 0; pixel <= width; ++pixel)
+        {
+            double phase = std::fmod(
+                0.5 - cycles * 0.5
+                    + static_cast<double>(pixel) / static_cast<double>(width) * cycles,
+                2.0);
+            if (phase < 0.0)
+                phase += 2.0;
+            const double position = phase * 0.5
+                * static_cast<double>(voiceWaveform.size() - 1);
+            const int index = juce::jlimit(
+                0, static_cast<int>(voiceWaveform.size()) - 2,
+                static_cast<int>(position));
+            const double fraction = position - static_cast<double>(index);
+            const float shape = static_cast<float>(
+                voiceWaveform[static_cast<std::size_t>(index)]
+                + (voiceWaveform[static_cast<std::size_t>(index + 1)]
+                   - voiceWaveform[static_cast<std::size_t>(index)]) * fraction);
+            const float x = waveArea.getX() + static_cast<float>(pixel);
+            const float y = waveArea.getCentreY()
+                - juce::jlimit(-1.0f, 1.0f, shape * voiceWaveformLevel)
+                    * waveArea.getHeight() * 0.495f;
+            if (pixel == 0)
+                path.startNewSubPath(x, y);
+            else
+                path.lineTo(x, y);
+        }
+
+        g.setColour(kTeal);
+        g.strokePath(path, juce::PathStrokeType(1.3f));
+        return;
+    }
 
     std::array<float, 4096> history {};
     realtimeSamples.drain(samples, writeIndex);
@@ -1595,7 +1680,7 @@ void MainComponent::OperatorComponent::setRole(juce::String newRole)
 void MainComponent::OperatorComponent::paint(juce::Graphics& g)
 {
     const auto area = getLocalBounds().toFloat().reduced(3.0f);
-    drawMetalPanel(g, area, 3.0f, op.enabled);
+    drawMetalPanel(g, area, 2.0f);
 
     auto graph = getLocalBounds().reduced(10).withTrimmedTop(36).removeFromTop(46).toFloat();
     g.setColour(kControlWell);
@@ -2309,6 +2394,7 @@ MainComponent::MainComponent(const HostMode mode, const bool allowPluginPcKeyboa
         midiStatus = "MIDI: host";
     }
     refreshStatus();
+    refreshHostDeviceStatus();
 
     if (hostMode != HostMode::PluginEditor || pluginPcKeyboardAllowed)
     {
@@ -3660,15 +3746,33 @@ void MainComponent::refreshAlgorithmAndRoles()
 
 void MainComponent::refreshStatus()
 {
-    const auto modeName = performanceState.mode == PerformanceMode::Single ? "SINGLE"
-                        : performanceState.mode == PerformanceMode::Dual ? "DUAL"
-                        : "SPLIT";
-    statusLabel.setText(audioStatus + "   " + midiStatus + "   Perf: " + modeName
-                            + "   Engine: TYPE B"
-                            + "   Bank: " + juce::String(currentVoiceBankIndex + 1)
-                            + "   Voices: " + juce::String(factoryVoices.size())
-                            + "   LFO: " + lfoWaveName(currentPatch.lfo.wave),
-                        juce::dontSendNotification);
+    const auto status = audioStatus + "  |  " + midiStatus;
+    statusLabel.setFont(juce::FontOptions(
+        containsNonAscii(status) ? 12.5f : 15.0f,
+        juce::Font::plain));
+    statusLabel.setText(status, juce::dontSendNotification);
+}
+
+void MainComponent::refreshHostDeviceStatus()
+{
+    if (hostMode != HostMode::PluginEditor)
+        return;
+
+   #if defined(JucePlugin_Build_Standalone) && JucePlugin_Build_Standalone
+    if (auto* holder = juce::StandalonePluginHolder::getInstance())
+    {
+        const auto newStatus = audioDeviceStatus(holder->deviceManager)
+            + "  |  " + midiDeviceStatus(holder->deviceManager);
+        if (newStatus != lastHostDeviceStatus)
+        {
+            lastHostDeviceStatus = newStatus;
+            statusLabel.setFont(juce::FontOptions(
+                containsNonAscii(newStatus) ? 12.5f : 15.0f,
+                juce::Font::plain));
+            statusLabel.setText(newStatus, juce::dontSendNotification);
+        }
+    }
+   #endif
 }
 
 bool MainComponent::ensureAudioStarted()
@@ -3766,7 +3870,7 @@ bool MainComponent::ensureAudioStarted()
 
     if (error.isNotEmpty())
     {
-        audioStatus = "Audio: " + error;
+        audioStatus = "Audio error: " + error;
         refreshStatus();
         audioDeviceManager = nullptr;
         return false;
@@ -3783,19 +3887,7 @@ bool MainComponent::ensureAudioStarted()
     audioDeviceManager->addAudioCallback(&audioSourcePlayer);
     audioSourcePlayer.setSource(this);
     audioStarted = true;
-    if (auto* device = audioDeviceManager->getCurrentAudioDevice())
-    {
-        const int actualBufferSize = device->getCurrentBufferSizeSamples();
-        audioStatus = "Audio: " + device->getTypeName()
-            + " " + juce::String(actualBufferSize) + "smpl";
-
-        if (actualBufferSize > kMaxLowLatencyAudioBufferSize && lowLatencyFailure.isNotEmpty())
-            audioStatus += " >128";
-    }
-    else
-    {
-        audioStatus = "Audio: on";
-    }
+    audioStatus = audioDeviceStatus(*audioDeviceManager);
     return true;
 }
 
@@ -3841,7 +3933,7 @@ void MainComponent::restartAudioOutput()
 
     audioStarted = false;
     audioDeviceManager = nullptr;
-    audioStatus = "Audio: off";
+    audioStatus = "Audio off";
 
     if (shouldResume)
         startPlayback();
@@ -3898,9 +3990,7 @@ void MainComponent::connectMidiInputs()
         midiStatus = "MIDI: " + midiInputDevices[selectedId - 3].name;
     else
     {
-        midiStatus = "MIDI: " + juce::String(static_cast<int>(midiInputs.size())) + " input";
-        if (midiInputs.size() != 1)
-            midiStatus += "s";
+        midiStatus = "MIDI: all inputs";
     }
 }
 
@@ -4505,8 +4595,16 @@ void MainComponent::setExternalScopeSamples(const std::array<float, 4096>& sampl
     scope.setSamples(samples);
 }
 
+void MainComponent::setExternalVoiceWaveform(const std::array<float, 256>& waveform,
+                                             const float level,
+                                             const double frequency)
+{
+    scope.setVoiceWaveform(waveform, level, frequency);
+}
+
 void MainComponent::timerCallback()
 {
+    refreshHostDeviceStatus();
     syncPcKeyboardNotes();
     const double now = juce::Time::getMillisecondCounterHiRes();
     advanceMidiTest(now);
@@ -4530,6 +4628,18 @@ void MainComponent::timerCallback()
     if (triggerNote >= 0)
         retainedScopeTriggerNote = triggerNote + currentPatch.transpose;
     scope.setTrigger(retainedScopeTriggerNote, audioSampleRate);
+    if (hostMode != HostMode::PluginEditor)
+    {
+        const auto levelA = engine.scopeOutputLevel();
+        const auto levelB = performanceEngineB.scopeOutputLevel();
+        const bool useVoiceB = performanceState.mode != PerformanceMode::Single
+            && levelB > levelA;
+        scope.setVoiceWaveform(useVoiceB ? performanceEngineB.scopeWaveformSnapshot()
+                                        : engine.scopeWaveformSnapshot(),
+                               useVoiceB ? levelB : levelA,
+                               useVoiceB ? performanceEngineB.scopeFrequencyHz()
+                                         : engine.scopeFrequencyHz());
+    }
 }
 
 void MainComponent::handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage& message)

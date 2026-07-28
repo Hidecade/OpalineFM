@@ -1039,6 +1039,7 @@ double OpalineVoice::render(const OpalinePatch& patch,
     const double baseFrequency = cachedBaseNoteFrequency
         * std::pow(2.0, (portamentoOffsetSemitones + bendSemitones
                          + appliedPitchLfo + pitchEnvelopeSemitones) / 12.0);
+    lastBaseFrequency = baseFrequency;
 
     std::array<bool, kOperatorCount> computed {};
     std::array<OperatorRender, kOperatorCount> outputs {};

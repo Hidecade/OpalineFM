@@ -41,6 +41,7 @@ public:
     void release();
     bool isActive() const;
     int note() const { return midiNote; }
+    double lastBaseFrequencyHz() const { return lastBaseFrequency; }
     double render(const OpalinePatch& patch,
                   double pitchBend,
                   int pitchBendRange,
@@ -94,6 +95,7 @@ private:
     double delayedPitchLfo = 0.0;
     int cachedBaseMidiNote = -1000;
     double cachedBaseNoteFrequency = 0.0;
+    double lastBaseFrequency = 0.0;
     int cachedLfoSpeed = -1;
     double cachedLfoFrequency = 0.0;
     int cachedLfoDelay = -1;

@@ -1,436 +1,418 @@
-# Opaline FM 仕様書
+# Opaline FM 製品仕様
 
-Opaline FMは、C++/JUCEで実装された4オペレーターFMシンセサイザーです。1980年代のクラシックな4オペレーター・デジタルFM楽器を参考にしつつ、実用的な互換音色バンクの取り扱いに重点を置いています。FM音源方式を採用していますが、チップエミュレーションではなく、実際のFM音源機器を完全再現するものではありません。
+- 文書バージョン：1.0
+- 対象製品バージョン：1.0.12
+- ブランド：Hidecade Instruments
+- ステータス：実装済み仕様
 
-インストール方法と操作方法は、[日本語README](../README_ja.md)または[英語README](../README.md)を参照してください。本書は開発者・保守担当者向けに、音源動作、パラメーターの所有範囲、ファイル互換性、実装上の制約を定義します。
+## 1. 製品定義
 
-## 実装範囲
+Opaline FMは、4 Operator FM Synthesis、8 Algorithm、Pitch EG、Operator EG、
+LFO、Keyboard Scaling、Performance Mode、Effectsを備えた8音ポリフォニック
+Software Synthesizerである。
 
-- スタンドアロンアプリ、VST3インストゥルメント、プラグイン版スタンドアロン、macOS AUを提供する。
-- 互換32音色SysExバンクを読み書きする。
-- 音楽用シンセサイザーと、実測した4オペレーターFM動作の参照実装を共通エンジンで構成する。
-- 公開名称にはOpaline FMを使用し、ファイル形式やパラメーター互換性を表す内部名称だけに互換用語を使用する。
+1980年代のデジタルFM楽器を参考にするが、特定機種またはYM2151 / YM2612 Chipの
+完全なEmulationではない。互換Voice Dataを読み書きできる一方、Renderer、
+Effects、UI、Library、StateはOpaline FM独自仕様とする。
 
-## 製品名
+## 2. 対応Platform
 
-- 公開製品名: `Opaline FM`
-- CMakeプロジェクト: `OpalineFM`
-- メインプラグインターゲット: `OpalineFM_Plugin`
-- スタンドアロンアプリターゲット: `OpalineFM_Standalone`
-- プラグイン状態ファイル拡張子: `.opalinefmstate`
-- 音色ライブラリーの既定エクスポート名: `OpalineFM_Voice_Library.opalinelibrary.xml`
+| Platform | 形式 |
+|---|---|
+| macOS | Standalone、VST3、Audio Unit |
+| Windows x64 | Standalone、VST3 |
+| iPhone | Standalone App、AUv3 Instrument |
 
-## ビルド出力
+Desktop版はC++17、JUCE、CMakeを使用する。iPhone / AUv3版は共通C++ Engine、
+Objective-C++ Bridge、SwiftUI、Apple Audio APIを使用する。
 
-Windowsデバッグビルドの出力先:
-
-```text
-build/standalone-vs-debug/OpalineFM_Plugin_artefacts/Debug/VST3/Opaline FM.vst3
-build/standalone-vs-debug/OpalineFM_Plugin_artefacts/Debug/Standalone/Opaline FM.exe
-build/standalone-vs-debug/OpalineFM_Standalone_artefacts/Debug/Opaline FM.exe
-```
-
-macOS AUビルドターゲット:
-
-```bash
-cmake --preset macos-debug
-cmake --build --preset plugin-au-macos-debug
-```
-
-AUの出力先:
+## 3. Synthesis Architecture
 
 ```text
-build/macos-debug/OpalineFM_Plugin_artefacts/Debug/AU/Opaline FM.component
+MIDI / Screen Keyboard
+          │
+          ├─ Performance Router ─ Voice A Engine ─┐
+          │    SINGLE / DUAL / SPLIT              ├─ Balance ─ Effects ─ Master ─ Stereo Out
+          └──────────────── Voice B Engine ───────┘
+
+Each Engine:
+  Pitch EG + LFO + Bend + Portamento
+                 │
+      4 Sine Operators / 8 Algorithms
+                 │
+       Carrier Sum / Voice Envelope
 ```
 
-## エンジン概要
+### Polyphony
 
-オーディオエンジンは`Source/Engine`以下にあり、すべてのフロントエンドで共有されます。
+- Default最大Voice数：8
+- Engine内部設定可能範囲：1〜32
+- Voice A / BごとにPOLY / MONO
+- DUAL時はA / B両EngineをLayer
+- SPLIT時はSplit PointでA / BへNoteを振り分け
 
-主な構成:
+POLY時は最大Voice数を超えると既存Voiceを整理して新しいNoteへ割り当てる。
+MONO時は単一Voiceを保持し、Last NoteとFingered Portamentoを処理する。
 
-- `OpalinePatch`は、互換範囲の音色パラメーターを保持する。
-- `OpalineEngine`は、ボイス、MIDIノート状態、ピッチベンド、モジュレーションホイール、サンプル生成を管理する。
-- `OpalineVoice`は、オペレーター接続、エンベロープ、LFO、ピッチエンベロープ、フィードバック、出力量子化およびモデル差を処理する。
-- 公開レンダリング経路は、オペレーターのレベル処理、アッテネーション、フィードバック、キャリアミックス、出力挙動を扱う。
+## 4. Operator
 
-内部名の`opaline`は、互換レベルのデータ構造とSysExの意味を表すため維持しています。
+Operator数：4。全OperatorはSine Oscillatorを基本とし、独立したPhase、
+Amplitude Envelope、Frequency Ratio、Detune、Levelを持つ。
 
-### リアルタイム安全性
+### Parameter Range
 
-- デスクトップ版とiOS版の音声レンダーは、UI・ライブラリー状態を保護するmutexを取得しない。
-- Note On/Off、Pitch Bend、Mod Wheel、Sustain、Portamento Foot Switch、Panicは、固定長の`RealtimeCommandQueue`で音声スレッドへ渡す。
-- 音色、エフェクト、演奏モードなどのまとまった状態は、固定スロットの`RealtimeStateMailbox`でバッファ境界に反映する。
-- キューとメールボックスの消費者は音声レンダーだけとし、UIスレッドがリアルタイムコマンドを実行しない。
-- WAV録音では、音声スレッドは事前確保したリングバッファへ書き込み、録音データの拡張・集約とファイル保存は別スレッドまたはUI側で行う。
-- デスクトップ版の音声コールバックは、デバイス照会や文字列比較を行わず、開始時に決定した出力補正値をatomicで参照する。
+| Parameter | Range |
+|---|---:|
+| Attack Rate | 0〜31 |
+| Decay 1 Rate | 0〜31 |
+| Decay 1 Level | 0〜15 |
+| Decay 2 Rate | 0〜31 |
+| Release Rate | 0〜15 |
+| Ratio Index | 対応Ratio Table |
+| Detune | -3〜+3相当 |
+| Level | 0〜99 |
+| Rate Scaling | 0〜3 |
+| Level Scaling | 0〜99 |
+| Velocity | 0〜7 |
+| AM Enable | Off / On |
+| Operator Enable | Off / On |
 
-### iOSオーディオライフサイクル
+Parameter読込時は`normalizePatch()`で実装範囲へ制限する。
 
-iOSスタンドアロン版は、出力ルート変更、`AVAudioSession.interruptionNotification`、`mediaServicesWereResetNotification`、およびSwiftUIの`scenePhase`を監視する。割り込みやバックグラウンド移行時に音声を停止し、復帰時にはセッションのサンプルレートとルートを再取得して`AVAudioEngine`を再構成する。
+## 5. Algorithm / Feedback
 
-## 4オペレーターFMアーキテクチャ
+- Algorithm：1〜8
+- Feedback：0〜7
+- Feedback対象：Operator 4
+- Carrier数：Algorithmにより1〜4
 
-各ボイスは4つのサイン波オペレーターを持ちます。各オペレーターは`baseFrequency * ratio + detune`の周波数で信号を生成します。アルゴリズムテーブルによって、その出力を最終キャリアミキサーへ送るか、別のオペレーターの位相変調へ使うかが決まります。
+Algorithm Tableは`Source/Engine/OpalineTables.*`を正とする。Operator Dependencyを
+明示した固定Tableにより、Modulatorを先に評価しCarrierを合成する。
 
-- **キャリア**は可聴出力へ直接加算される。
-- **モジュレーター**は後段オペレーターの位相を変え、倍音構成を変化させる。
-- オペレーターの役割に応じて、LEVELはキャリア振幅またはモジュレーション指数を制御する。
-- オペレーター4がフィードバックループを持ち、FBで量を設定する。
-- アルゴリズム1～4は主に直列変調、5～8は並列分岐と複数キャリアを使用する。
-- 並列キャリアはボイス出力処理前に加算する。後述の軽いキャリア数補正を適用する。
+## 6. Operator Envelope
 
-オペレーターごとの信号順序:
+OperatorごとにAR、D1R、D1L、D2R、RRを保持する。RateはChip系の非線形な時間感を
+意識した変換Tableで内部係数へ変換する。
 
-```text
-note + transpose + bend + PEG + pitch LFO + portamento
-    -> ratio/detune oscillator
-    -> phase modulation and OP4 feedback
-    -> amplitude EG
-    -> LEVEL / LevelSc / velocity
-    -> AM（有効時）
-    -> carrier output または downstream modulation bus
-```
+EnvelopeはNote On / Off、Velocity、Rate Scaling、Level Scalingを反映する。
+Audio Threadで動的Memory確保を行わず、Sample単位で進行する。
 
-各ボイスをミックスしてリミット/デクリック処理を行い、その後コーラス、ディレイ、リバーブ、Wet Mix、Tone処理へ送ります。
+## 7. Pitch
 
-### アルゴリズム接続表
+最終Operator周波数は次を組み合わせて決定する。
 
-内部のオペレーター番号は`0..3`ですが、仕様上はユーザー表示に合わせて`OP1..OP4`で表記します。`>`は右側のオペレーターを位相変調することを表し、`+`は並列の加算を表します。
+- MIDI Note
+- Patch Transpose
+- Operator Ratio
+- Operator Detune
+- Pitch Envelope
+- LFO Pitch Modulation
+- Mod Wheel Pitch Modulation
+- Pitch Bend
+- DUAL Detune
+- Portamento
 
-| ALG | 接続 | キャリア |
-| --- | --- | --- |
-| 1 | `OP4 > OP3 > OP2 > OP1` | OP1 |
-| 2 | `(OP4 + OP3) > OP2 > OP1` | OP1 |
-| 3 | `OP3 > OP2 > OP1` と `OP4 > OP1` | OP1 |
-| 4 | `OP2 > OP1` と `OP4 > OP3 > OP1` | OP1 |
-| 5 | `OP2 > OP1` と `OP4 > OP3` | OP1、OP3 |
-| 6 | `OP4 > (OP1 + OP2 + OP3)` | OP1、OP2、OP3 |
-| 7 | `OP4 > OP3`、`OP1`、`OP2` | OP1、OP2、OP3 |
-| 8 | `OP1 + OP2 + OP3 + OP4` | OP1、OP2、OP3、OP4 |
+### Pitch Bend
 
-### 位相変調計算
+- Normalized入力：-1〜+1
+- Bend Range：0〜12 semitones
 
-レンダラーは、オペレーター出力を音声用の`audio`と、下流オペレーターの位相変調へ渡す`modulation bus`に分けて扱います。`modulation bus`は整数バスとして扱い、1サンプルごとに依存関係の深いモジュレーターから順に計算します。
+### Portamento
 
-主な定数:
+- Value：0〜99
+- Mode：Off、Full、Finger
+- CC65はPOLY / Full Portamento Switchとして使用
 
-```text
-phaseSteps = 1048576              # 1周期の位相を表す内部固定小数点ステップ数（2^20）
-sineIndexSteps = 1024             # 1周期のlog-sine波形を参照する位相インデックス数
-operatorBusPeak = 8192            # 正規化音声値1.0に対応する符号付き変調バスの基準値
-tlSubsteps = 8                    # TL 1段を内部log減衰値8段へ分割する係数
-tlMax = 127                       # チップ互換TLの最大減衰値
-# 内部log減衰値1段あたりのdB量（1オクターブ÷256）
-logAttenuationDbPerStep = 6.020599913279624 / 256
-```
+## 8. Pitch Envelope
 
-各オペレーターの周波数と位相進行:
+- PR1、PR2、PR3：0〜99
+- PL1、PL2、PL3：0〜99
+- Neutral Level：50
 
-```text
-ratio = ratioTable[ratioIndex]
-frequency = baseFrequency * ratio + dt1Offset(baseFrequency, ratio, detune, midiNote)
-phaseIncrement = round(clamp(frequency, 0, sampleRate * 0.49) * phaseSteps / sampleRate)
-phase += clamp(phaseIncrement, 0, phaseSteps - 1) * 2*pi / phaseSteps
-basePhaseIndex = floor(fract(phase / (2*pi)) * sineIndexSteps) & 1023
-```
+3区間のPitch変化を生成する。高Rateでは短時間で目標Levelへ移動し、
+LevelはSemitone Offsetへ非線形変換する。
 
-下流オペレーターへ入る位相変調バスは、接続元オペレーターの`modulation bus`を加算してから、算術右シフト相当で1/2にします。負数は整数丸めを一定にするため、`-((abs(x) + 1) / 2)`で丸めます。
+## 9. LFO
 
-```text
-rawPmBus = sum(upstreamOperator.modulationBus)
-pmBus = round(arithmeticShiftRightOne(rawPmBus))
-pmBus = clamp(pmBus, -8192, 8191)
-pmIndex = round(pmBus)
-```
+Wave：
 
-OP4だけはフィードバックを持ちます。直前2サンプルのOP4 `modulation bus`を加算し、同じく算術右シフト相当で1/2にしてからFB量を位相インデックスへ変換します。
+1. Saw Up
+2. Square
+3. Triangle
+4. Sample & Hold
 
-```text
-feedbackBus = arithmeticShiftRightOne(op4History[0] + op4History[1])
+Parameter：
 
-if FB == 0:
-    feedbackIndex = 0
-else:
-    feedbackIndex = round(clamp(round(feedbackBus), -8192, 8191) / 2 ^ (9 - FB))
-```
+| Parameter | Range |
+|---|---:|
+| Speed | 0〜99 |
+| Delay | 0〜99 |
+| PMD | 0〜99 |
+| AMD | 0〜99 |
+| PMS | 0〜7 |
+| AMS | 0〜3 |
+| Sync | Off / On |
 
-最終的なサインテーブル位置は1024ステップでラップします。
+Global LFOをEngine単位で生成する。Pitch ModulationとAmplitude Modulationへ
+分配し、Operator AM Enableを反映する。Sync OnではNote On時にLFO AgeをResetする。
 
-```text
-phaseIndex = (basePhaseIndex + pmIndex + feedbackIndex) & 1023
-```
+## 10. Keyboard Scaling / Velocity
 
-### Log-sine／指数ROMの生成
+### Rate Scaling
 
-波形変換に使う`kGeneratedLogSinRom`と`kGeneratedExpRom`は、既存実装由来の固定数値列を保持せず、モジュール初期化時に次の数式から各256要素を一度だけ生成します。生成後のレンダリング処理は配列を参照するだけで、音声スレッド上では`sin`、`log2`、`exp2`を実行しません。
+MIDI Noteに応じてOperator Envelope Rateを増加させる。
 
-`kGeneratedLogSinRom`はサイン波の1/4周期を256区間に分け、各区間の中央を標本化した振幅を、1オクターブ256段階の対数減衰値へ変換します。添字を`i = 0...255`とすると、生成式は次のとおりです。
+### Level Scaling
 
-```text
-phase(i) = (i + 0.5) * pi / 512
-kGeneratedLogSinRom[i] = round(-log2(sin(phase(i))) * 256)
-```
+MIDI Note 60付近を基準としてOperator Levelを補正する。
 
-1024ステップの`phaseIndex`からは、bit 8で1/4周期を折り返し、bit 9で出力符号を決定します。
+### Velocity
 
-```text
-quarterIndex = phaseIndex & 255
-if (phaseIndex & 256) != 0:
-    quarterIndex = quarterIndex XOR 255
+MIDI VelocityとOperator Velocity Sensitivityを組み合わせ、Carrier音量と
+Modulation量へ反映する。
 
-waveAttenuation = kGeneratedLogSinRom[quarterIndex]
-sign = (phaseIndex & 512) != 0 ? -1 : 1
-```
+## 11. Render Model
 
-`kGeneratedExpRom`は、対数減衰値の下位8 bitを振幅の仮数部へ戻す指数曲線です。
+`OpalineRenderModel`は次の2 Modeを持つ。
 
-```text
-exponent(i) = (255 - i) / 256
-kGeneratedExpRom[i] = round(2 ^ exponent(i) * 1024)
-```
+- `Type A`：安定したSnapshot Renderer
+- `Type B`：現行の編集可能Comparison Renderer
 
-総減衰値は`0...4095`へ制限し、下位8 bitで指数テーブルを参照します。上位4 bitは1オクターブ単位の右シフトとして適用します。
+StateにRender Modelを保存する。UI表示とEngine設定を同期し、Voice切替や
+Host State復元後も同じModelを使用する。
 
-```text
-atten = clamp(attenuation, 0, 4095)
-mantissa = kGeneratedExpRom[atten & 255]
-integerOutput = (mantissa << 2) >> (atten >> 8)
-audioMagnitude = integerOutput / 8192
-```
+## 12. Performance
 
-生成値の丸めにはC++の`std::round`を使用します。現在の基準値は、log-sineテーブルが先頭`0x859`・末尾`0x000`、指数テーブルが先頭`0x7fa`・末尾`0x400`です。全要素を順番に処理した64 bit FNV-1aフィンガープリントは、それぞれ`0x40c2578eb57d1535`と`0xff727c424ceb6bbe`です。テストではこのフィンガープリント、単調性、端点、およびPCM回帰を検証します。これにより、処理系の数学関数や丸めの差で音声結果が変化した場合はCIで検出されます。
+### SINGLE
 
-レンダラーは、サイン波を直接`sin()`で計算するのではなく、1024ステップの位相インデックスから符号とlog-sine減衰量を求め、エンベロープ、TL、ベロシティ、AMを加えた総減衰量を指数テーブルで音声値へ戻します。
+Voice A Engineだけを出力する。
 
-```text
-scaledLevel = clamp(level - floor(LevelSc * 2 ^ (midiNote / 12) / 384), 0, 99)
-targetTl = scaledLevel <= 0 ? 127 : round(99 - scaledLevel)
-currentTl = smoothed(targetTl)
+### DUAL
 
-velocityDb = -20 * log10(velocityFactor)
-ampModDb = AM ? -20 * log10(ampModFactor) : 0
-attenuationIndex = clamp(envelopeIndex
-                         + currentTl * tlSubsteps
-                         + (velocityDb + ampModDb) / logAttenuationDbPerStep,
-                         0, 1023)
+Voice A / Bを同時に発音し、BへDetuneを加える。A/B Balanceを出力Gainへ反映する。
 
-waveAttenuation = logSinRom(phaseIndex)
-egAttenuation = round(attenuationIndex) << 2
-attenuation = clamp(waveAttenuation + egAttenuation, 0, 4095)
-audio = sign(phaseIndex) * expRom(attenuation) / 8192
-modulationBus = clamp(round(audio * operatorBusPeak), -8192, 8191)
-```
+### SPLIT
 
-`targetTl`は急に飛ばさず、約`0.012 s`のランプで`currentTl`へ追従します。これにより、LEVELやLevelScの変化でクリックが出にくくなります。
+Split Pointを境界にMIDI NoteをVoice A / Bへ振り分ける。
 
-## パラメーターの所有範囲
+Performance State：
 
-音色パラメーターは`OpalinePatch`へ保存され、元形式が対応する範囲で互換音色データとともに移動します。対象はオペレーター設定、アルゴリズム、フィードバック、Pitch EG、LFO、トランスポーズ、エフェクトです。
+- Mode
+- Voice A / B Index
+- Mono A / B
+- Portamento Mode A / B
+- Dual Detune
+- Split Point
+- A/B Balance
 
-次のパフォーマンスパラメーターはSysEx音色ではなく、アプリケーション/プラグイン状態へ保存します。
+## 13. Effects
 
-- SINGLE/DUAL/SPLITモードとA/B音色選択
-- A/BそれぞれのPOLY/MONO
-- DUAL Detune、SPLITポイント、A/B Balance
-- Pitch Bend RANGEとPORTA
-- MOD PITCHとMOD AMPのホイールレンジ
-- Master Volumeとレンダリングモデル
+Engine出力後にStereo Effect Chainを処理する。
 
-音色Aを選択すると、そのPMD/AMDでMOD PITCH/MOD AMPを初期化します。その後のホイールレンジ編集値は、別のA音色を選ぶまでパフォーマンス状態として維持します。
+### Parameter
 
-## UIとホスト
+| Parameter | Range |
+|---|---:|
+| Reverb | 0〜99 |
+| Reverb Mix | 0〜99 |
+| Echo Mix | 0〜99 |
+| Tone | 0〜99 |
+| Chorus | 0〜99 |
+| Delay | 0〜99 |
+| Effects Enabled | Off / On |
 
-フロントエンドには2つの経路があります。
+### Processing
 
-- フルスタンドアロンアプリ: オーディオデバイスとMIDI入力の選択を管理する。
-- プラグインエディター: `MainComponent`をホストモードで再利用し、DAW/プラグインラッパーがオーディオとMIDI経路を管理する。
+- Multi-tap Feedback Reverb
+- Stereo Delay
+- Modulated Chorus Delay
+- Tone Low-pass
+- Dry / Wet Gain Compensation
+- Effect Parameterがすべて0の場合のDry-only最適化
 
-プラグインエディターがプロセッサーから受け取る状態:
+Bufferは`prepare()`時にSample Rateに応じて確保する。最大Delay長は0.8 seconds、
+最大Chorus Buffer長は0.04 secondsとする。
 
-- MIDIノート表示状態
-- ピッチベンドとモジュレーションホイールの状態
-- ホストが対応している場合の選択プログラム名
+## 14. Output / Declick
 
-## 音色バンク
+- Stereo Output
+- Master Volume
+- Voice終了時の不要なClickを抑制
+- 出力Headroomを確保
+- NaN / Infを出力しない
+- Scope用SnapshotをRealtime-safeに公開
 
-Opaline FMは、互換32音色バルクSysExバンクに対応します。
+Waveform Scopeは最後に押したNoteのEffect前Voice信号からDCを除去し、
+Note周期に近いWindowへ整列して256 Sample表示を生成する。表示用Auto Gainを
+適用し、最終Stereo OutputおよびLevel Meterとは分離する。
 
-ユーザー向け対応ファイル形式:
+## 15. Voice Library
 
-- `.syx`: 互換32音色バンク1個
-- `.opalinelibrary.xml`: Opaline形式の複数バンク・ライブラリー
-- `.opalinefmstate`: プラグイン版スタンドアロンの完全な状態ファイル
+- Bank数：8
+- 1 Bank：32 Voice
+- 合計：256 Slot
+- Factory Library：`assets/factory.opalinelibrary.xml`
+- Compatible Factory Bank：`assets/factory.syx`
 
-公開リリースには本プロジェクト用の`assets/factory.syx`を同梱します。権利を確認できない第三者のファクトリーバンクは同梱せず、ユーザー自身の`.syx`ファイルは読み込める仕様です。
+LibraryはDesktopとiPhoneで共通の論理構造を使用する。
 
-## ピッチエンベロープジェネレーター
+操作：
 
-Pitch EGは、独立した高レベルのピッチエンベロープとして実装しています。
+- Compatible SysEx Bank Load / Save
+- Full Library XML Export / Import
+- Single Voice Load / Save
+- Copy / Paste
+- Init
+- Store
 
-- PLの中央は`50`。
-- PL範囲は約`-4800`から`+4800`セント。
-- PRは移動速度を制御する。
-- PR1はキーオン後、PL3からPL1へ移動する。
-- PR2はPL1からPL2へ移動する。
-- PL2は押鍵中に保持されるピッチレベル。
-- PR3はキーオフ後、PL3へ移動する。
+## 16. Compatible SysEx
 
-現在の実測PR基準値:
+対応Bulk Voice仕様：
 
-```text
-PR 0  : 63.55 s
-PR 10 : 9.14 s
-PR 20 : 5.37 s
-PR 30 : 3.58 s
-PR 40 : 2.40 s
-PR 50 : 1.59 s
-PR 60 : 1.13 s
-PR 70 : 0.855 s
-PR 80 : 0.579 s
-PR 90 : 0.416 s
-PR 99 : 短い可聴遷移、約12 ms
-```
+- Voice数：32
+- VMEM Voice Size：128 bytes
+- VCED Voice Size：93 bytes
+- Yamaha Checksum検証 / 生成
 
-PR90～98付近の高速値には実測補正データを使用します。PR99は数学的な完全なゼロ時間ではなく、弦や撥弦系のピッチアタックに小さな「プッ」という過渡音を残すため、短い可聴遷移として実装しています。
+Decode / Encode対象：
 
-## キーボード・レベルスケーリング
+- Operator EG
+- Ratio / Detune / Level
+- Algorithm / Feedback
+- LFO
+- Pitch EG
+- Transpose
+- Name
 
-Keyboard Level Scaling（`LevelSc`）は、DX21のキャリアおよびモジュレーターを個別に録音した実測値に基づきます。両方のオペレーター役割で同じスケーリング値になるため、共通の実測テーブルを使用します。ホストによってC0/C1などのオクターブ表記が異なるため、仕様ではMIDIノート番号を基準とします。
+Opaline独自Effects、Performance、Render Modelなど、互換Formatに存在しない項目は
+SysExへ保存しない。
 
-実装は単一の近似式ではなく、下表をルックアップアンカーとして使用します。表の間は1オクターブごとに約2倍となる曲線で補間し、`LevelSc`の中間値は隣接する測定行の間を線形補間します。最後に最も近い整数へ量子化し、`0..127`に制限します。ノート36未満および96より上は同じオクターブ比で外挿します。
+## 17. Chip Voice Import
 
-`LevelSc`とRate Scalingは、受信したMIDIノートにTransposeを加えた発音キーを基準にします。例えばMIDIノート60をTranspose -12で鳴らした場合、発音音程、`LevelSc`、Rate Scalingのすべてにノート48相当の値が適用されます。そのため「ノート60／Transpose -12」と「ノート48／Transpose 0」は同じ音質になります。これは、Transposeを変更しても音色が変化しないDX21実機の挙動に合わせたものです。
+対応形式：
 
-Detuneの周波数テーブルも、同じTranspose後の発音キーを参照します。
+- OPM：YM2151 VOPM Text
+- TFI：YM2612、42-byte
+- VGI：YM2612、43-byte
+- DMP：DefleMask Version 10 / 11のYM2151 / YM2612 FM Data
 
-MIDIノート36、48、60、72、84、96での実測TL相当減衰量:
+ImporterはOperator OrderをOpaline順へ変換し、Algorithm、Feedback、Multiplier、
+Detune、Total Level、Envelope、Rate Scaling、AM、利用可能なLFO情報をMappingする。
 
-```text
-LevelSc  36  48  60  72  84  96
-      0   0   0   0   0   0   0
-     25   0   1   2   4   8  16
-     50   1   2   4   8  16  33
-     75   1   3   6  12  25  50
-     99   1   3   7  16  33  67
-```
+YM2151 DT2はMultiplierと合成し、最も近いOpaline Ratio Indexへ量子化する。
+未対応SSG-EGはWarningを返して無視する。Sourceに存在しないParameterはDefaultへ
+初期化し、直前Patchの値を引き継がない。
 
-## キーボード・レートスケーリング
+## 18. File Format
 
-Rate Scalingは、Transpose後の発音キーからキーコードを求め、`RateSc`に応じたオフセットをEGレートへ加算する仕様で実装しています。係数とキーコード方式は、OP1キャリアだけを使用して音量スケーリングとモジュレーションを分離したDX21実機測定を基準にしています。
+| Format | 用途 |
+|---|---|
+| `.syx` | Compatible 32 Voice Bank |
+| `.opalinevoice` | Opaline Single Voice |
+| `.opalinelibrary.xml` | 8 Bank Library |
+| `.opalinefmstate` | Full Application / Plug-in State |
+| `.opm` | YM2151 Voice Source |
+| `.tfi` | YM2612 Voice Source |
+| `.vgi` | YM2612 Voice Source |
+| `.dmp` | DefleMask FM Voice Source |
+| `.wav` | Standalone Stereo Recording |
 
-2026年7月19日のDX21実機録音から取得した、ピークから`-20 dB`までのD1減衰時間（秒）:
+読込値はNormalizeし、不正Length、Checksum、Unsupported Version、範囲外値を
+拒否または安全な値へ補正する。
 
-```text
-Note     0     12     24     36     48     60     72     84     96    108    120    127
-RS 0  1.460  1.455  1.430  1.430  1.150  1.170  0.975  0.975  0.840  0.840  0.840  0.840
-RS 1  1.455  1.455  1.415  1.145  0.960  0.825  0.735  0.585  0.490  0.490  0.490  0.420
-RS 2  1.455  1.485  1.140  0.825  0.580  0.415  0.290  0.215  0.150  0.155  0.150  0.105
-RS 3  1.455  1.455  0.785  0.395  0.200  0.110  0.055  0.030  0.020  0.015  0.015  0.010
-```
+## 19. MIDI
 
-RS 3ではノート24以降、ほぼ1オクターブごとに減衰時間が半分になります。RS 0も完全な無効ではなく、高音域では弱いレート変化があります。この傾向は現在のキーコード方式と一致します。
+| Message | 動作 |
+|---|---|
+| Note On / Off | Voice発音 / Release |
+| Velocity | Operator Velocity処理 |
+| Pitch Bend | Bend Rangeに従うPitch変化 |
+| CC 1 | Mod Wheel |
+| CC 64 | Sustain Pedal |
+| CC 65 | Portamento Switch |
+| All Notes Off / Panic | VoiceとPedal StateをReset |
 
-```text
-keyScaleCode = clamp(round((transposedNote - 24) / 3), 0, 31)
-rateOffset = keyScaleCode >> (RateSc xor 3)
-```
+Standaloneは選択されたMIDI Inputを使用する。Plug-in / AUv3はHostからの
+MIDI Eventを処理する。
 
-TL 1ステップは約`0.752575 dB`です。レンダラーは、オペレーターの`0..99` LEVELから整数スケーリング量を先に減算し、実効LEVELをゼロ以上へ制限してからTLへ変換します。これにより、高音域で強いスケーリングを掛けた低LEVELオペレーターを完全に無音化できます。
+## 20. WAV Recorder
 
-## LFOとモジュレーション
+Desktop Standaloneは最終Stereo出力をRealtime Ring Bufferへ記録する。
 
-重要な動作:
+- Audio Threadは固定Bufferへ書き込む
+- Collector Threadが記録Dataを集約
+- Stop後にFile I/Oを実行
+- 空Recordingは保存しない
+- Overflow Frame数を追跡
 
-- LFO速度は実測値とマニュアルの基準に従い、Speed 35で約6.7 Hz、Speed 99で約55 Hzとなる。
-- PMDは直接ピッチ変調の深さを指定する。
-- モジュレーションホイールのピッチは、PMDを減らす係数ではなく、独立したMW PITCH経路として加算する。
-- PMS=0は単純なピッチ変調OFFではなく、Vibrato OSCの動作に従う。
-- Square、PMS=7、PMD=99では、約`-8`から`+8`半音へ到達する。
+## 21. State
 
-現在のPMS深度テーブル:
+Full Stateには次を保存する。
 
-```text
-PMS 0: Vibrato OSC、PMS=5相当の実測動作
-PMS 1: 0.125半音
-PMS 2: 0.25半音
-PMS 3: 0.5半音
-PMS 4: 1.0半音
-PMS 5: 2.0半音
-PMS 6: 4.0半音
-PMS 7: 8.0半音
-```
+- Patch
+- Performance State
+- Master Volume
+- Pitch Bend Range
+- Portamento
+- Mod Wheel Range
+- Effects Enabled
+- Render Model
+- Voice Library / Bank / Voice選択
 
-### モジュレーションホイールのレンジ
+Plug-in HostのState保存 / 復元とStandalone設定復元で同じ論理Stateを使用する。
 
-- `MOD PITCH`は`0-99`で、PMS適用前のモジュレーションホイール・ピッチ深度を調整する。
-- `MOD AMP`は`0-99`で、AMS適用前のモジュレーションホイール・振幅深度を調整する。
-- 振幅変調は、AMスイッチが有効なオペレーターだけに作用する。
-- 直接LFOのPMD/AMDとモジュレーションホイールのレンジは独立しており、実効深度を加算して`99`を上限とする。
-- 音色Aを選択すると、その音色のPMDで`MOD PITCH`、AMDで`MOD AMP`を初期化する。その後は個別に編集できる。
-- 音色Bの選択では、共有モジュレーションホイール・レンジを上書きしない。
+## 22. UI
 
-### ポルタメントモード
+### Desktop
 
-- A/Bエンジンは、それぞれ独立したOFF/FULL/FINGERポルタメントモードを保存する。
-- `POLY`ではOFF/FULL、`MONO`ではOFF/FULL/FINGERを選択できる。
-- FULLは直前に演奏したノートから移動する。FINGERは別の鍵盤を押したまま次の鍵盤を押した場合だけ移動する。
-- サステインペダルで保持されたノートは、Fingered Portamentoの物理的な押鍵として数えない。
-- `POLY`モードではMIDI `CC65`がPortamento Foot Switchを制御し、`64-127`でFull Time Portamentoを有効、`0-63`で無効にする。
-- `MONO`モードのFingered Portamentoは押鍵の重なりで決まるため、MIDI `CC65`では制限しない。
+- Header：Audio / MIDI Status、WAV、Library、Effect
+- Voice A / B選択
+- SINGLE / DUAL / SPLIT
+- Operator 1〜4
+- Algorithm / Feedback
+- Pitch EG / LFO
+- Effects
+- Pitch / Mod Wheel
+- Screen Keyboard
+- Trigger-aligned Waveform Monitor
 
-### 並列キャリアの音量補正
+### iPhone
 
-- キャリアミキサー後に軽い`carrierCount^-0.18`ゲインを適用する。
-- 補正量の目安は、1キャリアで`0 dB`、2キャリアで`-1.1 dB`、3キャリアで`-1.7 dB`、4キャリアで`-2.2 dB`。
+- Landscape専用
+- Play / Edit画面
+- Screen Keyboard
+- Section分割されたParameter Editor
+- Standalone Audio / Core MIDI
+- AUv3 Extension UI
 
-## パフォーマンスコントロール
+Platform間でEngine、Parameter意味、Voice Dataを共有し、Layoutと入力方式を
+個別最適化する。
 
-- Pitch Bend Rangeは`0..12`半音、初期値は`2`。`12`ではホイール両端で上下1オクターブ変化する。
-- Portamentoは`0..99`。0は最短移動時間で、エフェクトを無効にはしない。
-- Portamentoの`1..99`には、約10 msから2秒までの非線形時間カーブを使用する。新しく発音したボイスは直前のノートから開始し、目標ノートへ移動する。
-- RANGE、PORTA時間、A/B個別のポルタメントモードは音色パラメーターではなく、パフォーマンス設定としてスタンドアロン/プラグイン状態へ保存する。
+## 23. Realtime要件
 
-## MIDIコントロール
+- Render中にFile I/Oを行わない
+- UI操作をAudio Threadから呼ばない
+- Realtime Command QueueでEvent / Stateを渡す
+- Effect Bufferを`prepare()`時に確保する
+- 出力をFiniteに保つ
+- Sample Rateと可変Block Sizeへ対応する
+- Host Offline Renderでも共通Engineを使用する
 
-| MIDIメッセージ | 音源動作 |
-| --- | --- |
-| Note On/Off | SINGLE/DUAL/SPLITとPOLY/MONO状態に従って発音・リリースする |
-| Pitch Bend | グローバル`0..12` RANGEを使う双方向ピッチベンド |
-| CC1 | MOD PITCH/MOD AMP経路を駆動するモジュレーションホイール |
-| CC64 | サステインペダル。踏下中はNote Offを保留する |
-| CC65 | POLY時のポルタメント・フットスイッチ。MONO/Fingeredではゲートとして使用しない |
-| All Notes Off / All Sound Off | 発音中ボイスとコントローラー保持ノートを消去する |
+## 24. 実装基準
 
-プラグイン版Standaloneでは、ウィンドウにフォーカスがある間だけPCキーボードによる発音を受け付けます。VST3エディターではDAWのショートカットを維持するため、PC文字キーをノートへ変換しません。どちらもホスト/MIDIノートと画面鍵盤に対応します。
+仕様とCodeが不一致の場合、v1.0.12の次の実装を基準とする。
 
-## プラグイン状態
+- Patch / Range：`Source/Engine/OpalineTypes.*`
+- FM Voice：`Source/Engine/OpalineVoice.*`
+- Voice / Effects：`Source/Engine/OpalineEngine.*`
+- Algorithm：`Source/Engine/OpalineTables.*`
+- Envelope：`Source/Engine/OpalineEnvelope.*`
+- Pitch EG：`Source/Engine/OpalinePitchEnvelope.*`
+- SysEx：`Source/Engine/OpalineSysex.*`
+- Chip Import：`Source/Engine/ChipVoiceImport.*`
+- Library：`Source/Engine/OpalineVoiceLibrary.*`
+- Desktop UI：`Source/App/MainComponent.*`
+- Plug-in：`Source/Plugin/*`
+- iPhone / AUv3：`iOS/OpalineFMMobile/`
 
-DAWはJUCE `ValueTree`を使用する`getStateInformation()` / `setStateInformation()`経由でプラグイン状態を保存します。
-
-プラグイン版スタンドアロンでは、次の操作も提供します。
-
-- `Save current state...`
-- `Load a saved state...`
-- `Reset to default state`
-
-状態ファイルの拡張子は`.opalinefmstate`です。
-
-## リリースおよび法的注意事項
-
-v1.0.11公開リリースでは、次のインストーラーを配布します。
-
-- Windows x64スタンドアロン: `OpalineFM-Standalone-v1.0.11-Windows-x64.exe`
-- Windows x64 VST3: `OpalineFM-VST3-v1.0.11-Windows-x64.exe`
-- 署名・公証済みmacOS Standalone、VST3、Audio Unitパッケージ
-
-Windows VST3版は`C:\Program Files\Common Files\VST3\Opaline FM.vst3`へインストールします。Windows版は現在未署名で、macOS版は署名・公証済みです。公開インストーラーは[公式GitHub Release](https://github.com/Hidecade/OpalineFM/releases/tag/v1.0.11)から取得します。
-
-識別、配布、ライセンスは次の仕様で管理します。
-
-- Opaline FMはFM音源方式を採用しているが、チップエミュレーションではなく、実際のFM音源機器を完全再現するものではない。
-- 互換製品名に言及する場合は、互換性の説明だけを目的とする。
-- `assets/factory.syx`は、このプロジェクト用に作成したOpaline FMオリジナルのファクトリー音色である。
-- 権利を確認できない第三者のファクトリー音色バンクは再配布しない。
-- バイナリー配布はJUCEライセンス条件に従う。
-- VST3 SDKおよびその他の第三者ライセンス表示は`NOTICE.md`と`THIRD_PARTY_NOTICES.md`で管理する。
+ユーザー操作は[`OpalineFM_Manual_ja.md`](OpalineFM_Manual_ja.md)を参照する。
