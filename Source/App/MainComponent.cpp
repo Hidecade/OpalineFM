@@ -7,6 +7,10 @@
 #include "Engine/OpalineTables.h"
 #include "OpalineBinaryData.h"
 
+#if defined(JucePlugin_Build_Standalone) && JucePlugin_Build_Standalone
+#include <juce_audio_plugin_client/Standalone/juce_StandaloneFilterWindow.h>
+#endif
+
 #include <algorithm>
 #include <cstring>
 #include <fstream>
@@ -24,6 +28,41 @@ constexpr std::array<int, 4> kLowLatencyAudioBufferSizes { 32, 64, 96, 128 };
 constexpr std::array<int, 12> kMidiKeyTestNotes { 0, 12, 24, 36, 48, 60, 72, 84, 96, 108, 120, 127 };
 constexpr float kAsioOutputTrim = 0.50f;
 constexpr bool kShowEngineModelButton = false;
+
+juce::String audioDeviceStatus(juce::AudioDeviceManager& manager)
+{
+    if (auto* device = manager.getCurrentAudioDevice())
+        return "Audio: " + device->getName();
+
+    return "Audio: off";
+}
+
+juce::String midiDeviceStatus(juce::AudioDeviceManager& manager)
+{
+    const auto devices = juce::MidiInput::getAvailableDevices();
+    juce::StringArray enabledNames;
+    for (const auto& device : devices)
+        if (manager.isMidiInputDeviceEnabled(device.identifier))
+            enabledNames.add(device.name);
+
+    if (enabledNames.isEmpty())
+        return devices.isEmpty() ? "MIDI: no input" : "MIDI: off";
+    if (enabledNames.size() == devices.size())
+        return "MIDI: all inputs";
+    if (enabledNames.size() == 1)
+        return "MIDI: " + enabledNames[0];
+
+    return "MIDI: " + enabledNames.joinIntoString(", ");
+}
+
+bool containsNonAscii(const juce::String& text)
+{
+    for (const auto character : text)
+        if (static_cast<juce::uint32>(character) > 0x7f)
+            return true;
+
+    return false;
+}
 
 struct PcKeyNote
 {
@@ -193,12 +232,6 @@ std::vector<juce::String> wasapiLowLatencyTypeOrder(const juce::String& requeste
     return types;
 }
 #endif
-
-juce::String lfoWaveName(const int wave)
-{
-    static constexpr std::array<const char*, 4> names { "SAW UP", "SQUARE", "TRIANGLE", "S/H" };
-    return names[static_cast<std::size_t>(juce::jlimit(0, 3, wave))];
-}
 
 juce::String operatorRole(const opaline::OpalinePatch& patch, const int opIndex)
 {
@@ -2361,6 +2394,7 @@ MainComponent::MainComponent(const HostMode mode, const bool allowPluginPcKeyboa
         midiStatus = "MIDI: host";
     }
     refreshStatus();
+    refreshHostDeviceStatus();
 
     if (hostMode != HostMode::PluginEditor || pluginPcKeyboardAllowed)
     {
@@ -3712,15 +3746,33 @@ void MainComponent::refreshAlgorithmAndRoles()
 
 void MainComponent::refreshStatus()
 {
-    const auto modeName = performanceState.mode == PerformanceMode::Single ? "SINGLE"
-                        : performanceState.mode == PerformanceMode::Dual ? "DUAL"
-                        : "SPLIT";
-    statusLabel.setText(audioStatus + "   " + midiStatus + "   Perf: " + modeName
-                            + "   Engine: TYPE B"
-                            + "   Bank: " + juce::String(currentVoiceBankIndex + 1)
-                            + "   Voices: " + juce::String(factoryVoices.size())
-                            + "   LFO: " + lfoWaveName(currentPatch.lfo.wave),
-                        juce::dontSendNotification);
+    const auto status = audioStatus + "  |  " + midiStatus;
+    statusLabel.setFont(juce::FontOptions(
+        containsNonAscii(status) ? 12.5f : 15.0f,
+        juce::Font::plain));
+    statusLabel.setText(status, juce::dontSendNotification);
+}
+
+void MainComponent::refreshHostDeviceStatus()
+{
+    if (hostMode != HostMode::PluginEditor)
+        return;
+
+   #if defined(JucePlugin_Build_Standalone) && JucePlugin_Build_Standalone
+    if (auto* holder = juce::StandalonePluginHolder::getInstance())
+    {
+        const auto newStatus = audioDeviceStatus(holder->deviceManager)
+            + "  |  " + midiDeviceStatus(holder->deviceManager);
+        if (newStatus != lastHostDeviceStatus)
+        {
+            lastHostDeviceStatus = newStatus;
+            statusLabel.setFont(juce::FontOptions(
+                containsNonAscii(newStatus) ? 12.5f : 15.0f,
+                juce::Font::plain));
+            statusLabel.setText(newStatus, juce::dontSendNotification);
+        }
+    }
+   #endif
 }
 
 bool MainComponent::ensureAudioStarted()
@@ -3818,7 +3870,7 @@ bool MainComponent::ensureAudioStarted()
 
     if (error.isNotEmpty())
     {
-        audioStatus = "Audio: " + error;
+        audioStatus = "Audio error: " + error;
         refreshStatus();
         audioDeviceManager = nullptr;
         return false;
@@ -3835,19 +3887,7 @@ bool MainComponent::ensureAudioStarted()
     audioDeviceManager->addAudioCallback(&audioSourcePlayer);
     audioSourcePlayer.setSource(this);
     audioStarted = true;
-    if (auto* device = audioDeviceManager->getCurrentAudioDevice())
-    {
-        const int actualBufferSize = device->getCurrentBufferSizeSamples();
-        audioStatus = "Audio: " + device->getTypeName()
-            + " " + juce::String(actualBufferSize) + "smpl";
-
-        if (actualBufferSize > kMaxLowLatencyAudioBufferSize && lowLatencyFailure.isNotEmpty())
-            audioStatus += " >128";
-    }
-    else
-    {
-        audioStatus = "Audio: on";
-    }
+    audioStatus = audioDeviceStatus(*audioDeviceManager);
     return true;
 }
 
@@ -3893,7 +3933,7 @@ void MainComponent::restartAudioOutput()
 
     audioStarted = false;
     audioDeviceManager = nullptr;
-    audioStatus = "Audio: off";
+    audioStatus = "Audio off";
 
     if (shouldResume)
         startPlayback();
@@ -3950,9 +3990,7 @@ void MainComponent::connectMidiInputs()
         midiStatus = "MIDI: " + midiInputDevices[selectedId - 3].name;
     else
     {
-        midiStatus = "MIDI: " + juce::String(static_cast<int>(midiInputs.size())) + " input";
-        if (midiInputs.size() != 1)
-            midiStatus += "s";
+        midiStatus = "MIDI: all inputs";
     }
 }
 
@@ -4566,6 +4604,7 @@ void MainComponent::setExternalVoiceWaveform(const std::array<float, 256>& wavef
 
 void MainComponent::timerCallback()
 {
+    refreshHostDeviceStatus();
     syncPcKeyboardNotes();
     const double now = juce::Time::getMillisecondCounterHiRes();
     advanceMidiTest(now);

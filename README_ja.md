@@ -1,18 +1,18 @@
 # Opaline FM
 
-[English](README.md) | [技術仕様書](docs/OpalineFM_Spec_ja.md)
+[English](README.md) | [取扱説明書](docs/OpalineFM_Manual_ja.md) | [製品仕様書](docs/OpalineFM_Spec_ja.md)
 
 Opaline FMは、C++とJUCEで開発された無料の4オペレーターFMシンセサイザーです。1980年代のクラシックなデジタルFM楽器を参考にし、互換32音色SysExバンクの読み込みと保存に対応します。
 
 Opaline FMはFM音源方式を採用していますが、チップエミュレーションではなく、実際のFM音源機器を完全再現するものではありません。
 
-### macOS版
+### デスクトップ版
 
-![Opaline FM macOS版](docs/images/opalinefm-ui.png)
+![Opaline FM デスクトップ版](docs/images/opalinefm-desktop.png)
 
-### iOS版
+### iPhone版
 
-![Opaline FM iOS版](iOS/OpalineFMMobile/AppStoreScreenshots/01-play.png)
+![Opaline FM iPhone版](docs/images/opalinefm-iphone.png)
 
 ## 主な機能
 
@@ -129,9 +129,9 @@ Opaline FMは4つのサイン波オペレーターを使用します。オペレ
 
 ## 波形表示
 
-音色コントロール上部の表示エリアには、直近の左チャンネル出力波形が表示されます。ノートを押している間は、そのノートをトリガー基準にして波形を安定表示するため、画面上で波形が流れ続けにくくなります。
+音色コントロール上部の表示エリアには、最後に押したノートのEffect前FM Voice波形が表示されます。ノートを押している間は、そのノートをトリガー基準にして波形を安定表示するため、画面上で波形が流れ続けにくくなります。
 
-表示ではDCオフセットを取り除き、現在のノート周期に近い短い時間窓を選び、自動ゲインで小さい音色も大きい音色も見やすくします。エンベロープ形状、フィードバック、変調の深さ、アルゴリズム変更による音色変化を確認するための音作り補助表示であり、校正済みのレベルメーターではありません。
+表示ではDCオフセットを取り除き、現在のノート周期に近い短い時間窓を選び、自動ゲインで小さい音色も大きい音色も見やすくします。エンベロープ形状、フィードバック、変調の深さ、アルゴリズム変更による音色変化を確認するための音作り補助表示であり、Effect後の最終波形や校正済みのレベルメーターではありません。
 
 ## LFOとモジュレーション
 
@@ -260,9 +260,9 @@ Windows開発用インストーラーにはInno Setup 6または7が必要です
 
 ## ドキュメント
 
-- [日本語技術仕様書](docs/OpalineFM_Spec_ja.md)
-- [英語技術仕様書](docs/OpalineFM_Spec.md)
-- [YM2151/YM2612音色インポート仕様](docs/YM2151_YM2612_VOICE_IMPORT_SPEC_ja.md)
+- [日本語取扱説明書](docs/OpalineFM_Manual_ja.md)
+- [日本語製品仕様書](docs/OpalineFM_Spec_ja.md)
+- [iPhone／AUv3実装情報](iOS/OpalineFMMobile/README.md)
 - [English README](README.md)
 
 ## 法的注意事項と開発状況

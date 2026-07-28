@@ -1,18 +1,18 @@
 # Opaline FM
 
-[日本語](README_ja.md) | [Technical specification](docs/OpalineFM_Spec.md)
+[日本語](README_ja.md) | [Japanese user manual](docs/OpalineFM_Manual_ja.md) | [Japanese product specification](docs/OpalineFM_Spec_ja.md)
 
 Opaline FM is a free 4-operator FM synthesizer built with C++ and JUCE. It is inspired by classic 1980s digital FM instruments and can load and save compatible 32-voice SysEx banks.
 
 Opaline FM uses FM synthesis, but it is not a chip emulator and does not attempt to perfectly reproduce any specific FM hardware instrument.
 
-### macOS
+### Desktop
 
-![Opaline FM for macOS](docs/images/opalinefm-ui.png)
+![Opaline FM desktop version](docs/images/opalinefm-desktop.png)
 
-### iOS
+### iPhone
 
-![Opaline FM for iOS](iOS/OpalineFMMobile/AppStoreScreenshots/01-play.png)
+![Opaline FM for iPhone](docs/images/opalinefm-iphone.png)
 
 ## Features
 
@@ -129,9 +129,9 @@ Carrier levels mainly change loudness. Modulator levels mainly change harmonic b
 
 ## Waveform Display
 
-The display above the voice controls shows the recent left-channel output waveform. While a note is held, the view uses that note as a trigger reference so the waveform stays visually stable instead of drifting across the screen.
+The display above the voice controls shows the pre-effect FM voice waveform for the most recently played note. While a note is held, the view uses that note as a trigger reference so the waveform stays visually stable instead of drifting across the screen.
 
-The display removes DC offset, chooses a short window around the current note period, and applies automatic gain so quiet and loud patches remain readable. It is intended as a sound-design aid for checking envelope shape, feedback, modulation depth, and the effect of algorithm changes; it is not a calibrated level meter.
+The display removes DC offset, chooses a short window around the current note period, and applies automatic gain so quiet and loud patches remain readable. It is intended as a sound-design aid for checking envelope shape, feedback, modulation depth, and algorithm changes; it is not the post-effect final waveform or a calibrated level meter.
 
 ## LFO and Modulation
 
@@ -260,9 +260,9 @@ Generated installers are written to `dist/`.
 
 ## Documentation
 
-- [Technical specification](docs/OpalineFM_Spec.md)
-- [Japanese technical specification](docs/OpalineFM_Spec_ja.md)
-- [YM2151/YM2612 voice import specification (Japanese)](docs/YM2151_YM2612_VOICE_IMPORT_SPEC_ja.md)
+- [Japanese user manual](docs/OpalineFM_Manual_ja.md)
+- [Japanese product specification](docs/OpalineFM_Spec_ja.md)
+- [iPhone/AUv3 implementation notes](iOS/OpalineFMMobile/README.md)
 - [Japanese README](README_ja.md)
 
 ## Legal and Project Status

@@ -391,6 +391,7 @@ private:
     void populateMidiInputSelect();
     void refreshAlgorithmAndRoles();
     void refreshStatus();
+    void refreshHostDeviceStatus();
     bool ensureAudioStarted();
     bool startPlayback();
     void restartAudioOutput();
@@ -620,4 +621,5 @@ private:
     WavRecordingSaveCallback onExternalWavRecordingSave;
     juce::String midiStatus = "MIDI: not connected";
     juce::String audioStatus = "Audio: off";
+    juce::String lastHostDeviceStatus;
 };
