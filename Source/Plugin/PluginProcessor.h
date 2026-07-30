@@ -143,6 +143,8 @@ private:
         std::atomic<float>* effectTone = nullptr;
         std::atomic<float>* effectChorus = nullptr;
         std::atomic<float>* effectDelay = nullptr;
+        std::atomic<float>* effectSpread = nullptr;
+        std::atomic<float>* effectPan = nullptr;
         std::array<OperatorParameterPointers, opaline::kOperatorCount> operators {};
     };
 

@@ -486,8 +486,8 @@ private:
     StepWheelSlider pegLevel2Slider;
     StepWheelSlider pegLevel3Slider;
     StepWheelSlider effectReverbSlider;
-    StepWheelSlider effectMixSlider;
-    StepWheelSlider effectEchoMixSlider;
+    StepWheelSlider effectSpreadSlider;
+    StepWheelSlider effectPanSlider;
     StepWheelSlider effectToneSlider;
     StepWheelSlider effectChorusSlider;
     StepWheelSlider effectDelaySlider;
@@ -524,8 +524,8 @@ private:
     juce::Label pegLevel2Label;
     juce::Label pegLevel3Label;
     juce::Label effectReverbLabel;
-    juce::Label effectMixLabel;
-    juce::Label effectEchoMixLabel;
+    juce::Label effectSpreadLabel;
+    juce::Label effectPanLabel;
     juce::Label effectToneLabel;
     juce::Label effectChorusLabel;
     juce::Label effectDelayLabel;

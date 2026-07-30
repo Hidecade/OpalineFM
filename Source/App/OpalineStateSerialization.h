@@ -128,6 +128,8 @@ inline juce::ValueTree patchToValueTree(const opaline::OpalinePatch& patch)
     effects.setProperty("tone", patch.effects.tone, nullptr);
     effects.setProperty("chorus", patch.effects.chorus, nullptr);
     effects.setProperty("delay", patch.effects.delay, nullptr);
+    effects.setProperty("spread", patch.effects.spread, nullptr);
+    effects.setProperty("pan", patch.effects.pan, nullptr);
     tree.addChild(effects, -1, nullptr);
 
     for (int i = 0; i < opaline::kOperatorCount; ++i)
@@ -179,6 +181,8 @@ inline opaline::OpalinePatch patchFromValueTree(const juce::ValueTree& tree, con
         patch.effects.tone = readInt(effects, "tone", patch.effects.tone);
         patch.effects.chorus = readInt(effects, "chorus", patch.effects.chorus);
         patch.effects.delay = readInt(effects, "delay", patch.effects.delay);
+        patch.effects.spread = readInt(effects, "spread", patch.effects.spread);
+        patch.effects.pan = readInt(effects, "pan", patch.effects.pan);
     }
 
     for (int childIndex = 0; childIndex < tree.getNumChildren(); ++childIndex)

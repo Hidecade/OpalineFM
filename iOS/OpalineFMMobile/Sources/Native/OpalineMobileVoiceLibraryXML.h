@@ -145,6 +145,8 @@ inline bool voiceLibraryFromXMLData(NSData* data, OpalineVoiceLibrary& outputLib
                         voice.patch.effects.echoMix = value(@"echoMix", 0);
                         voice.patch.effects.chorus = value(@"chorus", 0);
                         voice.patch.effects.tone = value(@"tone", 50);
+                        voice.patch.effects.spread = value(@"spread", 0);
+                        voice.patch.effects.pan = value(@"pan", 50);
                         voice.patch = normalizePatch(voice.patch);
                     }
                 }

@@ -41,6 +41,8 @@ constexpr const char* effectEchoMix = "effectEchoMix";
 constexpr const char* effectTone = "effectTone";
 constexpr const char* effectChorus = "effectChorus";
 constexpr const char* effectDelay = "effectDelay";
+constexpr const char* effectSpread = "effectSpread";
+constexpr const char* effectPan = "effectPan";
 } // namespace param_ids
 
 double pitchWheelToUnitBend(const int pitchWheelValue)
@@ -180,6 +182,8 @@ void OpalineAudioProcessor::cacheParameterPointers()
     parameterPointers.effectTone = get(param_ids::effectTone);
     parameterPointers.effectChorus = get(param_ids::effectChorus);
     parameterPointers.effectDelay = get(param_ids::effectDelay);
+    parameterPointers.effectSpread = get(param_ids::effectSpread);
+    parameterPointers.effectPan = get(param_ids::effectPan);
 
     for (int opIndex = 0; opIndex < opaline::kOperatorCount; ++opIndex)
     {
@@ -263,6 +267,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout OpalineAudioProcessor::creat
     params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::effectTone, "Tone", intRange(0.0f, 99.0f), 50.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::effectChorus, "Chorus", intRange(0.0f, 99.0f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::effectDelay, "Delay", intRange(0.0f, 99.0f), 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::effectSpread, "Spread", intRange(0.0f, 99.0f), 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::effectPan, "Pan", intRange(0.0f, 99.0f), 50.0f));
 
     for (int op = 0; op < opaline::kOperatorCount; ++op)
     {
@@ -815,6 +821,8 @@ void OpalineAudioProcessor::applyParametersToState(opalineapp::SynthState& targe
         patch.effects.tone = parameterInt(parameterPointers.effectTone, patch.effects.tone);
         patch.effects.chorus = parameterInt(parameterPointers.effectChorus, patch.effects.chorus);
         patch.effects.delay = parameterInt(parameterPointers.effectDelay, patch.effects.delay);
+        patch.effects.spread = parameterInt(parameterPointers.effectSpread, patch.effects.spread);
+        patch.effects.pan = parameterInt(parameterPointers.effectPan, patch.effects.pan);
 
         for (int opIndex = 0; opIndex < opaline::kOperatorCount; ++opIndex)
         {
@@ -962,6 +970,8 @@ void OpalineAudioProcessor::syncParametersFromState()
     setApvtsParameter(parameters, param_ids::effectTone, static_cast<float>(state.patch.effects.tone));
     setApvtsParameter(parameters, param_ids::effectChorus, static_cast<float>(state.patch.effects.chorus));
     setApvtsParameter(parameters, param_ids::effectDelay, static_cast<float>(state.patch.effects.delay));
+    setApvtsParameter(parameters, param_ids::effectSpread, static_cast<float>(state.patch.effects.spread));
+    setApvtsParameter(parameters, param_ids::effectPan, static_cast<float>(state.patch.effects.pan));
 
     for (int opIndex = 0; opIndex < opaline::kOperatorCount; ++opIndex)
     {

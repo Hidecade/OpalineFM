@@ -41,6 +41,8 @@ public:
     void release();
     bool isActive() const;
     int note() const { return midiNote; }
+    void setStereoPosition(double position) { stereoPosition = position; }
+    double getStereoPosition() const { return stereoPosition; }
     double lastBaseFrequencyHz() const { return lastBaseFrequency; }
     double render(const OpalinePatch& patch,
                   double pitchBend,
@@ -96,6 +98,7 @@ private:
     int cachedBaseMidiNote = -1000;
     double cachedBaseNoteFrequency = 0.0;
     double lastBaseFrequency = 0.0;
+    double stereoPosition = 0.0;
     int cachedLfoSpeed = -1;
     double cachedLfoFrequency = 0.0;
     int cachedLfoDelay = -1;

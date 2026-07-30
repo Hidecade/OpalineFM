@@ -1,7 +1,7 @@
 # Opaline FM 製品仕様
 
 - 文書バージョン：1.0
-- 対象製品バージョン：1.0.13
+- 対象製品バージョン：1.0.14
 - ブランド：Hidecade Instruments
 - ステータス：実装済み仕様
 
@@ -213,12 +213,12 @@ Engine出力後にStereo Effect Chainを処理する。
 
 | Parameter | Range |
 |---|---:|
-| Reverb | 0〜99 |
-| Reverb Mix | 0〜99 |
-| Echo Mix | 0〜99 |
+| Reverb（Character＋Wet） | 0〜99 |
+| Delay（Time / Feedback＋Wet） | 0〜99 |
 | Tone | 0〜99 |
 | Chorus | 0〜99 |
-| Delay | 0〜99 |
+| Spread | 0〜99 |
+| Pan | 0〜99（50＝Center） |
 | Effects Enabled | Off / On |
 
 ### Processing
@@ -400,7 +400,7 @@ Platform間でEngine、Parameter意味、Voice Dataを共有し、Layoutと入�
 
 ## 24. 実装基準
 
-仕様とCodeが不一致の場合、v1.0.13の実装を基準とする。
+仕様とCodeが不一致の場合、v1.0.14の実装を基準とする。
 
 - Patch / Range：`Source/Engine/OpalineTypes.*`
 - FM Voice：`Source/Engine/OpalineVoice.*`

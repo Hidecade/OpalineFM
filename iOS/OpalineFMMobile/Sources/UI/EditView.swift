@@ -811,8 +811,8 @@ private struct FxEditPage: View {
             .init(title: "Reverb", key: "fx.reverb", range: 0...99),
             .init(title: "Delay", key: "fx.delay", range: 0...99),
             .init(title: "Chorus", key: "fx.chorus", range: 0...99),
-            .init(title: "RevMix", key: "fx.revmix", range: 0...99),
-            .init(title: "DlyMix", key: "fx.dlymix", range: 0...99),
+            .init(title: "Spread", key: "fx.spread", range: 0...99),
+            .init(title: "Pan", key: "fx.pan", range: 0...99),
             .init(title: "Tone", key: "fx.tone", range: 0...99)
         ]
     }
@@ -1909,7 +1909,7 @@ private enum EditParameterDefaults {
         "pr1": 99, "pr2": 99, "pr3": 99,
         "pl1": 50, "pl2": 50, "pl3": 50,
         "lfo.speed": 35, "lfo.delay": 0, "lfo.pmd": 0, "lfo.amd": 0, "lfo.pms": 0, "lfo.ams": 0,
-        "fx.enabled": 1, "fx.reverb": 0, "fx.delay": 0, "fx.chorus": 0, "fx.revmix": 0, "fx.dlymix": 0, "fx.tone": 50,
+        "fx.enabled": 1, "fx.reverb": 0, "fx.delay": 0, "fx.chorus": 0, "fx.spread": 0, "fx.pan": 50, "fx.tone": 50,
         "ar": 20, "d1r": 9, "d1l": 12, "d2r": 1, "rr": 5,
         "ratio": 4, "detune": 0, "level": 99, "ratesc": 2, "levelsc": 1, "vel": 0
     ]

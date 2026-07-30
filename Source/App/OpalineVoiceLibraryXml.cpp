@@ -26,6 +26,8 @@ juce::ValueTree voiceToValueTree(const opaline::OpalinePatchWithMetadata& voice,
     effectsTree.setProperty("echoMix", effects.echoMix, nullptr);
     effectsTree.setProperty("chorus", effects.chorus, nullptr);
     effectsTree.setProperty("tone", effects.tone, nullptr);
+    effectsTree.setProperty("spread", effects.spread, nullptr);
+    effectsTree.setProperty("pan", effects.pan, nullptr);
     tree.addChild(effectsTree, -1, nullptr);
     return tree;
 }
@@ -107,6 +109,8 @@ bool voiceLibraryFromXml(const juce::XmlElement& xml, opaline::OpalineVoiceLibra
                 voice.patch.effects.echoMix = static_cast<int>(effectsTree.getProperty("echoMix", 0));
                 voice.patch.effects.chorus = static_cast<int>(effectsTree.getProperty("chorus", 0));
                 voice.patch.effects.tone = static_cast<int>(effectsTree.getProperty("tone", 50));
+                voice.patch.effects.spread = static_cast<int>(effectsTree.getProperty("spread", 0));
+                voice.patch.effects.pan = static_cast<int>(effectsTree.getProperty("pan", 50));
                 voice.patch = opaline::normalizePatch(voice.patch);
             }
             bank.voices[static_cast<std::size_t>(voiceIndex)] = voice;

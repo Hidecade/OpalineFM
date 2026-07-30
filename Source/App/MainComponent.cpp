@@ -2298,23 +2298,23 @@ MainComponent::MainComponent(const HostMode mode, const bool allowPluginPcKeyboa
         addAndMakeVisible(*label);
 
     setupLabel(effectReverbLabel, "Reverb");
-    setupLabel(effectMixLabel, "RevMix");
-    setupLabel(effectEchoMixLabel, "DlyMix");
+    setupLabel(effectSpreadLabel, "Spread");
+    setupLabel(effectPanLabel, "Pan");
     setupLabel(effectToneLabel, "Tone");
     setupLabel(effectChorusLabel, "Chorus");
     setupLabel(effectDelayLabel, "Delay");
     setupSlider(effectReverbSlider, 0, 99, 1, 0, juce::Slider::RotaryHorizontalVerticalDrag);
-    setupSlider(effectMixSlider, 0, 99, 1, 0, juce::Slider::RotaryHorizontalVerticalDrag);
-    setupSlider(effectEchoMixSlider, 0, 99, 1, 0, juce::Slider::RotaryHorizontalVerticalDrag);
+    setupSlider(effectSpreadSlider, 0, 99, 1, 0, juce::Slider::RotaryHorizontalVerticalDrag);
+    setupSlider(effectPanSlider, 0, 99, 1, 50, juce::Slider::RotaryHorizontalVerticalDrag);
     setupSlider(effectToneSlider, 0, 99, 1, 50, juce::Slider::RotaryHorizontalVerticalDrag);
     setupSlider(effectChorusSlider, 0, 99, 1, 0, juce::Slider::RotaryHorizontalVerticalDrag);
     setupSlider(effectDelaySlider, 0, 99, 1, 0, juce::Slider::RotaryHorizontalVerticalDrag);
-    for (auto* slider : { &effectReverbSlider, &effectMixSlider, &effectEchoMixSlider, &effectToneSlider, &effectChorusSlider, &effectDelaySlider })
+    for (auto* slider : { &effectReverbSlider, &effectSpreadSlider, &effectPanSlider, &effectToneSlider, &effectChorusSlider, &effectDelaySlider })
     {
         slider->addListener(this);
         addAndMakeVisible(*slider);
     }
-    for (auto* label : { &effectReverbLabel, &effectMixLabel, &effectEchoMixLabel, &effectToneLabel, &effectChorusLabel, &effectDelayLabel })
+    for (auto* label : { &effectReverbLabel, &effectSpreadLabel, &effectPanLabel, &effectToneLabel, &effectChorusLabel, &effectDelayLabel })
         addAndMakeVisible(*label);
 
     setupLabel(pitchWheelLabel, "PITCH");
@@ -2447,7 +2447,7 @@ MainComponent::~MainComponent()
                                                   &lfoPitchSensitivitySlider, &lfoAmpSensitivitySlider,
                                                   &pegRate1Slider, &pegRate2Slider, &pegRate3Slider,
                                                   &pegLevel1Slider, &pegLevel2Slider, &pegLevel3Slider,
-                                                  &effectReverbSlider, &effectMixSlider, &effectEchoMixSlider, &effectToneSlider, &effectChorusSlider,
+                                                  &effectReverbSlider, &effectSpreadSlider, &effectPanSlider, &effectToneSlider, &effectChorusSlider,
                                                    &effectDelaySlider, &pitchWheelSlider, &modWheelSlider,
                                                    &pitchBendRangeSlider, &portamentoSlider,
                                                    &modWheelPitchRangeSlider, &modWheelAmpRangeSlider,
@@ -2868,8 +2868,8 @@ void MainComponent::resized()
 
     auto effectsContent = effects.reduced(0, 0);
     const int effectsCellWidth = knobColumnWidth;
-    std::array<juce::Label*, 6> effectLabels { &effectReverbLabel, &effectDelayLabel, &effectChorusLabel, &effectMixLabel, &effectEchoMixLabel, &effectToneLabel };
-    std::array<juce::Slider*, 6> effectSliders { &effectReverbSlider, &effectDelaySlider, &effectChorusSlider, &effectMixSlider, &effectEchoMixSlider, &effectToneSlider };
+    std::array<juce::Label*, 6> effectLabels { &effectReverbLabel, &effectDelayLabel, &effectChorusLabel, &effectSpreadLabel, &effectPanLabel, &effectToneLabel };
+    std::array<juce::Slider*, 6> effectSliders { &effectReverbSlider, &effectDelaySlider, &effectChorusSlider, &effectSpreadSlider, &effectPanSlider, &effectToneSlider };
     for (int row = 0; row < 2; ++row)
     {
         for (int col = 0; col < 3; ++col)
@@ -3324,12 +3324,16 @@ void MainComponent::syncUiFromPatch()
     pegLevel2Slider.setValue(currentPatch.pitchEnvelope.level2, juce::dontSendNotification);
     pegLevel3Slider.setValue(currentPatch.pitchEnvelope.level3, juce::dontSendNotification);
     pegGraph.setEnvelope(currentPatch.pitchEnvelope);
-    effectReverbSlider.setValue(currentPatch.effects.reverb, juce::dontSendNotification);
-    effectMixSlider.setValue(currentPatch.effects.mix, juce::dontSendNotification);
-    effectEchoMixSlider.setValue(currentPatch.effects.echoMix, juce::dontSendNotification);
+    effectReverbSlider.setValue(std::round(std::sqrt(static_cast<double>(currentPatch.effects.reverb)
+                                                     * static_cast<double>(currentPatch.effects.mix))),
+                                juce::dontSendNotification);
+    effectSpreadSlider.setValue(currentPatch.effects.spread, juce::dontSendNotification);
+    effectPanSlider.setValue(currentPatch.effects.pan, juce::dontSendNotification);
     effectToneSlider.setValue(currentPatch.effects.tone, juce::dontSendNotification);
     effectChorusSlider.setValue(currentPatch.effects.chorus, juce::dontSendNotification);
-    effectDelaySlider.setValue(currentPatch.effects.delay, juce::dontSendNotification);
+    effectDelaySlider.setValue(std::round(std::sqrt(static_cast<double>(currentPatch.effects.delay)
+                                                    * static_cast<double>(currentPatch.effects.echoMix))),
+                               juce::dontSendNotification);
     syncingUi = false;
 
     refreshLcd();
@@ -3357,11 +3361,13 @@ void MainComponent::updatePatchFromGlobalControls()
     currentPatch.pitchEnvelope.level3 = static_cast<int>(pegLevel3Slider.getValue());
     pegGraph.setEnvelope(currentPatch.pitchEnvelope);
     currentPatch.effects.reverb = static_cast<int>(effectReverbSlider.getValue());
-    currentPatch.effects.mix = static_cast<int>(effectMixSlider.getValue());
-    currentPatch.effects.echoMix = static_cast<int>(effectEchoMixSlider.getValue());
+    currentPatch.effects.mix = currentPatch.effects.reverb;
+    currentPatch.effects.spread = static_cast<int>(effectSpreadSlider.getValue());
+    currentPatch.effects.pan = static_cast<int>(effectPanSlider.getValue());
     currentPatch.effects.tone = static_cast<int>(effectToneSlider.getValue());
     currentPatch.effects.chorus = static_cast<int>(effectChorusSlider.getValue());
     currentPatch.effects.delay = static_cast<int>(effectDelaySlider.getValue());
+    currentPatch.effects.echoMix = currentPatch.effects.delay;
     refreshAlgorithmAndRoles();
 }
 

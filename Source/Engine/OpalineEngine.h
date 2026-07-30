@@ -41,8 +41,7 @@ public:
     double scopeFrequencyHz() const { return publishedScopeFrequency.load(std::memory_order_acquire); }
 
 private:
-    double limitAndDeclick(double sample);
-    StereoSample processEffects(double input);
+    StereoSample processEffects(double inputLeft, double inputRight);
     double readDelay(const std::vector<double>& buffer, int writeIndex, double delaySamples) const;
     void resetEffects();
     void updateEffectParameters();
@@ -74,6 +73,7 @@ private:
     std::array<bool, 128> sustainedNotes {};
     std::array<bool, 128> keyDownNotes {};
     int lastPlayedNote = -1;
+    std::uint32_t stereoVoiceCounter = 0;
     double modWheel = 0.0;
     int modWheelPitchRange = 99;
     int modWheelAmpRange = 0;
@@ -89,7 +89,6 @@ private:
     double chorusPhase = 0.0;
     double toneLeft = 0.0;
     double toneRight = 0.0;
-    double lastOutput = 0.0;
     double lastLeft = 0.0;
     double lastRight = 0.0;
     double effectReverb = 0.0;
@@ -98,6 +97,8 @@ private:
     double effectTone = 0.0;
     double effectChorus = 0.0;
     double effectDelay = 0.0;
+    double effectSpread = 0.0;
+    double effectPan = 0.0;
     double effectDryGain = 1.0;
     double effectReverbWetGain = 0.0;
     double effectEchoWetGain = 0.0;

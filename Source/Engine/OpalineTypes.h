@@ -62,6 +62,8 @@ struct OpalineEffects
     int tone = 50;
     int chorus = 0;
     int delay = 0;
+    int spread = 0;
+    int pan = 50;
 };
 
 struct OpalinePatch

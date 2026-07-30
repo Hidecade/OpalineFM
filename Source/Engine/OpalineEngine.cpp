@@ -115,6 +115,10 @@ void OpalineEngine::noteOn(const int note, const int velocity)
     const int fromNote = usePortamento ? lastPlayedNote : -1;
     voice.start(patch, safeNote, clampInt(velocity, 0, 127), currentSampleRate, renderModel,
                 fromNote, portamentoSecondsForValue(portamento));
+    static constexpr std::array<double, 8> kStereoPositions {
+        -1.0, 1.0, -0.42, 0.42, -0.72, 0.72, -0.18, 0.18
+    };
+    voice.setStereoPosition(kStereoPositions[stereoVoiceCounter++ % kStereoPositions.size()]);
     lastPlayedNote = safeNote;
     voices.push_back(voice);
     scopeCycleSampleCount = 0;
@@ -217,18 +221,9 @@ void OpalineEngine::panic()
     keyDownNotes.fill(false);
     lastPlayedNote = -1;
     globalLfoAge = 0.0;
-    lastOutput = 0.0;
     lastLeft = 0.0;
     lastRight = 0.0;
     resetEffects();
-}
-
-double OpalineEngine::limitAndDeclick(const double sample)
-{
-    const double limited = softLimit(sample);
-    const double delta = clampDouble(limited - lastOutput, -0.42, 0.42);
-    lastOutput += delta;
-    return lastOutput;
 }
 
 void OpalineEngine::resetEffects()
@@ -254,12 +249,21 @@ void OpalineEngine::resetEffects()
 void OpalineEngine::updateEffectParameters()
 {
     const auto& fx = patch.effects;
-    effectReverb = static_cast<double>(fx.reverb) / 99.0;
-    effectReverbMix = static_cast<double>(fx.mix) / 99.0;
-    effectEchoMix = static_cast<double>(fx.echoMix) / 99.0;
+    const double reverbCharacter = static_cast<double>(fx.reverb) / 99.0;
+    const double legacyReverbMix = static_cast<double>(fx.mix) / 99.0;
+    const double delayTime = static_cast<double>(fx.delay) / 99.0;
+    const double legacyDelayMix = static_cast<double>(fx.echoMix) / 99.0;
+    // New edits keep each legacy pair equal, making the one-knob response
+    // linear. The geometric blend preserves the intent of older presets.
+    effectReverb = std::sqrt(reverbCharacter * legacyReverbMix);
+    effectReverbMix = effectReverb;
+    effectEchoMix = std::sqrt(delayTime * legacyDelayMix);
     effectTone = static_cast<double>(fx.tone) / 99.0;
     effectChorus = static_cast<double>(fx.chorus) / 99.0;
-    effectDelay = static_cast<double>(fx.delay) / 99.0;
+    effectDelay = effectEchoMix;
+    effectSpread = static_cast<double>(fx.spread) / 99.0;
+    effectPan = (static_cast<double>(fx.pan) - 50.0) / 49.0;
+    effectPan = clampDouble(effectPan, -1.0, 1.0);
 
     const double wetAmount = clampDouble(effectReverbMix + effectEchoMix * 0.75 + effectChorus * 0.25, 0.0, 1.0);
     effectDryGain = 1.0 - wetAmount * 0.55;
@@ -276,11 +280,9 @@ void OpalineEngine::updateEffectParameters()
     effectChorusPhaseIncrement = (0.18 + effectChorus * 0.58) / currentSampleRate;
     effectChorusDelay = effectChorus <= 0.001 ? 0.0 : 0.006 + effectChorus * 0.012;
     effectChorusDepth = effectChorus * 0.006;
-    effectWetParametersZero = fx.reverb == 0
-        && fx.mix == 0
-        && fx.echoMix == 0
+    effectWetParametersZero = effectReverb <= 0.0
         && fx.chorus == 0
-        && fx.delay == 0;
+        && effectDelay <= 0.0;
     effectOutputDryOnly = effectReverbWetGain == 0.0
         && effectEchoWetGain == 0.0
         && effectChorus == 0.0;
@@ -304,18 +306,36 @@ double OpalineEngine::readDelay(const std::vector<double>& buffer, const int wri
     return buffer[static_cast<std::size_t>(i0)] * (1.0 - fraction) + buffer[static_cast<std::size_t>(i1)] * fraction;
 }
 
-StereoSample OpalineEngine::processEffects(const double input)
+StereoSample OpalineEngine::processEffects(const double inputLeft, const double inputRight)
 {
+    const auto applyPan = [this](double left, double right)
+    {
+        if (effectPan < 0.0)
+            right *= 1.0 + effectPan;
+        else
+            left *= 1.0 - effectPan;
+        return std::array<double, 2> { left, right };
+    };
+
     if (!effectsEnabled)
-        return { static_cast<float>(input), static_cast<float>(input) };
+    {
+        const auto panned = applyPan(inputLeft, inputRight);
+        lastLeft += clampDouble(panned[0] - lastLeft, -0.42, 0.42);
+        lastRight += clampDouble(panned[1] - lastRight, -0.42, 0.42);
+        return { static_cast<float>(lastLeft), static_cast<float>(lastRight) };
+    }
 
     if (effectWetParametersZero)
     {
-        const double limited = softLimit(input);
-        lastLeft += clampDouble(limited - lastLeft, -0.42, 0.42);
-        lastRight += clampDouble(limited - lastRight, -0.42, 0.42);
+        const auto panned = applyPan(inputLeft, inputRight);
+        const double limitedLeft = softLimit(panned[0]);
+        const double limitedRight = softLimit(panned[1]);
+        lastLeft += clampDouble(limitedLeft - lastLeft, -0.42, 0.42);
+        lastRight += clampDouble(limitedRight - lastRight, -0.42, 0.42);
         return { static_cast<float>(lastLeft), static_cast<float>(lastRight) };
     }
+
+    const double input = (inputLeft + inputRight) * 0.5;
 
     std::array<double, 4> reverbTapsLeft {};
     std::array<double, 4> reverbTapsRight {};
@@ -374,8 +394,8 @@ StereoSample OpalineEngine::processEffects(const double input)
         : (reverbTapsRight[0] - reverbTapsRight[1]
            + reverbTapsRight[2] + reverbTapsRight[3]) * 0.32 * effectReverb;
 
-    const double wetInLeft = input + reverbOutLeft * 0.35;
-    const double wetInRight = input + reverbOutRight * 0.35;
+    const double wetInLeft = inputLeft + reverbOutLeft * 0.35;
+    const double wetInRight = inputRight + reverbOutRight * 0.35;
     const double delayedLeft = effectDelaySamples > 1.0 ? readDelay(delayBufferLeft, delayWriteIndex, effectDelaySamples) : 0.0;
     const double delayedRight = effectDelaySamples > 1.0 ? readDelay(delayBufferRight, delayWriteIndex, effectDelaySamples) : 0.0;
     if (!delayBufferLeft.empty())
@@ -404,17 +424,20 @@ StereoSample OpalineEngine::processEffects(const double input)
     }
     if (!chorusBufferLeft.empty())
     {
-        chorusBufferLeft[static_cast<std::size_t>(chorusWriteIndex)] = input;
-        chorusBufferRight[static_cast<std::size_t>(chorusWriteIndex)] = input;
+        chorusBufferLeft[static_cast<std::size_t>(chorusWriteIndex)] = inputLeft;
+        chorusBufferRight[static_cast<std::size_t>(chorusWriteIndex)] = inputRight;
         chorusWriteIndex = (chorusWriteIndex + 1) % static_cast<int>(chorusBufferLeft.size());
     }
 
-    const double left = effectOutputDryOnly ? input
-        : input * effectDryGain + reverbOutLeft * effectReverbWetGain
+    double left = effectOutputDryOnly ? inputLeft
+        : inputLeft * effectDryGain + reverbOutLeft * effectReverbWetGain
             + toneLeft * effectEchoWetGain + chorusLeft * effectChorus * 0.34;
-    const double right = effectOutputDryOnly ? input
-        : input * effectDryGain + reverbOutRight * effectReverbWetGain
+    double right = effectOutputDryOnly ? inputRight
+        : inputRight * effectDryGain + reverbOutRight * effectReverbWetGain
             + toneRight * effectEchoWetGain + chorusRight * effectChorus * 0.34;
+    const auto panned = applyPan(left, right);
+    left = panned[0];
+    right = panned[1];
     const double limitedLeft = softLimit(left);
     const double limitedRight = softLimit(right);
     lastLeft += clampDouble(limitedLeft - lastLeft, -0.42, 0.42);
@@ -425,7 +448,8 @@ StereoSample OpalineEngine::processEffects(const double input)
 StereoSample OpalineEngine::renderSample()
 {
     globalLfoAge += 1.0 / currentSampleRate;
-    double mixed = 0.0;
+    double mixedLeft = 0.0;
+    double mixedRight = 0.0;
     double scopeVoiceSample = 0.0;
     double scopeVoiceFrequency = publishedScopeFrequency.load(std::memory_order_relaxed);
     bool scopeVoiceActive = false;
@@ -437,7 +461,11 @@ StereoSample OpalineEngine::renderSample()
         const double voiceSample =
             voice.render(patch, pitchBend, pitchBendRange, modWheel, modWheelPitchRange,
                          modWheelAmpRange, globalLfoAge, renderModel);
-        mixed += voiceSample;
+        const double voicePan = voice.getStereoPosition() * effectSpread;
+        const double leftGain = voicePan > 0.0 ? 1.0 - voicePan : 1.0;
+        const double rightGain = voicePan < 0.0 ? 1.0 + voicePan : 1.0;
+        mixedLeft += voiceSample * leftGain;
+        mixedRight += voiceSample * rightGain;
         if (voice.note() == lastPlayedNote)
         {
             scopeVoiceSample = voiceSample * kOutputGain;
@@ -454,8 +482,9 @@ StereoSample OpalineEngine::renderSample()
     voices.resize(activeVoiceCount);
     updateVoiceScope(scopeVoiceSample, scopeVoiceFrequency, scopeVoiceActive);
 
-    const double output = limitAndDeclick(mixed * kOutputGain);
-    return processEffects(output);
+    const double outputLeft = softLimit(mixedLeft * kOutputGain);
+    const double outputRight = softLimit(mixedRight * kOutputGain);
+    return processEffects(outputLeft, outputRight);
 }
 
 void OpalineEngine::updateVoiceScope(const double sample,

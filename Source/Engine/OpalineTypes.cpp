@@ -48,6 +48,8 @@ OpalinePatch normalizePatch(const OpalinePatch& patch)
     normalized.effects.tone = clampInt(normalized.effects.tone, 0, 99);
     normalized.effects.chorus = clampInt(normalized.effects.chorus, 0, 99);
     normalized.effects.delay = clampInt(normalized.effects.delay, 0, 99);
+    normalized.effects.spread = clampInt(normalized.effects.spread, 0, 99);
+    normalized.effects.pan = clampInt(normalized.effects.pan, 0, 99);
 
     for (auto& op : normalized.operators)
     {

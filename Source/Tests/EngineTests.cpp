@@ -154,6 +154,8 @@ void testPatchNormalization()
     patch.effects.tone = 120;
     patch.effects.chorus = 200;
     patch.effects.delay = 300;
+    patch.effects.spread = 140;
+    patch.effects.pan = -20;
     patch.operators[0].ratioIndex = 999;
     patch.operators[0].detune = -99;
     patch.operators[0].envelope.decay1Level = 100;
@@ -175,6 +177,8 @@ void testPatchNormalization()
     expect(normalized.effects.tone == 99, "effect tone clamps high");
     expect(normalized.effects.chorus == 99, "effect chorus clamps high");
     expect(normalized.effects.delay == 99, "effect delay clamps high");
+    expect(normalized.effects.spread == 99, "effect spread clamps high");
+    expect(normalized.effects.pan == 0, "effect pan clamps low");
     expect(normalized.operators[0].ratioIndex == 63, "ratio index clamps high");
     expect(normalized.operators[0].detune == -3, "detune clamps low");
     expect(normalized.operators[0].envelope.decay1Level == 15, "D1L clamps high");
