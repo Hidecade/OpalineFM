@@ -1,6 +1,6 @@
 # Opaline FM 取扱説明書
 
-- 対象バージョン：1.0.12
+- 対象バージョン：1.0.13
 - ブランド：Hidecade Instruments
 - 対応環境：macOS、Windows、iPhone / AUv3
 
@@ -28,9 +28,9 @@ FMシンセサイザーです。1980年代のデジタルFM楽器を参考にし
 
 目的に合う署名・Apple公証済みPackageを実行します。
 
-- `OpalineFM-Standalone-1.0.12-macOS.pkg`
-- `OpalineFM-VST3-1.0.12-macOS.pkg`
-- `OpalineFM-AU-1.0.12-macOS.pkg`
+- `OpalineFM-Standalone-1.0.13-macOS.pkg`
+- `OpalineFM-VST3-1.0.13-macOS.pkg`
+- `OpalineFM-AU-1.0.13-macOS.pkg`
 
 標準のInstall先：
 
@@ -49,8 +49,8 @@ Logic Proでは、Software Instrument Trackの`Instrument`Slotから
 
 目的に合う64-bit Installerを実行します。
 
-- `OpalineFM-Standalone-v1.0.12-Windows-x64.exe`
-- `OpalineFM-VST3-v1.0.12-Windows-x64.exe`
+- `OpalineFM-Standalone-v1.0.13-Windows-x64.exe`
+- `OpalineFM-VST3-v1.0.13-Windows-x64.exe`
 
 VST3は通常、次の場所へInstallされます。
 
@@ -77,6 +77,14 @@ App StoreからInstallします。Standalone Appとして画面Keyboardや外部
 
 Plug-in版ではAudio / MIDIをHostが管理します。VST3ではDAWのShortcutを妨げない
 よう、PCの文字Keyによる発音を無効にしています。
+
+画面KeyboardではC音の下部に`C2`、`C3`、`C4`のようなOctave名を表示します。
+Desktop版の左端はC2、iPhone版の初期位置はC3です。
+
+Standalone版のPC KeyboardはAurelineと共通です。下段は`Z`=C2から始まり、
+上段は`Q`=F3から始まります。上段の黒Keyは`2`=F#3、`3`=G#3、
+`4`=A#3、`6`=C#4、`7`=D#4の順です。日本語配列では`_`=F3、
+`]`=F#3、`¥`=C#5として使用できます。
 
 ## 5. Header
 
@@ -339,7 +347,8 @@ Plug-in版ではDAWの録音 / Bounce機能を使用してください。
 ## 20. iPhone / AUv3
 
 iPhone版はLandscape専用UIを使用します。Play画面とEdit画面を切り替えながら、
-画面Keyboardを使って演奏できます。
+画面Keyboardを使って演奏できます。Keyboardの初期位置はC3で、C音にはOctave名を
+表示します。
 
 - Standalone Audio
 - Core MIDI入力

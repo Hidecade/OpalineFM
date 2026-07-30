@@ -31,15 +31,15 @@ Opaline FM uses FM synthesis, but it is not a chip emulator and does not attempt
 
 ## Downloads
 
-The current public release is **v1.0.12**. Download Windows and macOS installers from the [v1.0.12 release page](https://github.com/Hidecade/OpalineFM/releases/tag/v1.0.12).
+The current public release is **v1.0.13**. Download Windows and macOS installers from the [v1.0.13 release page](https://github.com/Hidecade/OpalineFM/releases/tag/v1.0.13).
 
 Choose the package for the format you need:
 
-- `OpalineFM-Standalone-1.0.12-macOS.pkg`: standalone app. Use this if you want to play Opaline FM without a DAW.
-- `OpalineFM-AU-1.0.12-macOS.pkg`: Audio Unit instrument for Logic Pro, GarageBand, and AU hosts.
-- `OpalineFM-VST3-1.0.12-macOS.pkg`: VST3 instrument installer for VST3-compatible DAWs.
-- `OpalineFM-Standalone-v1.0.12-Windows-x64.exe`: standalone application for 64-bit Windows.
-- `OpalineFM-VST3-v1.0.12-Windows-x64.exe`: VST3 instrument installer for 64-bit Windows.
+- `OpalineFM-Standalone-1.0.13-macOS.pkg`: standalone app. Use this if you want to play Opaline FM without a DAW.
+- `OpalineFM-AU-1.0.13-macOS.pkg`: Audio Unit instrument for Logic Pro, GarageBand, and AU hosts.
+- `OpalineFM-VST3-1.0.13-macOS.pkg`: VST3 instrument installer for VST3-compatible DAWs.
+- `OpalineFM-Standalone-v1.0.13-Windows-x64.exe`: standalone application for 64-bit Windows.
+- `OpalineFM-VST3-v1.0.13-Windows-x64.exe`: VST3 instrument installer for 64-bit Windows.
 
 The macOS packages are signed and notarized. The Windows installers are currently unsigned, so Windows may display a publisher warning during installation.
 
@@ -52,6 +52,10 @@ The `Source code` archives shown by GitHub Releases are generated automatically 
 3. Select a voice bank, then choose voice A.
 4. Play from a MIDI keyboard, the on-screen keyboard, or the PC keyboard in the plugin-standalone application.
 5. Adjust the operator and global controls. Use **STORE** to write edits back to the selected library slot.
+
+The desktop keyboard starts at C2 and labels each visible C key with its octave.
+The iPhone keyboard starts at C3. Standalone PC-key mapping matches Aureline:
+the lower row starts with `Z` = C2 and the upper row starts with `Q` = F3.
 
 The VST3 editor intentionally does not turn PC typing keys into notes, so DAW shortcuts remain available. MIDI and the on-screen keyboard continue to work.
 
@@ -181,8 +185,8 @@ In the standalone application, press **WAV** to begin recording. The button chan
 
 Run the installer for the format you need:
 
-- `OpalineFM-Standalone-v1.0.12-Windows-x64.exe`
-- `OpalineFM-VST3-v1.0.12-Windows-x64.exe`
+- `OpalineFM-Standalone-v1.0.13-Windows-x64.exe`
+- `OpalineFM-VST3-v1.0.13-Windows-x64.exe`
 
 The standalone installer adds the Opaline FM application. The VST3 installer places the plug-in in the standard system VST3 directory:
 
@@ -196,9 +200,9 @@ Restart the DAW or rescan VST3 plug-ins after installation. The Windows installe
 
 Run the signed and notarized macOS package for the build you want:
 
-- `OpalineFM-Standalone-1.0.12-macOS.pkg`
-- `OpalineFM-VST3-1.0.12-macOS.pkg`
-- `OpalineFM-AU-1.0.12-macOS.pkg`
+- `OpalineFM-Standalone-1.0.13-macOS.pkg`
+- `OpalineFM-VST3-1.0.13-macOS.pkg`
+- `OpalineFM-AU-1.0.13-macOS.pkg`
 
 The packages install to the standard macOS application and plug-in locations:
 
@@ -240,7 +244,7 @@ cmake --build --preset plugin-au-macos-debug
 Windows development installers require Inno Setup 6 or 7:
 
 ```powershell
-.\scripts\build-windows-installers.ps1 -Version 1.0.12
+.\scripts\build-windows-installers.ps1 -Version 1.0.13
 ```
 
 Generated installers are written to `dist/`.

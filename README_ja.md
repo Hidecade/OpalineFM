@@ -31,15 +31,15 @@ Opaline FMはFM音源方式を採用していますが、チップエミュレ�
 
 ## ダウンロード
 
-現在の公開リリースは**v1.0.12**です。Windows版とmacOS版は [v1.0.12 Release](https://github.com/Hidecade/OpalineFM/releases/tag/v1.0.12) からダウンロードできます。
+現在の公開リリースは**v1.0.13**です。Windows版とmacOS版は [v1.0.13 Release](https://github.com/Hidecade/OpalineFM/releases/tag/v1.0.13) からダウンロードできます。
 
 使いたい形式に合わせて選んでください。
 
-- `OpalineFM-Standalone-1.0.12-macOS.pkg`: 単体アプリとして使う場合。DAWなしでOpaline FMを演奏できます。
-- `OpalineFM-AU-1.0.12-macOS.pkg`: Logic Pro、GarageBand、AU対応DAWで使う場合。
-- `OpalineFM-VST3-1.0.12-macOS.pkg`: VST3対応DAWで使う場合。
-- `OpalineFM-Standalone-v1.0.12-Windows-x64.exe`: 64-bit Windows用スタンドアロンアプリ。
-- `OpalineFM-VST3-v1.0.12-Windows-x64.exe`: 64-bit Windows用VST3インストゥルメント。
+- `OpalineFM-Standalone-1.0.13-macOS.pkg`: 単体アプリとして使う場合。DAWなしでOpaline FMを演奏できます。
+- `OpalineFM-AU-1.0.13-macOS.pkg`: Logic Pro、GarageBand、AU対応DAWで使う場合。
+- `OpalineFM-VST3-1.0.13-macOS.pkg`: VST3対応DAWで使う場合。
+- `OpalineFM-Standalone-v1.0.13-Windows-x64.exe`: 64-bit Windows用スタンドアロンアプリ。
+- `OpalineFM-VST3-v1.0.13-Windows-x64.exe`: 64-bit Windows用VST3インストゥルメント。
 
 macOS版は署名・公証済みです。Windows版は現在未署名のため、インストール時に発行元の警告が表示される場合があります。
 
@@ -52,6 +52,10 @@ GitHub Releasesに表示される`Source code`アーカイブはGitHubが自動�
 3. 音色バンクを選び、音色Aを選択します。
 4. MIDIキーボード、画面鍵盤、またはプラグイン版StandaloneのPCキーボードで演奏します。
 5. オペレーターや全体設定を編集します。変更をライブラリーへ残す場合は**STORE**を押します。
+
+デスクトップ版の画面鍵盤はC2から始まり、C音にオクターブ番号を表示します。
+iPhone版の初期位置はC3です。Standalone版のPCキー配列はAurelineと共通で、
+下段は`Z`=C2、上段は`Q`=F3から始まります。
 
 VST3ではDAWのショートカットを妨げないよう、PCの文字キーによる発音を無効にしています。MIDI入力と画面鍵盤は使用できます。
 
@@ -181,8 +185,8 @@ Opaline FMは単一の公開レンダリングエンジンを使用します。�
 
 使用する形式のインストーラーを実行します。
 
-- `OpalineFM-Standalone-v1.0.12-Windows-x64.exe`
-- `OpalineFM-VST3-v1.0.12-Windows-x64.exe`
+- `OpalineFM-Standalone-v1.0.13-Windows-x64.exe`
+- `OpalineFM-VST3-v1.0.13-Windows-x64.exe`
 
 Standalone版はOpaline FMアプリを追加します。VST3版は標準のシステムVST3フォルダーへプラグインを配置します。
 
@@ -196,9 +200,9 @@ C:\Program Files\Common Files\VST3\Opaline FM.vst3
 
 使用する形式の署名・公証済みmacOSパッケージを実行します。
 
-- `OpalineFM-Standalone-1.0.12-macOS.pkg`
-- `OpalineFM-VST3-1.0.12-macOS.pkg`
-- `OpalineFM-AU-1.0.12-macOS.pkg`
+- `OpalineFM-Standalone-1.0.13-macOS.pkg`
+- `OpalineFM-VST3-1.0.13-macOS.pkg`
+- `OpalineFM-AU-1.0.13-macOS.pkg`
 
 各パッケージは標準のmacOSアプリ/プラグイン場所へインストールします。
 
@@ -240,7 +244,7 @@ cmake --build --preset plugin-au-macos-debug
 Windows開発用インストーラーにはInno Setup 6または7が必要です。
 
 ```powershell
-.\scripts\build-windows-installers.ps1 -Version 1.0.12
+.\scripts\build-windows-installers.ps1 -Version 1.0.13
 ```
 
 生成したインストーラーは`dist/`へ出力されます。

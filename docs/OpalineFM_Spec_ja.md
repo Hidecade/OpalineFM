@@ -1,7 +1,7 @@
 # Opaline FM 製品仕様
 
 - 文書バージョン：1.0
-- 対象製品バージョン：1.0.12
+- 対象製品バージョン：1.0.13
 - ブランド：Hidecade Instruments
 - ステータス：実装済み仕様
 
@@ -400,7 +400,7 @@ Platform間でEngine、Parameter意味、Voice Dataを共有し、Layoutと入�
 
 ## 24. 実装基準
 
-仕様とCodeが不一致の場合、v1.0.12の次の実装を基準とする。
+仕様とCodeが不一致の場合、v1.0.13の実装を基準とする。
 
 - Patch / Range：`Source/Engine/OpalineTypes.*`
 - FM Voice：`Source/Engine/OpalineVoice.*`

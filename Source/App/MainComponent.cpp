@@ -19,9 +19,9 @@
 
 namespace
 {
-constexpr int kFirstKeyboardNote = 48;
+constexpr int kFirstKeyboardNote = 36;
 constexpr int kKeyboardNoteCount = 37;
-constexpr int kPcKeyboardTranspose = 12;
+constexpr int kPcKeyboardTranspose = 0;
 constexpr int kPreferredAudioBufferSize = 128;
 constexpr int kMaxLowLatencyAudioBufferSize = 128;
 constexpr std::array<int, 4> kLowLatencyAudioBufferSizes { 32, 64, 96, 128 };
@@ -70,14 +70,15 @@ struct PcKeyNote
     int note;
 };
 
-constexpr std::array<PcKeyNote, 41> kPcKeyboardMap {{
+constexpr std::array<PcKeyNote, 43> kPcKeyboardMap {{
     { 'z', 36 }, { 'x', 38 }, { 'c', 40 }, { 'v', 41 }, { 'b', 43 }, { 'n', 45 }, { 'm', 47 },
-    { ',', 48 }, { '.', 50 }, { '/', 52 }, { '\\', 53 },
+    { ',', 48 }, { '.', 50 }, { '/', 52 }, { '\\', 73 }, { 0x00a5, 73 },
     { 's', 37 }, { 'd', 39 }, { 'g', 42 }, { 'h', 44 }, { 'j', 46 }, { 'l', 49 }, { ';', 51 }, { ':', 51 },
-    { 'q', 48 }, { 'w', 50 }, { 'e', 52 }, { 'r', 53 }, { 't', 55 }, { 'y', 57 }, { 'u', 59 },
-    { 'i', 60 }, { 'o', 62 }, { 'p', 64 }, { '@', 65 }, { '[', 67 }, { ']', 67 },
-    { '2', 49 }, { '3', 51 }, { '5', 54 }, { '6', 56 }, { '7', 58 }, { '9', 61 }, { '0', 63 },
-    { '-', 66 }, { '^', 66 }
+    { 'q', 53 }, { 'w', 55 }, { 'e', 57 }, { 'r', 59 }, { 't', 60 }, { 'y', 62 }, { 'u', 64 },
+    { 'i', 65 }, { 'o', 67 }, { 'p', 69 }, { '@', 71 }, { '_', 53 },
+    { ']', 54 }, { '[', 72 },
+    { '2', 54 }, { '3', 56 }, { '4', 58 }, { '6', 61 }, { '7', 63 }, { '9', 66 }, { '0', 68 },
+    { '-', 70 }, { '^', 70 }
 }};
 
 bool isPcKeyCurrentlyDown(const int keyCode)
@@ -1886,6 +1887,23 @@ void MainComponent::KeyboardComponent::paint(juce::Graphics& g)
             g.setFont(juce::FontOptions(10.5f, juce::Font::bold));
             g.drawText(juce::String(velocity), valueBox, juce::Justification::centred);
         }
+    }
+
+    g.setFont(juce::FontOptions(8.0f, juce::Font::bold));
+    g.setColour(juce::Colour(0xff665b4b));
+    for (int i = 0; i < kKeyboardNoteCount; ++i)
+    {
+        const int note = kFirstKeyboardNote + i;
+        if (note % 12 != 0)
+            continue;
+
+        const int whiteIndex = whiteKeyIndexForNote(note);
+        const auto keyArea = juce::Rectangle<float>(
+            area.getX() + whiteWidth * static_cast<float>(whiteIndex) + 0.45f,
+            area.getY(), whiteWidth - 0.9f, area.getHeight() - 2.0f);
+        g.drawText("C" + juce::String(note / 12 - 1),
+                   keyArea.withTrimmedTop(keyArea.getHeight() - 14.0f),
+                   juce::Justification::centred, false);
     }
 
     for (int i = 0; i < kKeyboardNoteCount; ++i)
