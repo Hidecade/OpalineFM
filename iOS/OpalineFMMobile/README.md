@@ -1,14 +1,20 @@
 # Opaline FM Mobile
 
-Opaline FM Mobile is planned as a separate iPhone app that shares the Opaline FM synthesis engine while using a phone-first interface.
+Opaline FM Mobile is the iPhone and AUv3 version of Opaline FM. It shares the
+C++ synthesis engine and voice formats with the desktop product while using a
+phone-first SwiftUI interface and Apple audio/MIDI integration.
 
-This folder is an initial scaffold. It is intentionally separate from the macOS standalone, VST3, and Audio Unit targets.
+This project is intentionally separate from the macOS standalone, VST3, and
+Audio Unit targets.
 
-## Intended App Shape
+## Current App
 
 - Play screen: voice selection, performance controls, keyboard, pitch wheel, and modulation wheel.
 - Edit screen: algorithm, operators, envelopes, LFO, effects, and voice metadata.
-- Library screen: factory/user banks, SysEx import/export, and saved patches.
+- Library workflow: factory/user banks, SysEx import/export, and saved patches.
+- AUv3 Instrument extension with factory voice selection, effects, Poly/Mono,
+  portamento presets, parameter automation, and state restoration.
+- Landscape keyboard with octave switching and Core MIDI input in the standalone app.
 
 ## File Actions
 
@@ -18,12 +24,14 @@ This folder is an initial scaffold. It is intentionally separate from the macOS 
 
 ## Shared Code
 
-The iPhone app should reuse:
+The iPhone app reuses:
 
 - `../../Source/Engine`
 - `../../assets/factory.syx`
 
-The mobile UI should avoid depending on the JUCE desktop/plugin UI. The current bridge in `Sources/Native` is a small Objective-C++ wrapper around `opaline::OpalineEngine` and related voice-library helpers.
+The mobile UI does not depend on the JUCE desktop/plugin UI. The bridge in
+`Sources/Native` is an Objective-C++ wrapper around `opaline::OpalineEngine`
+and the shared voice-library helpers.
 
 ## Project Generation
 
@@ -33,7 +41,7 @@ Requirements:
 - `xcode-select` pointing at the full Xcode app, not only Command Line Tools.
 - XcodeGen.
 
-The scaffold includes a `project.yml` for XcodeGen:
+The project includes a `project.yml` for XcodeGen:
 
 ```bash
 cd iOS/OpalineFMMobile
@@ -98,18 +106,16 @@ Official Apple references:
 - [Manage app privacy](https://developer.apple.com/help/app-store-connect/manage-app-information/manage-app-privacy/)
 - [Export compliance](https://developer.apple.com/help/app-store-connect/manage-app-information/overview-of-export-compliance/)
 
-## Current Status
+## Implementation Status
 
-This is an early playable-app scaffold. It now includes:
+The shipping implementation includes:
 
-- SwiftUI Play/Edit/Library screens.
+- SwiftUI Play/Edit screens with the shared patch parameters wired to the C++ engine.
 - AVAudioEngine output using `AVAudioSourceNode`.
-- An Objective-C++ bridge to `opaline::OpalineEngine`.
-- Bundled `factory.syx` loading into bank 1.
+- Objective-C++ engine and voice-library bridge.
+- Bundled factory SysEx and Opaline library data with the real bank and voice names.
+- Bank and single-voice file operations.
+- AUv3 Instrument extension embedded in the app.
 
-Next implementation steps:
-
-- Wire all edit controls to the shared `OpalinePatch` model.
-- Replace placeholder library voice names with the real bank contents.
-- Improve keyboard touch tracking so repeated drag callbacks do not retrigger the same note.
-- Add iPad layout and AUv3 extension only after the iPhone app flow is solid.
+The current layout is optimized for landscape iPhone. A dedicated iPad layout
+and real-device/host compatibility checks remain ongoing release work.
