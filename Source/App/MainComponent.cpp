@@ -20,7 +20,7 @@
 namespace
 {
 constexpr int kFirstKeyboardNote = 36;
-constexpr int kKeyboardNoteCount = 37;
+constexpr int kKeyboardNoteCount = 49;
 constexpr int kPcKeyboardTranspose = 0;
 constexpr int kPreferredAudioBufferSize = 128;
 constexpr int kMaxLowLatencyAudioBufferSize = 128;

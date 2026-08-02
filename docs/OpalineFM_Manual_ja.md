@@ -1,6 +1,6 @@
 # Opaline FM 取扱説明書
 
-- 対象バージョン：1.0.14
+- 対象バージョン：1.0.15
 - ブランド：Hidecade Instruments
 - 対応環境：macOS、Windows、iPhone / AUv3
 
@@ -28,9 +28,9 @@ FMシンセサイザーです。1980年代のデジタルFM楽器を参考にし
 
 目的に合う署名・Apple公証済みPackageを実行します。
 
-- `OpalineFM-Standalone-1.0.14-macOS.pkg`
-- `OpalineFM-VST3-1.0.14-macOS.pkg`
-- `OpalineFM-AU-1.0.14-macOS.pkg`
+- `OpalineFM-Standalone-1.0.15-macOS.pkg`
+- `OpalineFM-VST3-1.0.15-macOS.pkg`
+- `OpalineFM-AU-1.0.15-macOS.pkg`
 
 標準のInstall先：
 
@@ -49,8 +49,8 @@ Logic Proでは、Software Instrument Trackの`Instrument`Slotから
 
 目的に合う64-bit Installerを実行します。
 
-- `OpalineFM-Standalone-v1.0.14-Windows-x64.exe`
-- `OpalineFM-VST3-v1.0.14-Windows-x64.exe`
+- `OpalineFM-Standalone-v1.0.15-Windows-x64.exe`
+- `OpalineFM-VST3-v1.0.15-Windows-x64.exe`
 
 VST3は通常、次の場所へInstallされます。
 
