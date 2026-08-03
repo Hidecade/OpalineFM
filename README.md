@@ -38,8 +38,7 @@ Choose the package for the format you need:
 - `OpalineFM-Standalone-1.0.15-macOS.pkg`: standalone app. Use this if you want to play Opaline FM without a DAW.
 - `OpalineFM-AU-1.0.15-macOS.pkg`: Audio Unit instrument for Logic Pro, GarageBand, and AU hosts.
 - `OpalineFM-VST3-1.0.15-macOS.pkg`: VST3 instrument installer for VST3-compatible DAWs.
-- `OpalineFM-Standalone-v1.0.15-Windows-x64.exe`: standalone application for 64-bit Windows.
-- `OpalineFM-VST3-v1.0.15-Windows-x64.exe`: VST3 instrument installer for 64-bit Windows.
+- `OpalineFM-1.0.15-Windows-x64-Setup.exe`: combined standalone application and VST3 installer for 64-bit Windows.
 
 The macOS packages are signed and notarized. The Windows installers are currently unsigned, so Windows may display a publisher warning during installation.
 
@@ -185,12 +184,8 @@ In the standalone application, press **WAV** to begin recording. The button chan
 
 ### Windows Standalone and VST3
 
-Run the installer for the format you need:
-
-- `OpalineFM-Standalone-v1.0.15-Windows-x64.exe`
-- `OpalineFM-VST3-v1.0.15-Windows-x64.exe`
-
-The standalone installer adds the Opaline FM application. The VST3 installer places the plug-in in the standard system VST3 directory:
+Run `OpalineFM-1.0.15-Windows-x64-Setup.exe` and select the components you need.
+The installer adds the standalone application and places the plug-in in the standard system VST3 directory:
 
 ```text
 C:\Program Files\Common Files\VST3\Opaline FM.vst3
@@ -249,7 +244,7 @@ Windows development installers require Inno Setup 6 or 7:
 .\scripts\build-windows-installers.ps1 -Version 1.0.15
 ```
 
-Generated installers are written to `dist/`.
+The combined installer is written to `dist/`.
 
 ## File Formats
 
