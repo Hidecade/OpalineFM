@@ -41,8 +41,11 @@ if (-not $SkipBuild) {
     & cmake @configureArguments
     if ($LASTEXITCODE -ne 0) { throw "CMake configure failed." }
 
-    & cmake --build $buildRoot --config $Configuration --target OpalineFM_Plugin_Standalone OpalineFM_Plugin_VST3
+    & cmake --build $buildRoot --config $Configuration --target OpalineFM_Plugin_Standalone OpalineFM_Plugin_VST3 opaline_engine_tests
     if ($LASTEXITCODE -ne 0) { throw "Application/plugin build failed." }
+
+    & ctest --test-dir $buildRoot -C $Configuration --output-on-failure
+    if ($LASTEXITCODE -ne 0) { throw "Tests failed." }
 }
 
 $standalone = Join-Path $pluginArtifactRoot "Standalone\Opaline FM.exe"
@@ -53,7 +56,8 @@ if (-not (Test-Path $vst3)) { throw "VST3 artifact was not found: $vst3" }
 $isccCandidates = @(
     "C:\Program Files\Inno Setup 7\ISCC.exe",
     "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
-    "C:\Program Files\Inno Setup 6\ISCC.exe"
+    "C:\Program Files\Inno Setup 6\ISCC.exe",
+    "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
 )
 $iscc = $isccCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $iscc) { throw "Inno Setup compiler (ISCC.exe) was not found." }
@@ -61,11 +65,16 @@ if (-not $iscc) { throw "Inno Setup compiler (ISCC.exe) was not found." }
 $distDirectory = Join-Path $repoRoot "dist"
 New-Item -ItemType Directory -Force -Path $distDirectory | Out-Null
 
-$definitions = @("/DAppVersion=$Version", "/DBuildRoot=$pluginArtifactRoot", "/O$distDirectory")
-& $iscc @definitions (Join-Path $repoRoot "installer\OpalineFM-Standalone.iss")
-if ($LASTEXITCODE -ne 0) { throw "Standalone installer compilation failed." }
+$definitions = @(
+    "/DAppVersion=$Version",
+    "/DBuildRoot=$pluginArtifactRoot",
+    "/DOutputDirectory=$distDirectory"
+)
+& $iscc @definitions (Join-Path $repoRoot "installer\OpalineFM.iss")
+if ($LASTEXITCODE -ne 0) { throw "Installer compilation failed." }
 
-& $iscc @definitions (Join-Path $repoRoot "installer\OpalineFM-VST3.iss")
-if ($LASTEXITCODE -ne 0) { throw "VST3 installer compilation failed." }
+$installer = Join-Path $distDirectory "OpalineFM-$Version-Windows-x64-Setup.exe"
+if (-not (Test-Path $installer)) { throw "Installer was not created: $installer" }
 
-Write-Host "Installers created in $distDirectory"
+Write-Host "Windows installer created:"
+Write-Host "  $installer"
