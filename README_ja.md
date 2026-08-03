@@ -31,7 +31,7 @@ Opaline FMはFM音源方式を採用していますが、チップエミュレ�
 
 ## ダウンロード
 
-現在の公開リリースは**v1.0.14**です。Windows版とmacOS版は [v1.0.14 Release](https://github.com/Hidecade/OpalineFM/releases/tag/v1.0.14) からダウンロードできます。
+現在の公開リリースは**v1.0.15**です。Windows版とmacOS版は [v1.0.15 Release](https://github.com/Hidecade/OpalineFM/releases/tag/v1.0.15) からダウンロードできます。
 
 使いたい形式に合わせて選んでください。
 
@@ -198,9 +198,9 @@ C:\Program Files\Common Files\VST3\Opaline FM.vst3
 
 使用する形式の署名・公証済みmacOSパッケージを実行します。
 
-- `OpalineFM-Standalone-1.0.14-macOS.pkg`
-- `OpalineFM-VST3-1.0.14-macOS.pkg`
-- `OpalineFM-AU-1.0.14-macOS.pkg`
+- `OpalineFM-Standalone-1.0.15-macOS.pkg`
+- `OpalineFM-VST3-1.0.15-macOS.pkg`
+- `OpalineFM-AU-1.0.15-macOS.pkg`
 
 各パッケージは標準のmacOSアプリ/プラグイン場所へインストールします。
 
