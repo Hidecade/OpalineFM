@@ -10,7 +10,8 @@ Audio Unit targets.
 ## Current App
 
 - Play screen: voice selection, performance controls, keyboard, pitch wheel, and modulation wheel.
-- Edit screen: algorithm, operators, envelopes, LFO, effects, and voice metadata.
+- Edit screen: upper editing panels with the waveform and keyboard aligned below.
+- Desktop-compatible FX screen with AUTO PAN, DELAY, and REVERB mode selectors above paired knobs.
 - Library workflow: factory/user banks, SysEx import/export, and saved patches.
 - AUv3 Instrument extension with factory voice selection, effects, Poly/Mono,
   portamento presets, parameter automation, and state restoration.
@@ -113,7 +114,7 @@ The shipping implementation includes:
 - SwiftUI Play/Edit screens with the shared patch parameters wired to the C++ engine.
 - AVAudioEngine output using `AVAudioSourceNode`.
 - Objective-C++ engine and voice-library bridge.
-- Bundled factory SysEx and Opaline library data with the real bank and voice names.
+- Bundled `factory.syx` used as the default factory bank, with legacy library data as fallback.
 - Bank and single-voice file operations.
 - AUv3 Instrument extension embedded in the app.
 

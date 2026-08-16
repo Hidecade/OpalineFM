@@ -1,6 +1,6 @@
 # Opaline FM 取扱説明書
 
-- 対象バージョン：1.0.15
+- 対象バージョン：1.0.16
 - ブランド：Hidecade Instruments
 - 対応環境：macOS、Windows、iPhone / AUv3
 
@@ -28,9 +28,9 @@ FMシンセサイザーです。1980年代のデジタルFM楽器を参考にし
 
 目的に合う署名・Apple公証済みPackageを実行します。
 
-- `OpalineFM-Standalone-1.0.15-macOS.pkg`
-- `OpalineFM-VST3-1.0.15-macOS.pkg`
-- `OpalineFM-AU-1.0.15-macOS.pkg`
+- `OpalineFM-Standalone-1.0.16-macOS.pkg`
+- `OpalineFM-VST3-1.0.16-macOS.pkg`
+- `OpalineFM-AU-1.0.16-macOS.pkg`
 
 標準のInstall先：
 
@@ -47,10 +47,9 @@ Logic Proでは、Software Instrument Trackの`Instrument`Slotから
 
 ### Windows
 
-目的に合う64-bit Installerを実行します。
+64-bit統合Installerを実行し、Standalone / VST3から必要なComponentを選択します。
 
-- `OpalineFM-Standalone-v1.0.15-Windows-x64.exe`
-- `OpalineFM-VST3-v1.0.15-Windows-x64.exe`
+- `OpalineFM-1.0.16-Windows-x64-Setup.exe`
 
 VST3は通常、次の場所へInstallされます。
 
@@ -100,6 +99,9 @@ Device名が長い場合も、Audio / MIDI表示はButtonへ重ならない範�
 ## 6. Voice Library
 
 Opaline FMは8 Bank、各32 Voice、合計256 Slotの書換可能Libraryを持ちます。
+
+起動時は`assets/factory.syx`を既定Factory Bankとして優先的に読み込みます。
+このFileを利用できない場合のみ、従来のFactory Library XMLへFallbackします。
 
 ### Bank操作
 
@@ -268,15 +270,20 @@ POLYではOFF / FULL、MONOではOFF / FULL / FINGERを使用できます。
 
 ## 15. Effects
 
-Opaline FMは最終出力に次のEffectを持ちます。
+Opaline FMは最終出力に、Desktop版とiPhone版で共通のEffect構成を持ちます。
 
-- `REVERB`：Reverbの性格とWet量
-- `DELAY`：Delay時間・FeedbackとWet量
-- `CHORUS`：Chorus量
-- `SPREAD`：発音中のVoiceを左右へ分散
-- `PAN`：Effectを含む最終出力の左右位置
-- `TONE`：Effectを含む出力Tone
-- `EFFECT`：Effect Chain全体On / Off
+| Block | Mode | Knob |
+|---|---|---|
+| `AUTO PAN` | SINE / TRIANGLE / SQUARE / RANDOM / CHORUS | RATE / DEPTH |
+| `DELAY` | OFF / STEREO / PING PONG / ECHO | TIME / MIX |
+| `REVERB` | OFF / ROOM / HALL / PLATE | SIZE / MIX |
+
+- `FX ON`：Effect Chain全体のOn / Bypass
+- `MUTE`：対象Voiceの出力をMute
+- `SOLO`：対象Voiceだけを出力
+
+AUTO PANの`CHORUS` ModeではDEPTHがChorus量として働きます。DelayとReverbは
+Modeを`OFF`にすると、そのBlockをBypassします。
 
 Effect Parameterがすべて0の場合はDry経路を使用します。Import元にEffect情報が
 ない場合は、意図しない引継ぎを避けるためEffectを初期化します。
@@ -349,6 +356,10 @@ Plug-in版ではDAWの録音 / Bounce機能を使用してください。
 iPhone版はLandscape専用UIを使用します。Play画面とEdit画面を切り替えながら、
 画面Keyboardを使って演奏できます。Keyboardの初期位置はC3で、C音にはOctave名を
 表示します。
+
+Edit画面は上段にEdit Panel、下段にWaveformとKeyboardを配置します。Waveformを含む
+下段は上段Panelの幅に揃えています。FX画面のAUTO PAN / DELAY / REVERB Comboは
+Main画面のComboと同じStyleで、各Blockの2 Knobの上に配置されます。
 
 - Standalone Audio
 - Core MIDI入力

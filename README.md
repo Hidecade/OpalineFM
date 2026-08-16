@@ -24,7 +24,7 @@ Opaline FM uses FM synthesis, but it is not a chip emulator and does not attempt
 - Pitch EG, amplitude EG, LFO, keyboard scaling, velocity, and operator AM
 - Pitch bend, modulation wheel, sustain pedal, and portamento control
 - Per-voice editing, initialization, copy/paste, load, save, and store operations
-- Built-in effects: reverb, delay, chorus, wet mixes, and tone
+- Mode-selectable auto pan/chorus, stereo delay, and reverb with separate controls
 - WAV recording in the standalone application
 - Windows x64 standalone and VST3 installers
 - Signed and notarized macOS standalone, VST3, and Audio Unit installer packages
@@ -61,6 +61,8 @@ The VST3 editor intentionally does not turn PC typing keys into notes, so DAW sh
 ## Voice Selection and Libraries
 
 The bank selector chooses one of the loaded 32-voice banks. The A and B selectors choose voices from the current bank; the adjacent arrow buttons step backward or forward through the list.
+
+On first launch, `assets/factory.syx` is loaded as the default factory bank. The legacy factory-library XML is used only as a fallback when the SysEx bank is unavailable.
 
 Top-row library commands:
 
@@ -142,11 +144,12 @@ The display removes DC offset, chooses a short window around the current note pe
 - **Delay** delays the direct LFO modulation after note-on.
 - **PMD / PMS** set direct pitch-modulation depth and sensitivity.
 - **AMD / AMS** set direct amplitude-modulation depth and sensitivity.
-- **Reverb / Delay** each combine effect character and wet amount in one control.
-- **Chorus** sets the chorus amount.
-- **Spread** distributes active voices across the stereo field.
-- **Pan** moves the complete output, including effects, left or right.
-- **Tone** adjusts output tone.
+- **AUTO PAN** selects SINE, TRIANGLE, SQUARE, RANDOM, or CHORUS, with separate RATE and DEPTH controls.
+- **DELAY** selects OFF, STEREO, PING PONG, or ECHO, with separate TIME and MIX controls.
+- **REVERB** selects OFF, ROOM, HALL, or PLATE, with separate SIZE and MIX controls.
+- **FX ON** enables or bypasses the complete effects chain.
+
+On iPhone, each FX selector uses the same visual style as the main-screen selectors and sits above its pair of knobs. The EDIT screen places the editing panels above the waveform and keyboard; the lower row is aligned to the width of the upper EDIT panel.
 
 The modulation wheel is a separate modulation source:
 
