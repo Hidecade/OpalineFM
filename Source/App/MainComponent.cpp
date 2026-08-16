@@ -20,7 +20,7 @@
 namespace
 {
 constexpr int kFirstKeyboardNote = 36;
-constexpr int kKeyboardNoteCount = 49;
+constexpr int kKeyboardNoteCount = 61;
 constexpr int kPcKeyboardTranspose = 0;
 constexpr int kPreferredAudioBufferSize = 128;
 constexpr int kMaxLowLatencyAudioBufferSize = 128;
@@ -155,10 +155,10 @@ bool isBlackKey(int midiNote)
     }
 }
 
-int whiteKeyIndexForNote(const int midiNote)
+int whiteKeyIndexForNote(const int midiNote, const int firstNote = kFirstKeyboardNote)
 {
     int index = 0;
-    for (int note = kFirstKeyboardNote; note < midiNote; ++note)
+    for (int note = firstNote; note < midiNote; ++note)
     {
         if (!isBlackKey(note))
             ++index;
@@ -167,10 +167,10 @@ int whiteKeyIndexForNote(const int midiNote)
     return index;
 }
 
-int noteForWhiteKeyIndex(const int whiteIndex)
+int noteForWhiteKeyIndex(const int whiteIndex, const int firstNote = kFirstKeyboardNote)
 {
     int index = 0;
-    for (int note = kFirstKeyboardNote; note < kFirstKeyboardNote + kKeyboardNoteCount; ++note)
+    for (int note = firstNote; note < firstNote + kKeyboardNoteCount; ++note)
     {
         if (isBlackKey(note))
             continue;
@@ -181,7 +181,7 @@ int noteForWhiteKeyIndex(const int whiteIndex)
         ++index;
     }
 
-    return kFirstKeyboardNote + kKeyboardNoteCount - 1;
+    return firstNote + kKeyboardNoteCount - 1;
 }
 
 juce::String midiNoteName(const int note)
@@ -486,7 +486,7 @@ void MainComponent::OpalineLookAndFeel::drawRotarySlider(juce::Graphics& g,
                                                       const float sliderPos,
                                                       const float rotaryStartAngle,
                                                       const float rotaryEndAngle,
-                                                      juce::Slider&)
+                                                      juce::Slider& slider)
 {
     const auto bounds = juce::Rectangle<float>(static_cast<float>(x),
                                               static_cast<float>(y),
@@ -503,7 +503,9 @@ void MainComponent::OpalineLookAndFeel::drawRotarySlider(juce::Graphics& g,
     g.fillEllipse(knob.reduced(knob.getWidth() * 0.18f).translated(0.0f, 2.0f));
 
     constexpr int tickCount = 23;
-    const auto inactiveTick = juce::Colour(0xff47625d).withAlpha(0.72f);
+    const bool fxMixerKnob = slider.getName() == "fxMixerKnob";
+    const auto inactiveTick = fxMixerKnob ? juce::Colour(0xff47625d).withAlpha(0.72f)
+                                         : juce::Colour(0xff47625d).withAlpha(0.72f);
     const auto activeTick = kTeal;
     const auto tickOuter = radius - 1.0f;
     const auto activeIndex = static_cast<int>(std::round(sliderPos * static_cast<float>(tickCount - 1)));
@@ -570,7 +572,9 @@ void MainComponent::OpalineLookAndFeel::drawRotarySlider(juce::Graphics& g,
 juce::Slider::SliderLayout MainComponent::OpalineLookAndFeel::getSliderLayout(juce::Slider& slider)
 {
     auto layout = juce::LookAndFeel_V4::getSliderLayout(slider);
-    if (slider.getName() == "mainFader" || slider.getName() == "balanceFader")
+    if (slider.getName() == "mainFader" || slider.getName() == "balanceFader"
+        || slider.getName() == "fxChannelVolumeFader"
+        || slider.getName() == "fxMasterVolumeFader")
     {
         layout.sliderBounds = slider.getLocalBounds();
         layout.textBoxBounds = {};
@@ -591,6 +595,60 @@ void MainComponent::OpalineLookAndFeel::drawLinearSlider(juce::Graphics& g,
     if (style != juce::Slider::LinearVertical)
     {
         juce::LookAndFeel_V4::drawLinearSlider(g, x, y, width, height, sliderPos, minSliderPos, maxSliderPos, style, slider);
+        return;
+    }
+
+    if (slider.getName() == "fxChannelVolumeFader"
+        || slider.getName() == "fxMasterVolumeFader")
+    {
+        const bool channelFader = slider.getName() == "fxChannelVolumeFader";
+        const auto faderBounds = slider.getLocalBounds().toFloat();
+        const float top = faderBounds.getY() + 5.0f;
+        const float bottom = faderBounds.getBottom() - 15.0f;
+        const float railX = faderBounds.getX() + (channelFader ? 30.0f : 42.0f);
+        g.setColour(juce::Colour(0xff777872).withAlpha(0.72f));
+        for (int mark = 0; mark <= 15; ++mark)
+        {
+            const float markY = juce::jmap(static_cast<float>(mark), 0.0f, 15.0f,
+                                            top, bottom);
+            const float length = mark % 5 == 0 ? 12.0f : (mark % 2 == 0 ? 9.0f : 6.0f);
+            g.drawLine(railX - 15.0f, markY, railX - 15.0f + length, markY, 0.8f);
+            g.drawLine(railX + 19.0f - length, markY, railX + 19.0f, markY, 0.8f);
+        }
+        g.setColour(juce::Colour(0xff090a09));
+        g.fillRoundedRectangle(railX, top, 4.0f, bottom - top, 1.5f);
+        if (!channelFader)
+        {
+            g.setColour(juce::Colour(0xff8a8b86));
+            g.setFont(juce::FontOptions(9.0f, juce::Font::bold));
+            for (int db = 0; db <= 60; db += 12)
+            {
+                const float labelY = juce::jmap(static_cast<float>(db), 0.0f, 60.0f,
+                                                top, bottom);
+                g.drawText(db == 0 ? "0" : "-" + juce::String(db),
+                           juce::Rectangle<float>(faderBounds.getX() - 13.0f,
+                                                  labelY - 4.5f, 33.0f, 10.0f),
+                           juce::Justification::centredRight);
+            }
+        }
+        const float proportion = static_cast<float>(
+            slider.getNormalisableRange().convertTo0to1(slider.getValue()));
+        const float thumbY = juce::jmap(proportion, bottom - 9.0f, top + 9.0f);
+        const auto thumb = juce::Rectangle<float>(
+            faderBounds.getX() + (channelFader ? 15.0f : 27.0f), thumbY - 9.0f,
+            34.0f, 18.0f);
+        g.setGradientFill({ juce::Colour(0xffd8d9d5), thumb.getX(), thumb.getY(),
+                            juce::Colour(0xff858783), thumb.getX(), thumb.getBottom(), false });
+        g.fillRoundedRectangle(thumb, 2.0f);
+        g.setColour(juce::Colour(0xff4d4f4d));
+        g.drawRoundedRectangle(thumb, 2.0f, 0.9f);
+        for (int groove = -5; groove <= 5; groove += 2)
+        {
+            g.setColour(groove == 0 ? juce::Colours::white.withAlpha(0.72f)
+                                    : juce::Colours::black.withAlpha(0.25f));
+            g.drawHorizontalLine(juce::roundToInt(thumb.getCentreY()) + groove,
+                                 thumb.getX() + 2.0f, thumb.getRight() - 2.0f);
+        }
         return;
     }
 
@@ -872,12 +930,73 @@ void MainComponent::OpalineLookAndFeel::drawLinearSlider(juce::Graphics& g,
     g.fillRoundedRectangle(slot.reduced(1.5f).withTrimmedTop(slot.getHeight() * 0.72f), 3.0f);
 }
 
+void MainComponent::OpalineLookAndFeel::drawComboBox(
+    juce::Graphics& g, int width, int height, bool isButtonDown,
+    int buttonX, int buttonY, int buttonWidth, int buttonHeight, juce::ComboBox& box)
+{
+    if (box.getName() != "fxOpalineSelector")
+    {
+        juce::LookAndFeel_V4::drawComboBox(g, width, height, isButtonDown,
+                                           buttonX, buttonY, buttonWidth, buttonHeight, box);
+        return;
+    }
+    const auto bounds = juce::Rectangle<float>(0.5f, 0.5f,
+                                                static_cast<float>(width - 1),
+                                                static_cast<float>(height - 1));
+    g.setColour(juce::Colour(0xff071011));
+    g.fillRoundedRectangle(bounds, 4.0f);
+    g.setColour(isButtonDown ? kTeal : juce::Colour(0xff47625d).withAlpha(0.82f));
+    g.drawRoundedRectangle(bounds, 4.0f, 1.2f);
+    juce::Path arrow;
+    const auto centre = juce::Point<float>(static_cast<float>(width - 13),
+                                           static_cast<float>(height) * 0.5f);
+    arrow.startNewSubPath(centre.x - 3.0f, centre.y - 1.5f);
+    arrow.lineTo(centre.x, centre.y + 2.0f);
+    arrow.lineTo(centre.x + 3.0f, centre.y - 1.5f);
+    g.setColour(kTeal);
+    g.strokePath(arrow, juce::PathStrokeType(1.5f, juce::PathStrokeType::curved,
+                                             juce::PathStrokeType::rounded));
+}
+
+void MainComponent::OpalineLookAndFeel::positionComboBoxText(
+    juce::ComboBox& box, juce::Label& label)
+{
+    if (box.getName() == "fxOpalineSelector")
+    {
+        label.setBounds(2, 1, juce::jmax(1, box.getWidth() - 22),
+                        juce::jmax(1, box.getHeight() - 2));
+        label.setFont(juce::FontOptions(box.getWidth() < 110 ? 9.5f : 12.0f));
+        return;
+    }
+    juce::LookAndFeel_V4::positionComboBoxText(box, label);
+}
+
 void MainComponent::OpalineLookAndFeel::drawButtonBackground(juce::Graphics& g,
                                                           juce::Button& button,
                                                           const juce::Colour& backgroundColour,
                                                           const bool shouldDrawButtonAsHighlighted,
                                                           const bool shouldDrawButtonAsDown)
 {
+    if (button.getName() == "fxOpalineActionButton")
+    {
+        const bool selected = button.getToggleState();
+        const auto bounds = button.getLocalBounds().toFloat().reduced(0.5f);
+        const auto top = selected ? juce::Colour(0xff23876a) : juce::Colour(0xff17242a);
+        const auto bottom = selected ? juce::Colour(0xff0d4939) : juce::Colour(0xff10191d);
+        g.setGradientFill({ shouldDrawButtonAsDown ? top.brighter(0.12f) : top,
+                            bounds.getX(), bounds.getY(),
+                            shouldDrawButtonAsDown ? bottom.brighter(0.08f) : bottom,
+                            bounds.getX(), bounds.getBottom(), false });
+        g.fillRoundedRectangle(bounds, 3.0f);
+        g.setColour(juce::Colours::black.withAlpha(0.72f));
+        g.drawRoundedRectangle(bounds, 3.0f, 1.0f);
+        if (shouldDrawButtonAsHighlighted && !shouldDrawButtonAsDown)
+        {
+            g.setColour(juce::Colours::white.withAlpha(0.07f));
+            g.drawRoundedRectangle(bounds.reduced(1.0f), 2.0f, 1.0f);
+        }
+        return;
+    }
     const bool opButton = button.getName() == "opEnableButton";
     const bool ampButton = button.getName() == "opAmpModButton";
     if (opButton || ampButton)
@@ -1000,6 +1119,19 @@ void MainComponent::OpalineLookAndFeel::drawButtonText(juce::Graphics& g,
                                                     const bool,
                                                     const bool shouldDrawButtonAsDown)
 {
+    if (button.getName() == "fxOpalineActionButton")
+    {
+        g.setFont(juce::FontOptions(11.5f, juce::Font::bold));
+        const bool whiteLabel = button.getButtonText() == "CLOSE";
+        g.setColour(!button.isEnabled() ? juce::Colour(0xff777b78)
+                    : whiteLabel ? juce::Colours::white
+                    : button.getToggleState() ? juce::Colours::black
+                    : shouldDrawButtonAsDown ? juce::Colours::white
+                                             : kTeal);
+        g.drawFittedText(button.getButtonText(), button.getLocalBounds().reduced(3, 1),
+                         juce::Justification::centred, 1);
+        return;
+    }
     const bool opButton = button.getName() == "opEnableButton";
     const bool ampButton = button.getName() == "opAmpModButton";
     auto bounds = button.getLocalBounds().reduced(opButton || ampButton ? 2 : 4, opButton || ampButton ? 2 : 1);
@@ -1840,8 +1972,9 @@ void MainComponent::KeyboardComponent::paint(juce::Graphics& g)
     g.setColour(juce::Colour(0xff2b2923));
     g.drawRoundedRectangle(frame, 2.0f, 1.0f);
 
-    const auto area = bounds.reduced(7.0f, 6.0f).withTrimmedTop(2.0f).withTrimmedBottom(3.0f);
-    const int whiteKeyCount = whiteKeyIndexForNote(kFirstKeyboardNote + kKeyboardNoteCount);
+    const auto area = playableBounds();
+    const int firstNote = firstVisibleNote();
+    const int whiteKeyCount = whiteKeyIndexForNote(firstNote + kKeyboardNoteCount, firstNote);
     const float whiteWidth = area.getWidth() / static_cast<float>(whiteKeyCount);
     const float blackWidth = whiteWidth * 0.58f;
     const float blackHeight = area.getHeight() * 0.62f;
@@ -1851,11 +1984,11 @@ void MainComponent::KeyboardComponent::paint(juce::Graphics& g)
 
     for (int i = 0; i < kKeyboardNoteCount; ++i)
     {
-        const int note = kFirstKeyboardNote + i;
+        const int note = firstNote + i;
         if (isBlackKey(note))
             continue;
 
-        const int whiteIndex = whiteKeyIndexForNote(note);
+        const int whiteIndex = whiteKeyIndexForNote(note, firstNote);
         const auto keyArea = juce::Rectangle<float>(area.getX() + whiteWidth * static_cast<float>(whiteIndex) + 0.45f,
                                                    area.getY(),
                                                    whiteWidth - 0.9f,
@@ -1893,11 +2026,11 @@ void MainComponent::KeyboardComponent::paint(juce::Graphics& g)
     g.setColour(juce::Colour(0xff665b4b));
     for (int i = 0; i < kKeyboardNoteCount; ++i)
     {
-        const int note = kFirstKeyboardNote + i;
+        const int note = firstNote + i;
         if (note % 12 != 0)
             continue;
 
-        const int whiteIndex = whiteKeyIndexForNote(note);
+        const int whiteIndex = whiteKeyIndexForNote(note, firstNote);
         const auto keyArea = juce::Rectangle<float>(
             area.getX() + whiteWidth * static_cast<float>(whiteIndex) + 0.45f,
             area.getY(), whiteWidth - 0.9f, area.getHeight() - 2.0f);
@@ -1908,11 +2041,11 @@ void MainComponent::KeyboardComponent::paint(juce::Graphics& g)
 
     for (int i = 0; i < kKeyboardNoteCount; ++i)
     {
-        const int note = kFirstKeyboardNote + i;
+        const int note = firstNote + i;
         if (!isBlackKey(note))
             continue;
 
-        const int nextWhiteIndex = whiteKeyIndexForNote(note);
+        const int nextWhiteIndex = whiteKeyIndexForNote(note, firstNote);
         const auto keyArea = juce::Rectangle<float>(area.getX() + whiteWidth * static_cast<float>(nextWhiteIndex) - blackWidth * 0.5f,
                                                    area.getY() - 1.0f,
                                                    blackWidth,
@@ -1955,12 +2088,33 @@ void MainComponent::KeyboardComponent::paint(juce::Graphics& g)
     g.drawRoundedRectangle(bounds.reduced(1.0f), 2.0f, 2.0f);
     g.setColour(juce::Colour(0xff302d25));
     g.drawRoundedRectangle(bounds.reduced(2.0f), 1.0f, 1.0f);
+
+    const auto scroll = scrollBarBounds();
+    g.setColour(juce::Colour(0xff080807));
+    g.fillRoundedRectangle(scroll, 3.0f);
+    g.setColour(juce::Colour(0xff3a3934));
+    g.drawRoundedRectangle(scroll, 3.0f, 0.8f);
+    const int totalSemitones = kKeyboardNoteCount + maximumScrollSemitones();
+    const float thumbWidth = juce::jmax(24.0f, scroll.getWidth()
+        * static_cast<float>(kKeyboardNoteCount) / static_cast<float>(totalSemitones));
+    const float travel = scroll.getWidth() - thumbWidth;
+    const float position = maximumScrollSemitones() > 0
+        ? static_cast<float>(scrollSemitones) / static_cast<float>(maximumScrollSemitones())
+        : 0.0f;
+    const auto thumb = juce::Rectangle<float>(scroll.getX() + travel * position,
+                                               scroll.getY(), thumbWidth, scroll.getHeight());
+    g.setGradientFill({ juce::Colour(0xff55dff1), thumb.getX(), thumb.getY(),
+                        juce::Colour(0xff087d98), thumb.getX(), thumb.getBottom(), false });
+    g.fillRoundedRectangle(thumb.reduced(1.0f), 2.0f);
 }
 
 int MainComponent::KeyboardComponent::noteForPosition(const juce::Point<int> position) const
 {
-    const auto area = getLocalBounds().toFloat().reduced(7.0f, 6.0f).withTrimmedTop(2.0f).withTrimmedBottom(3.0f);
-    const int whiteKeyCount = whiteKeyIndexForNote(kFirstKeyboardNote + kKeyboardNoteCount);
+    const auto area = playableBounds();
+    if (!area.contains(position.toFloat()))
+        return -1;
+    const int firstNote = firstVisibleNote();
+    const int whiteKeyCount = whiteKeyIndexForNote(firstNote + kKeyboardNoteCount, firstNote);
     const float whiteWidth = area.getWidth() / static_cast<float>(whiteKeyCount);
     const float blackWidth = whiteWidth * 0.58f;
     const float blackHeight = area.getHeight() * 0.62f;
@@ -1970,11 +2124,11 @@ int MainComponent::KeyboardComponent::noteForPosition(const juce::Point<int> pos
     {
         for (int i = 0; i < kKeyboardNoteCount; ++i)
         {
-            const int note = kFirstKeyboardNote + i;
+            const int note = firstNote + i;
             if (!isBlackKey(note))
                 continue;
 
-            const int nextWhiteIndex = whiteKeyIndexForNote(note);
+            const int nextWhiteIndex = whiteKeyIndexForNote(note, firstNote);
             const auto keyArea = juce::Rectangle<float>(area.getX() + whiteWidth * static_cast<float>(nextWhiteIndex) - blackWidth * 0.5f,
                                                        area.getY(),
                                                        blackWidth,
@@ -1987,7 +2141,7 @@ int MainComponent::KeyboardComponent::noteForPosition(const juce::Point<int> pos
     const int whiteIndex = juce::jlimit(0,
                                        whiteKeyCount - 1,
                                        static_cast<int>((point.x - area.getX()) / whiteWidth));
-    return noteForWhiteKeyIndex(whiteIndex);
+    return noteForWhiteKeyIndex(whiteIndex, firstNote);
 }
 
 void MainComponent::KeyboardComponent::updateHeldNote(const int note)
@@ -2009,22 +2163,675 @@ void MainComponent::KeyboardComponent::mouseDown(const juce::MouseEvent& event)
 {
     if (owner.hostMode != HostMode::PluginEditor || owner.pluginPcKeyboardAllowed)
         owner.grabKeyboardFocus();
+    if (scrollBarBounds().contains(event.position))
+    {
+        updateHeldNote(-1);
+        scrolling = true;
+        scrollStartX = event.x;
+        scrollStartSemitones = scrollSemitones;
+        return;
+    }
     updateHeldNote(noteForPosition(event.getPosition()));
 }
 
 void MainComponent::KeyboardComponent::mouseDrag(const juce::MouseEvent& event)
 {
+    if (scrolling)
+    {
+        const auto scroll = scrollBarBounds();
+        const int totalSemitones = kKeyboardNoteCount + maximumScrollSemitones();
+        const float thumbWidth = scroll.getWidth()
+            * static_cast<float>(kKeyboardNoteCount) / static_cast<float>(totalSemitones);
+        const float travel = juce::jmax(1.0f, scroll.getWidth() - thumbWidth);
+        const int delta = juce::roundToInt(static_cast<float>(event.x - scrollStartX) / travel
+                                            * static_cast<float>(maximumScrollSemitones()));
+        scrollSemitones = juce::jlimit(0, maximumScrollSemitones(),
+                                      scrollStartSemitones + delta);
+        repaint();
+        return;
+    }
     updateHeldNote(noteForPosition(event.getPosition()));
 }
 
 void MainComponent::KeyboardComponent::mouseUp(const juce::MouseEvent&)
 {
+    if (scrolling)
+    {
+        scrollSemitones = juce::jlimit(0, maximumScrollSemitones(),
+                                      juce::roundToInt(static_cast<float>(scrollSemitones) / 12.0f) * 12);
+        scrolling = false;
+        repaint();
+        return;
+    }
     updateHeldNote(-1);
 }
 
 void MainComponent::KeyboardComponent::mouseExit(const juce::MouseEvent&)
 {
-    updateHeldNote(-1);
+    if (!scrolling)
+        updateHeldNote(-1);
+}
+
+int MainComponent::KeyboardComponent::firstVisibleNote() const
+{
+    return kFirstKeyboardNote + scrollSemitones;
+}
+
+int MainComponent::KeyboardComponent::maximumScrollSemitones() const
+{
+    return 12;
+}
+
+juce::Rectangle<float> MainComponent::KeyboardComponent::playableBounds() const
+{
+    return getLocalBounds().toFloat().reduced(7.0f, 6.0f).withTrimmedTop(2.0f).withTrimmedBottom(12.0f);
+}
+
+juce::Rectangle<float> MainComponent::KeyboardComponent::scrollBarBounds() const
+{
+    return getLocalBounds().toFloat().reduced(7.0f, 6.0f).removeFromBottom(8.0f);
+}
+
+MainComponent::FxMixerPanel::FxMixerPanel(
+    const std::array<juce::Slider*, 6>& sliders,
+    const std::array<juce::Label*, 6>& labels,
+    juce::ComboBox& panMode,
+    MainComponent& owner,
+    juce::LookAndFeel& lookAndFeel)
+    : effectSliders(sliders), effectLabels(labels), panModeSelect(panMode), main(owner)
+{
+    setAlwaysOnTop(true);
+    setInterceptsMouseClicks(true, true);
+    for (auto* slider : effectSliders)
+    {
+        slider->setName("fxMixerKnob");
+        slider->setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+        addAndMakeVisible(*slider);
+    }
+    static constexpr std::array<const char*, 6> knobNames {
+        "MIX", "TIME", "CHORUS", "RATE", "DEPTH", "TONE"
+    };
+    for (std::size_t index = 0; index < effectLabels.size(); ++index)
+    {
+        auto* label = effectLabels[index];
+        label->setText(knobNames[index], juce::dontSendNotification);
+        label->setJustificationType(juce::Justification::centred);
+        label->setFont(juce::FontOptions(14.0f, juce::Font::bold));
+        label->setColour(juce::Label::textColourId, juce::Colours::white);
+        addAndMakeVisible(*label);
+    }
+    addAndMakeVisible(panModeSelect);
+
+    delayModeSelect.addItemList({ "OFF", "STEREO", "PING PONG", "ECHO" }, 1);
+    reverbModeSelect.addItemList({ "OFF", "ROOM", "HALL", "PLATE" }, 1);
+    for (auto* combo : { &panModeSelect, &delayModeSelect, &reverbModeSelect })
+    {
+        combo->setName("fxOpalineSelector");
+        combo->setLookAndFeel(&lookAndFeel);
+        combo->setColour(juce::ComboBox::textColourId, kTeal);
+        combo->setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xff0b0d0c));
+        combo->setColour(juce::ComboBox::outlineColourId, juce::Colour(0xff626865));
+        combo->setColour(juce::ComboBox::arrowColourId, kTeal);
+    }
+    delayModeSelect.setSelectedId(main.currentPatch.effects.delayMode + 1,
+                                  juce::dontSendNotification);
+    reverbModeSelect.setSelectedId(main.currentPatch.effects.reverbMode + 1,
+                                   juce::dontSendNotification);
+    delayModeSelect.onChange = [this]
+    {
+        main.currentPatch.effects.delayMode = delayModeSelect.getSelectedItemIndex();
+        main.applyPatchToEngine(false, true);
+    };
+    reverbModeSelect.onChange = [this]
+    {
+        main.currentPatch.effects.reverbMode = reverbModeSelect.getSelectedItemIndex();
+        main.applyPatchToEngine(false, true);
+    };
+    addAndMakeVisible(delayModeSelect);
+    addAndMakeVisible(reverbModeSelect);
+
+    for (auto* button : { &muteButton, &soloButton, &panButton, &delayButton,
+                          &reverbButton })
+    {
+        button->setName("fxOpalineActionButton");
+        button->setColour(juce::TextButton::buttonColourId, juce::Colour(0xff211b17));
+        button->setColour(juce::TextButton::textColourOffId, kTeal);
+        button->setLookAndFeel(&lookAndFeel);
+        addAndMakeVisible(*button);
+    }
+    panButton.onClick = [this] { selectOrSwapUnit(0); };
+    delayButton.onClick = [this] { selectOrSwapUnit(1); };
+    reverbButton.onClick = [this] { selectOrSwapUnit(2); };
+    muteButton.setClickingTogglesState(true);
+    soloButton.setClickingTogglesState(true);
+    muteButton.setToggleState(main.currentPatch.effects.muted, juce::dontSendNotification);
+    soloButton.setToggleState(main.currentPatch.effects.soloed, juce::dontSendNotification);
+    muteButton.onClick = [this]
+    {
+        main.currentPatch.effects.muted = muteButton.getToggleState();
+        main.applyPatchToEngine(false, true);
+    };
+    soloButton.onClick = [this]
+    {
+        main.currentPatch.effects.soloed = soloButton.getToggleState();
+        main.applyPatchToEngine(false, true);
+    };
+
+    const auto configureFader = [&lookAndFeel](juce::Slider& slider,
+                                               const juce::String& name)
+    {
+        slider.setSliderStyle(juce::Slider::LinearVertical);
+        slider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+        slider.setNormalisableRange(juce::NormalisableRange<double>(
+            0.0, 1.0,
+            [](double, double, double proportion)
+            {
+                if (proportion <= 0.0) return 0.0;
+                return std::pow(10.0, (-60.0 + 60.0 * proportion) / 20.0);
+            },
+            [](double, double, double gain)
+            {
+                if (gain <= 0.001) return 0.0;
+                return juce::jlimit(0.0, 1.0,
+                    (20.0 * std::log10(gain) + 60.0) / 60.0);
+            },
+            [](double start, double end, double gain)
+            {
+                const auto clamped = juce::jlimit(start, end, gain);
+                return clamped < 0.001 ? 0.0 : std::round(clamped * 1000.0) / 1000.0;
+            }));
+        slider.setName(name);
+        slider.setLookAndFeel(&lookAndFeel);
+    };
+    configureFader(masterVolume, "fxMasterVolumeFader");
+    configureFader(channelVolume, "fxChannelVolumeFader");
+    configureFader(channelVolumeB, "fxChannelVolumeFader");
+    masterVolume.setValue(main.volumeSlider.getValue() / 99.0, juce::dontSendNotification);
+    channelVolume.setValue(main.currentPatch.effects.volume / 99.0, juce::dontSendNotification);
+    masterVolume.onValueChange = [this]
+    {
+        if (!refreshing)
+            main.volumeSlider.setValue(masterVolume.getValue() * 99.0,
+                                       juce::sendNotificationSync);
+    };
+    channelVolume.onValueChange = [this]
+    {
+        if (!refreshing)
+        {
+            main.currentPatch.effects.volume = static_cast<int>(
+                std::round(channelVolume.getValue() * 99.0));
+            main.applyPatchToEngine(false, true);
+        }
+    };
+    addAndMakeVisible(masterVolume);
+    addAndMakeVisible(channelVolume);
+
+    modeSelectB[0].addItemList({ "SINE", "TRIANGLE", "SQUARE", "RANDOM", "CHORUS" }, 1);
+    modeSelectB[1].addItemList({ "OFF", "STEREO", "PING PONG", "ECHO" }, 1);
+    modeSelectB[2].addItemList({ "OFF", "ROOM", "HALL", "PLATE" }, 1);
+    for (int i = 0; i < 3; ++i)
+    {
+        auto& combo = modeSelectB[static_cast<std::size_t>(i)];
+        combo.setName("fxOpalineSelector");
+        combo.setLookAndFeel(&lookAndFeel);
+        combo.setColour(juce::ComboBox::textColourId, kTeal);
+        combo.setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xff071011));
+        combo.setColour(juce::ComboBox::outlineColourId, juce::Colour(0xff47625d));
+        combo.setColour(juce::ComboBox::arrowColourId, kTeal);
+        combo.onChange = [this, i]
+        {
+            if (refreshing || main.factoryVoices.empty()) return;
+            auto& fx = main.factoryVoices[static_cast<std::size_t>(main.performanceState.voiceBIndex)].patch.effects;
+            if (i == 0) fx.panMode = modeSelectB[0].getSelectedItemIndex();
+            else if (i == 1) fx.delayMode = modeSelectB[1].getSelectedItemIndex();
+            else fx.reverbMode = modeSelectB[2].getSelectedItemIndex();
+            main.applyPatchToEngine(false, true);
+        };
+        addAndMakeVisible(combo);
+    }
+    for (int i = 0; i < 6; ++i)
+    {
+        auto& slider = effectSlidersB[static_cast<std::size_t>(i)];
+        slider.setName("fxMixerKnob");
+        slider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+        slider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+        slider.setRange(0.0, 99.0, 1.0);
+        slider.setLookAndFeel(&lookAndFeel);
+        slider.onValueChange = [this, i]
+        {
+            if (refreshing || main.factoryVoices.empty()) return;
+            auto& fx = main.factoryVoices[static_cast<std::size_t>(main.performanceState.voiceBIndex)].patch.effects;
+            const int value = static_cast<int>(std::round(effectSlidersB[static_cast<std::size_t>(i)].getValue()));
+            if (i == 0) fx.reverb = value;
+            else if (i == 1) fx.delay = value;
+            else if (i == 2) fx.mix = value;
+            else if (i == 3) fx.panRate = value;
+            else if (i == 4) { fx.panDepth = value; fx.chorus = fx.panMode == 4 ? value : 0; }
+            else fx.echoMix = value;
+            main.applyPatchToEngine(false, true);
+        };
+        addAndMakeVisible(slider);
+    }
+    for (auto& button : buttonsB)
+    {
+        button.setName("fxOpalineActionButton");
+        button.setLookAndFeel(&lookAndFeel);
+        addAndMakeVisible(button);
+    }
+    buttonsB[0].setClickingTogglesState(true);
+    buttonsB[1].setClickingTogglesState(true);
+    buttonsB[0].onClick = [this]
+    {
+        if (main.factoryVoices.empty()) return;
+        main.factoryVoices[static_cast<std::size_t>(main.performanceState.voiceBIndex)].patch.effects.muted = buttonsB[0].getToggleState();
+        main.applyPatchToEngine(false, true);
+    };
+    buttonsB[1].onClick = [this]
+    {
+        if (main.factoryVoices.empty()) return;
+        main.factoryVoices[static_cast<std::size_t>(main.performanceState.voiceBIndex)].patch.effects.soloed = buttonsB[1].getToggleState();
+        main.applyPatchToEngine(false, true);
+    };
+    buttonsB[2].onClick = [this] { selectOrSwapUnitB(0); };
+    buttonsB[3].onClick = [this] { selectOrSwapUnitB(1); };
+    buttonsB[4].onClick = [this] { selectOrSwapUnitB(2); };
+    channelVolumeB.onValueChange = [this]
+    {
+        if (refreshing || main.factoryVoices.empty()) return;
+        main.factoryVoices[static_cast<std::size_t>(main.performanceState.voiceBIndex)].patch.effects.volume =
+            static_cast<int>(std::round(channelVolumeB.getValue() * 99.0));
+        main.applyPatchToEngine(false, true);
+    };
+    addAndMakeVisible(channelVolumeB);
+
+    closeButton.setName("fxOpalineActionButton");
+    closeButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff211b17));
+    closeButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    closeButton.setLookAndFeel(&lookAndFeel);
+    closeButton.onClick = [this]
+    {
+        if (onClose)
+            onClose();
+    };
+    addAndMakeVisible(closeButton);
+    setSize(244, 620);
+    startTimerHz(30);
+}
+
+MainComponent::FxMixerPanel::~FxMixerPanel()
+{
+    for (auto* combo : { &panModeSelect, &delayModeSelect, &reverbModeSelect })
+        combo->setLookAndFeel(nullptr);
+    for (auto& combo : modeSelectB) combo.setLookAndFeel(nullptr);
+    for (auto& slider : effectSlidersB) slider.setLookAndFeel(nullptr);
+    for (auto& button : buttonsB) button.setLookAndFeel(nullptr);
+    for (auto* button : { &muteButton, &soloButton, &panButton, &delayButton,
+                          &reverbButton })
+        button->setLookAndFeel(nullptr);
+    masterVolume.setLookAndFeel(nullptr);
+    channelVolume.setLookAndFeel(nullptr);
+    channelVolumeB.setLookAndFeel(nullptr);
+    closeButton.setLookAndFeel(nullptr);
+}
+
+void MainComponent::FxMixerPanel::paint(juce::Graphics& g)
+{
+    const auto chassis = getLocalBounds().toFloat().reduced(2.0f);
+    g.setColour(juce::Colours::black.withAlpha(0.46f));
+    g.fillRoundedRectangle(chassis.translated(0.0f, 2.0f), 6.0f);
+    g.setGradientFill({ juce::Colour(0xff2b2923), chassis.getX(), chassis.getY(),
+                        juce::Colour(0xff12120f), chassis.getX(), chassis.getBottom(), false });
+    g.fillRoundedRectangle(chassis, 6.0f);
+    g.setColour(juce::Colours::white.withAlpha(0.08f));
+    g.drawLine(chassis.getX() + 6.0f, chassis.getY() + 1.0f,
+               chassis.getRight() - 6.0f, chassis.getY() + 1.0f, 1.0f);
+    g.setColour(juce::Colours::black.withAlpha(0.42f));
+    g.drawLine(chassis.getX() + 6.0f, chassis.getBottom() - 1.0f,
+               chassis.getRight() - 6.0f, chassis.getBottom() - 1.0f, 1.0f);
+    g.setColour(kTeal);
+    g.drawRoundedRectangle(chassis, 8.0f, 1.8f);
+    g.setColour(kTeal.withAlpha(0.24f));
+    g.drawRoundedRectangle(chassis.reduced(2.0f), 6.5f, 0.9f);
+    g.setFont(juce::FontOptions(25.0f, juce::Font::bold));
+    g.setColour(juce::Colours::white);
+    g.drawSingleLineText("FX MIXER", 18, 34);
+    g.setFont(juce::FontOptions(13.0f, juce::Font::bold));
+    g.setColour(juce::Colour(0xffe7e2d7));
+    const int channelCount = main.performanceState.mode == PerformanceMode::Single ? 1 : 2;
+    for (int column = 0; column <= channelCount; ++column)
+    {
+        const int panelX = column == 0 ? 14 : 116 + (column - 1) * 112;
+        const int panelWidth = column == 0 ? 102 : 112;
+        const auto panel = juce::Rectangle<float>(static_cast<float>(panelX), 50.0f,
+                                                   static_cast<float>(panelWidth), 554.0f).reduced(0.5f);
+        g.setColour(juce::Colours::black.withAlpha(0.46f));
+        g.fillRect(panel.translated(0.0f, 2.0f));
+        g.setGradientFill({ juce::Colour(0xff2b2923), panel.getX(), panel.getY(),
+                            juce::Colour(0xff12120f), panel.getX(), panel.getBottom(), false });
+        g.fillRect(panel);
+        g.setColour(juce::Colours::white.withAlpha(0.08f));
+        g.drawLine(panel.getX(), panel.getY() + 1.0f,
+                   panel.getRight(), panel.getY() + 1.0f, 1.0f);
+        g.setColour(juce::Colours::black.withAlpha(0.42f));
+        g.drawLine(panel.getX(), panel.getBottom() - 1.0f,
+                   panel.getRight(), panel.getBottom() - 1.0f, 1.0f);
+        g.setColour(juce::Colour(0xff070706));
+        g.drawRect(panel, 1.4f);
+        g.setColour(juce::Colour(0xff554f40).withAlpha(0.40f));
+        g.drawRect(panel.reduced(2.0f), 1.0f);
+        g.setColour(juce::Colour(0xffe7e2d7));
+        g.drawText(column == 0 ? "FINAL MIX" : column == 1 ? "CH A" : "CH B", panelX + 4, 59,
+                   panelWidth - 8, 17, juce::Justification::centred);
+    }
+    g.setFont(juce::FontOptions(10.5f, juce::Font::bold));
+    for (int channel = 0; channel < channelCount; ++channel)
+    {
+        const auto& order = channel == 0 ? effectOrder : effectOrderB;
+        const int selected = channel == 0 ? selectedEffect : selectedEffectB;
+        const int x = 121 + channel * 112;
+        for (int row = 0; row < 3; ++row)
+        {
+            const int effect = order[static_cast<std::size_t>(row)];
+            const int baseY = 100 + row * 112;
+            const auto unit = juce::Rectangle<float>(static_cast<float>(x),
+                                                      static_cast<float>(baseY + 7), 100.0f, 103.0f);
+            g.setColour(selected == effect ? kTeal
+                                           : juce::Colour(0xff47625d).withAlpha(0.72f));
+            g.drawRoundedRectangle(unit, 4.0f, selected == effect ? 1.4f : 0.8f);
+            g.setColour(juce::Colour(0xffe7e2d7));
+            g.drawText(effect == 0 ? "RATE" : effect == 1 ? "TIME" : "SIZE",
+                       x + 1, baseY + 93, 49, 14, juce::Justification::centred);
+            g.drawText(effect == 0 ? "DEPTH" : "MIX", x + 51, baseY + 93, 49, 14,
+                       juce::Justification::centred);
+        }
+        g.drawText("VOL", x + 1, 578, 52, 12, juce::Justification::centred);
+    }
+    drawMeters(g);
+}
+
+void MainComponent::FxMixerPanel::resized()
+{
+    const bool hasB = main.performanceState.mode != PerformanceMode::Single;
+    closeButton.setBounds(getWidth() - 96, 12, 78, 28);
+    masterVolume.setBounds(21, 448, 88, 132);
+    channelVolume.setBounds(118, 448, 52, 132);
+    channelVolumeB.setBounds(230, 448, 52, 132);
+    muteButton.setBounds(121, 78, 49, 18);
+    soloButton.setBounds(172, 78, 49, 18);
+    constexpr std::array<int, 3> captionWidths {{ 36, 48, 58 }};
+    constexpr std::array<std::array<int, 2>, 3> sliderIndices {{
+        {{ 3, 4 }}, {{ 1, 5 }}, {{ 0, 2 }}
+    }};
+    std::array<juce::TextButton*, 3> buttons {{ &panButton, &delayButton, &reverbButton }};
+    std::array<juce::ComboBox*, 3> combos {{ &panModeSelect, &delayModeSelect, &reverbModeSelect }};
+    for (int slot = 0; slot < 3; ++slot)
+    {
+        const int effect = effectOrder[static_cast<std::size_t>(slot)];
+        const int baseY = 100 + slot * 112;
+        const int captionWidth = captionWidths[static_cast<std::size_t>(effect)];
+        buttons[static_cast<std::size_t>(effect)]->setBounds(171 - captionWidth / 2,
+                                                             baseY, captionWidth, 14);
+        combos[static_cast<std::size_t>(effect)]->setBounds(127, baseY + 18, 88, 23);
+        for (int column = 0; column < 2; ++column)
+        {
+            const int index = sliderIndices[static_cast<std::size_t>(effect)]
+                                           [static_cast<std::size_t>(column)];
+            effectSliders[static_cast<std::size_t>(index)]->setBounds(
+                121 + column * 50, baseY + 43, 50, 50);
+            effectLabels[static_cast<std::size_t>(index)]->setVisible(false);
+        }
+    }
+    constexpr std::array<int, 3> captionWidthsB {{ 36, 48, 58 }};
+    constexpr std::array<std::array<int, 2>, 3> sliderIndicesB {{
+        {{ 3, 4 }}, {{ 1, 5 }}, {{ 0, 2 }}
+    }};
+    for (int slot = 0; slot < 3; ++slot)
+    {
+        const int effect = effectOrderB[static_cast<std::size_t>(slot)];
+        const int baseY = 100 + slot * 112;
+        const int width = captionWidthsB[static_cast<std::size_t>(effect)];
+        buttonsB[static_cast<std::size_t>(effect + 2)].setBounds(283 - width / 2,
+                                                                baseY, width, 14);
+        modeSelectB[static_cast<std::size_t>(effect)].setBounds(239, baseY + 18, 88, 23);
+        for (int column = 0; column < 2; ++column)
+        {
+            const int index = sliderIndicesB[static_cast<std::size_t>(effect)]
+                                            [static_cast<std::size_t>(column)];
+            effectSlidersB[static_cast<std::size_t>(index)].setBounds(
+                233 + column * 50, baseY + 43, 50, 50);
+        }
+    }
+    buttonsB[0].setBounds(233, 78, 49, 18);
+    buttonsB[1].setBounds(284, 78, 49, 18);
+    channelVolumeB.setVisible(hasB);
+    for (auto& slider : effectSlidersB) slider.setVisible(hasB);
+    for (auto& combo : modeSelectB) combo.setVisible(hasB);
+    for (auto& button : buttonsB) button.setVisible(hasB);
+}
+
+void MainComponent::FxMixerPanel::selectOrSwapUnit(const int effect)
+{
+    if (selectedEffect < 0)
+    {
+        selectedEffect = effect;
+        panButton.setToggleState(effect == 0, juce::dontSendNotification);
+        delayButton.setToggleState(effect == 1, juce::dontSendNotification);
+        reverbButton.setToggleState(effect == 2, juce::dontSendNotification);
+        repaint();
+        return;
+    }
+    if (selectedEffect != effect)
+    {
+        const auto first = std::find(effectOrder.begin(), effectOrder.end(), selectedEffect);
+        const auto second = std::find(effectOrder.begin(), effectOrder.end(), effect);
+        if (first != effectOrder.end() && second != effectOrder.end())
+            std::iter_swap(first, second);
+    }
+    selectedEffect = -1;
+    panButton.setToggleState(false, juce::dontSendNotification);
+    delayButton.setToggleState(false, juce::dontSendNotification);
+    reverbButton.setToggleState(false, juce::dontSendNotification);
+    resized();
+    repaint();
+}
+
+void MainComponent::FxMixerPanel::selectOrSwapUnitB(const int effect)
+{
+    if (selectedEffectB < 0)
+    {
+        selectedEffectB = effect;
+        for (int i = 0; i < 3; ++i)
+            buttonsB[static_cast<std::size_t>(i + 2)].setToggleState(i == effect,
+                                                                     juce::dontSendNotification);
+        repaint();
+        return;
+    }
+    if (selectedEffectB != effect)
+    {
+        const auto first = std::find(effectOrderB.begin(), effectOrderB.end(), selectedEffectB);
+        const auto second = std::find(effectOrderB.begin(), effectOrderB.end(), effect);
+        if (first != effectOrderB.end() && second != effectOrderB.end())
+            std::iter_swap(first, second);
+    }
+    selectedEffectB = -1;
+    for (int i = 0; i < 3; ++i)
+        buttonsB[static_cast<std::size_t>(i + 2)].setToggleState(false,
+                                                                 juce::dontSendNotification);
+    resized();
+    repaint();
+}
+
+void MainComponent::FxMixerPanel::timerCallback()
+{
+    const int desiredWidth = main.performanceState.mode == PerformanceMode::Single ? 244 : 356;
+    if (getWidth() != desiredWidth)
+    {
+        setSize(desiredWidth, 620);
+        if (const auto* parent = getParentComponent())
+            setTopLeftPosition(
+                juce::jlimit(0, juce::jmax(0, parent->getWidth() - getWidth()), getX()),
+                juce::jlimit(0, juce::jmax(0, parent->getHeight() - getHeight()), getY()));
+    }
+    const auto targets = levelProvider ? levelProvider() : std::array<float, 3> {};
+    for (std::size_t i = 0; i < displayedLevels.size(); ++i)
+    {
+        const auto target = juce::jlimit(0.0f, 2.0f, targets[i]);
+        displayedLevels[i] = target > displayedLevels[i]
+            ? target : displayedLevels[i] * 0.90f;
+    }
+    refreshing = true;
+    if (!masterVolume.isMouseButtonDown())
+        masterVolume.setValue(main.volumeSlider.getValue() / 99.0,
+                              juce::dontSendNotification);
+    if (!channelVolume.isMouseButtonDown())
+        channelVolume.setValue(main.currentPatch.effects.volume / 99.0,
+                               juce::dontSendNotification);
+    muteButton.setToggleState(main.currentPatch.effects.muted, juce::dontSendNotification);
+    soloButton.setToggleState(main.currentPatch.effects.soloed, juce::dontSendNotification);
+    delayModeSelect.setSelectedId(main.currentPatch.effects.delayMode + 1,
+                                  juce::dontSendNotification);
+    reverbModeSelect.setSelectedId(main.currentPatch.effects.reverbMode + 1,
+                                   juce::dontSendNotification);
+    if (!main.factoryVoices.empty())
+    {
+        const auto index = static_cast<std::size_t>(juce::jlimit(
+            0, static_cast<int>(main.factoryVoices.size()) - 1, main.performanceState.voiceBIndex));
+        const auto& fx = main.factoryVoices[index].patch.effects;
+        effectSlidersB[0].setValue(fx.reverb, juce::dontSendNotification);
+        effectSlidersB[1].setValue(fx.delay, juce::dontSendNotification);
+        effectSlidersB[2].setValue(fx.mix, juce::dontSendNotification);
+        effectSlidersB[3].setValue(fx.panRate, juce::dontSendNotification);
+        effectSlidersB[4].setValue(fx.panDepth, juce::dontSendNotification);
+        effectSlidersB[5].setValue(fx.echoMix, juce::dontSendNotification);
+        modeSelectB[0].setSelectedId(fx.panMode + 1, juce::dontSendNotification);
+        modeSelectB[1].setSelectedId(fx.delayMode + 1, juce::dontSendNotification);
+        modeSelectB[2].setSelectedId(fx.reverbMode + 1, juce::dontSendNotification);
+        buttonsB[0].setToggleState(fx.muted, juce::dontSendNotification);
+        buttonsB[1].setToggleState(fx.soloed, juce::dontSendNotification);
+        if (!channelVolumeB.isMouseButtonDown())
+            channelVolumeB.setValue(fx.volume / 99.0, juce::dontSendNotification);
+    }
+    refreshing = false;
+    repaint();
+}
+
+void MainComponent::FxMixerPanel::drawMeters(juce::Graphics& g)
+{
+    const auto drawBar = [&g](int x, float top, float bottom, int width,
+                              int segmentCount, double value)
+    {
+        const float segmentHeight = (bottom - top) / static_cast<float>(segmentCount);
+        for (int segment = 0; segment < segmentCount; ++segment)
+        {
+            const double db = -60.0 + 60.0 * static_cast<double>(segment + 1)
+                                         / static_cast<double>(segmentCount);
+            const double threshold = std::pow(10.0, db / 20.0);
+            const float y = bottom - static_cast<float>(segment + 1) * segmentHeight + 1.0f;
+            const auto colour = db > -3.0 ? juce::Colour(0xffff3b2f)
+                : db > -12.0 ? juce::Colour(0xffff9a27) : juce::Colour(0xff4fd36c);
+            g.setColour(value >= threshold ? colour : colour.withAlpha(0.11f));
+            g.fillRect(static_cast<float>(x), y, static_cast<float>(width),
+                       juce::jmax(1.0f, segmentHeight - 2.0f));
+        }
+    };
+
+    const auto masterWell = juce::Rectangle<float>(32.0f, 100.0f, 66.0f, 336.0f);
+    g.setGradientFill({ juce::Colour(0xff090a08), masterWell.getX(), masterWell.getY(),
+                        juce::Colour(0xff161611), masterWell.getX(), masterWell.getBottom(), false });
+    g.fillRoundedRectangle(masterWell, 3.0f);
+    g.setColour(juce::Colour(0xff050504));
+    g.drawRoundedRectangle(masterWell, 3.0f, 1.5f);
+    drawBar(40, 109.0f, 420.0f, 10, 44, displayedLevels[2]);
+    drawBar(80, 109.0f, 420.0f, 10, 44, displayedLevels[2]);
+    g.setColour(juce::Colour(0xffaaa89e));
+    g.setFont(juce::FontOptions(7.5f, juce::Font::bold));
+    constexpr std::array<int, 9> masterMarks { 0, -3, -6, -12, -18, -24, -36, -48, -60 };
+    for (const int db : masterMarks)
+    {
+        const float y = juce::jmap(static_cast<float>(-db), 0.0f, 60.0f, 109.0f, 420.0f);
+        g.drawText(juce::String(db), 55, juce::roundToInt(y) - 5, 20, 10,
+                   juce::Justification::centred);
+    }
+    g.setColour(juce::Colour(0xffe7e2d7));
+    g.setFont(juce::FontOptions(9.0f, juce::Font::bold));
+    g.drawText("L", 36, 423, 18, 11, juce::Justification::centred);
+    g.drawText("R", 76, 423, 18, 11, juce::Justification::centred);
+    g.setFont(juce::FontOptions(9.5f, juce::Font::bold));
+    g.drawText("MASTER VOL", 14, 578, 102, 12, juce::Justification::centred);
+
+    const auto channelWell = juce::Rectangle<float>(172.0f, 448.0f, 39.0f, 122.0f);
+    g.setGradientFill({ juce::Colour(0xff090a08), channelWell.getX(), channelWell.getY(),
+                        juce::Colour(0xff161611), channelWell.getX(), channelWell.getBottom(), false });
+    g.fillRoundedRectangle(channelWell, 2.5f);
+    g.setColour(juce::Colour(0xff050504));
+    g.drawRoundedRectangle(channelWell, 2.5f, 1.2f);
+    drawBar(176, 453.0f, 565.0f, 6, 16, displayedLevels[0]);
+    drawBar(202, 453.0f, 565.0f, 6, 16, displayedLevels[0]);
+    g.setFont(juce::FontOptions(6.5f, juce::Font::bold));
+    constexpr std::array<int, 6> channelMarks { 0, -12, -24, -36, -48, -60 };
+    for (const int db : channelMarks)
+    {
+        const float y = juce::jmap(static_cast<float>(-db), 0.0f, 60.0f, 453.0f, 565.0f);
+        g.setColour(juce::Colour(0xffaaa89e));
+        g.drawText(juce::String(db), 185, juce::roundToInt(y) - 4, 14, 8,
+                   juce::Justification::centred);
+    }
+    g.setColour(juce::Colour(0xffe7e2d7));
+    g.setFont(juce::FontOptions(8.5f, juce::Font::bold));
+    g.drawText("L", 173, 578, 12, 12, juce::Justification::centred);
+    g.drawText("R", 199, 578, 12, 12, juce::Justification::centred);
+
+    if (main.performanceState.mode != PerformanceMode::Single)
+    {
+        const auto bWell = juce::Rectangle<float>(284.0f, 448.0f, 39.0f, 122.0f);
+        g.setGradientFill({ juce::Colour(0xff090a08), bWell.getX(), bWell.getY(),
+                            juce::Colour(0xff161611), bWell.getX(), bWell.getBottom(), false });
+        g.fillRoundedRectangle(bWell, 2.5f);
+        g.setColour(juce::Colour(0xff050504));
+        g.drawRoundedRectangle(bWell, 2.5f, 1.2f);
+        drawBar(288, 453.0f, 565.0f, 6, 16, displayedLevels[1]);
+        drawBar(314, 453.0f, 565.0f, 6, 16, displayedLevels[1]);
+        g.setFont(juce::FontOptions(6.5f, juce::Font::bold));
+        for (const int db : channelMarks)
+        {
+            const float y = juce::jmap(static_cast<float>(-db), 0.0f, 60.0f, 453.0f, 565.0f);
+            g.setColour(juce::Colour(0xffaaa89e));
+            g.drawText(juce::String(db), 297, juce::roundToInt(y) - 4, 14, 8,
+                       juce::Justification::centred);
+        }
+        g.setColour(juce::Colour(0xffe7e2d7));
+        g.setFont(juce::FontOptions(8.5f, juce::Font::bold));
+        g.drawText("L", 285, 578, 12, 12, juce::Justification::centred);
+        g.drawText("R", 311, 578, 12, 12, juce::Justification::centred);
+    }
+}
+
+void MainComponent::FxMixerPanel::mouseDown(const juce::MouseEvent& event)
+{
+    if (event.y < 48)
+    {
+        draggingPanel = true;
+        dragStartScreen = event.getScreenPosition();
+        dragStartPosition = getPosition();
+    }
+}
+
+void MainComponent::FxMixerPanel::mouseDrag(const juce::MouseEvent& event)
+{
+    if (draggingPanel)
+    {
+        const auto target = dragStartPosition + event.getScreenPosition() - dragStartScreen;
+        setTopLeftPosition(target);
+        if (const auto* parent = getParentComponent())
+            setTopLeftPosition(
+                juce::jlimit(0, juce::jmax(0, parent->getWidth() - getWidth()), getX()),
+                juce::jlimit(0, juce::jmax(0, parent->getHeight() - getHeight()), getY()));
+    }
+}
+
+void MainComponent::FxMixerPanel::mouseUp(const juce::MouseEvent&)
+{
+    draggingPanel = false;
 }
 
 MainComponent::MainComponent(const HostMode mode, const bool allowPluginPcKeyboard)
@@ -2162,6 +2969,13 @@ MainComponent::MainComponent(const HostMode mode, const bool allowPluginPcKeyboa
     effectsEnableButton.addListener(this);
     addAndMakeVisible(effectsEnableButton);
 
+    fxMixerButton.setName("dx21BlueButton");
+    fxMixerButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff17242a));
+    fxMixerButton.setColour(juce::TextButton::textColourOffId, kTextPrimary);
+    fxMixerButton.setLookAndFeel(&opalineLookAndFeel);
+    fxMixerButton.addListener(this);
+    addAndMakeVisible(fxMixerButton);
+
     engineModelButton.setClickingTogglesState(true);
     engineModelButton.setName("engineModelButton");
     engineModelButton.setLookAndFeel(&opalineLookAndFeel);
@@ -2226,7 +3040,7 @@ MainComponent::MainComponent(const HostMode mode, const bool allowPluginPcKeyboa
     addAndMakeVisible(lcd);
     addAndMakeVisible(scope);
 
-    setupLabel(lfoWaveLabel, "LFO Wave");
+    setupLabel(lfoWaveLabel, "LFO");
     lfoWaveSelect.addItem("SAW UP", 1);
     lfoWaveSelect.addItem("SQUARE", 2);
     lfoWaveSelect.addItem("TRIANGLE", 3);
@@ -2298,24 +3112,53 @@ MainComponent::MainComponent(const HostMode mode, const bool allowPluginPcKeyboa
         addAndMakeVisible(*label);
 
     setupLabel(effectReverbLabel, "Reverb");
-    setupLabel(effectSpreadLabel, "Spread");
-    setupLabel(effectPanLabel, "Pan");
+    setupLabel(effectPanRateLabel, "RATE");
+    setupLabel(effectPanLabel, "DEPTH");
     setupLabel(effectToneLabel, "Tone");
     setupLabel(effectChorusLabel, "Chorus");
     setupLabel(effectDelayLabel, "Delay");
     setupSlider(effectReverbSlider, 0, 99, 1, 0, juce::Slider::RotaryHorizontalVerticalDrag);
-    setupSlider(effectSpreadSlider, 0, 99, 1, 0, juce::Slider::RotaryHorizontalVerticalDrag);
-    setupSlider(effectPanSlider, 0, 99, 1, 50, juce::Slider::RotaryHorizontalVerticalDrag);
+    setupSlider(effectPanRateSlider, 0, 99, 1, 25, juce::Slider::RotaryHorizontalVerticalDrag);
+    setupSlider(effectPanSlider, 0, 99, 1, 0, juce::Slider::RotaryHorizontalVerticalDrag);
     setupSlider(effectToneSlider, 0, 99, 1, 50, juce::Slider::RotaryHorizontalVerticalDrag);
     setupSlider(effectChorusSlider, 0, 99, 1, 0, juce::Slider::RotaryHorizontalVerticalDrag);
     setupSlider(effectDelaySlider, 0, 99, 1, 0, juce::Slider::RotaryHorizontalVerticalDrag);
-    for (auto* slider : { &effectReverbSlider, &effectSpreadSlider, &effectPanSlider, &effectToneSlider, &effectChorusSlider, &effectDelaySlider })
+    setupComboBox(effectPanModeSelect);
+    effectPanModeSelect.addItem("SINE", 1);
+    effectPanModeSelect.addItem("TRIANGLE", 2);
+    effectPanModeSelect.addItem("SQUARE", 3);
+    effectPanModeSelect.addItem("RANDOM", 4);
+    effectPanModeSelect.addItem("CHORUS", 5);
+    effectPanModeSelect.setSelectedId(1, juce::dontSendNotification);
+    effectPanModeSelect.addListener(this);
+    for (auto* slider : { &effectReverbSlider, &effectPanRateSlider, &effectPanSlider, &effectToneSlider, &effectChorusSlider, &effectDelaySlider })
     {
         slider->addListener(this);
         addAndMakeVisible(*slider);
     }
-    for (auto* label : { &effectReverbLabel, &effectSpreadLabel, &effectPanLabel, &effectToneLabel, &effectChorusLabel, &effectDelayLabel })
+    for (auto* label : { &effectReverbLabel, &effectPanRateLabel, &effectPanLabel, &effectToneLabel, &effectChorusLabel, &effectDelayLabel })
         addAndMakeVisible(*label);
+
+    fxMixerPanel = std::make_unique<FxMixerPanel>(
+        std::array<juce::Slider*, 6> { &effectReverbSlider, &effectDelaySlider,
+                                      &effectChorusSlider, &effectPanRateSlider,
+                                      &effectPanSlider, &effectToneSlider },
+        std::array<juce::Label*, 6> { &effectReverbLabel, &effectDelayLabel,
+                                     &effectChorusLabel, &effectPanRateLabel,
+                                     &effectPanLabel, &effectToneLabel },
+        effectPanModeSelect,
+        *this,
+        opalineLookAndFeel);
+    fxMixerPanel->onClose = [this] { fxMixerPanel->setVisible(false); };
+    fxMixerPanel->levelProvider = [this]
+    {
+        return std::array<float, 3> {
+            fxMeterA.load(std::memory_order_relaxed),
+            fxMeterB.load(std::memory_order_relaxed),
+            fxMeterFinal.load(std::memory_order_relaxed)
+        };
+    };
+    addChildComponent(*fxMixerPanel);
 
     setupLabel(pitchWheelLabel, "PITCH");
     pitchWheelLabel.setJustificationType(juce::Justification::centred);
@@ -2447,7 +3290,7 @@ MainComponent::~MainComponent()
                                                   &lfoPitchSensitivitySlider, &lfoAmpSensitivitySlider,
                                                   &pegRate1Slider, &pegRate2Slider, &pegRate3Slider,
                                                   &pegLevel1Slider, &pegLevel2Slider, &pegLevel3Slider,
-                                                  &effectReverbSlider, &effectSpreadSlider, &effectPanSlider, &effectToneSlider, &effectChorusSlider,
+                                                  &effectReverbSlider, &effectPanRateSlider, &effectPanSlider, &effectToneSlider, &effectChorusSlider,
                                                    &effectDelaySlider, &pitchWheelSlider, &modWheelSlider,
                                                    &pitchBendRangeSlider, &portamentoSlider,
                                                    &modWheelPitchRangeSlider, &modWheelAmpRangeSlider,
@@ -2458,7 +3301,7 @@ MainComponent::~MainComponent()
     }
 
     for (auto* comboBox : { &voiceSelect, &voiceBankSelect, &performanceModeSelect, &voiceBSelect,
-                            &audioOutputSelect, &midiInputSelect, &lfoWaveSelect })
+                            &audioOutputSelect, &midiInputSelect, &lfoWaveSelect, &effectPanModeSelect })
         comboBox->setLookAndFeel(nullptr);
     for (auto* button : { &loadVoiceBankButton, &saveVoiceBankButton, &exportVoiceLibraryButton,
                           &loadSingleVoiceButton, &saveSingleVoiceButton, &copyVoiceButton,
@@ -2470,6 +3313,7 @@ MainComponent::~MainComponent()
     voiceExportButton.setLookAndFeel(nullptr);
     midiTestButton.setLookAndFeel(nullptr);
     effectsEnableButton.setLookAndFeel(nullptr);
+    fxMixerButton.setLookAndFeel(nullptr);
     engineModelButton.setLookAndFeel(nullptr);
     lfoSyncButton.setLookAndFeel(nullptr);
 
@@ -2593,17 +3437,25 @@ void MainComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo& buffer
     }
 
     applyRealtimeCommandsNoLock();
+    float peakA = 0.0f;
+    float peakB = 0.0f;
+    float peakFinal = 0.0f;
     for (int i = 0; i < bufferToFill.numSamples; ++i)
     {
         const auto sampleA = engine.renderSample();
         auto sample = sampleA;
+        opaline::StereoSample sampleB {};
         if (audioEngineState.performance.mode != PerformanceMode::Single)
         {
-            const auto sampleB = performanceEngineB.renderSample();
+            sampleB = performanceEngineB.renderSample();
             const float balance = static_cast<float>(juce::jlimit(-100, 100,
                 audioEngineState.performance.abBalance)) / 100.0f;
-            const float gainA = balance >= 0.0f ? 1.0f : 1.0f + balance;
-            const float gainB = balance <= 0.0f ? 1.0f : 1.0f - balance;
+            float gainA = balance >= 0.0f ? 1.0f : 1.0f + balance;
+            float gainB = balance <= 0.0f ? 1.0f : 1.0f - balance;
+            const bool soloA = audioEngineState.patchA.effects.soloed;
+            const bool soloB = audioEngineState.patchB.effects.soloed;
+            if (soloA && !soloB) gainB = 0.0f;
+            if (soloB && !soloA) gainA = 0.0f;
             const float mixGain = audioEngineState.performance.mode == PerformanceMode::Dual ? 0.50f : 0.82f;
             sample.left = (sampleA.left * gainA + sampleB.left * gainB) * mixGain;
             sample.right = (sampleA.right * gainA + sampleB.right * gainB) * mixGain;
@@ -2611,7 +3463,15 @@ void MainComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo& buffer
 
         left[i] = sample.left * outputGain;
         right[i] = sample.right * outputGain;
+        peakA = juce::jmax(peakA, static_cast<float>(juce::jmax(std::abs(sampleA.left),
+                                                                std::abs(sampleA.right)) * outputGain));
+        peakB = juce::jmax(peakB, static_cast<float>(juce::jmax(std::abs(sampleB.left),
+                                                                std::abs(sampleB.right)) * outputGain));
+        peakFinal = juce::jmax(peakFinal, juce::jmax(std::abs(left[i]), std::abs(right[i])));
     }
+    fxMeterA.store(peakA, std::memory_order_relaxed);
+    fxMeterB.store(peakB, std::memory_order_relaxed);
+    fxMeterFinal.store(peakFinal, std::memory_order_relaxed);
 
     scope.pushSamples(left, bufferToFill.numSamples);
 
@@ -2659,6 +3519,8 @@ void MainComponent::resized()
     titleLabel.setBounds(header.removeFromLeft(190));
     titleLabel.setVisible(false);
     effectsEnableButton.setBounds(header.removeFromRight(68).withSizeKeepingCentre(68, 23));
+    header.removeFromRight(panelGap);
+    fxMixerButton.setBounds(header.removeFromRight(88).withSizeKeepingCentre(88, 23));
     header.removeFromRight(panelGap);
     if (hostMode == HostMode::StandaloneApp || pluginPcKeyboardAllowed)
     {
@@ -2709,7 +3571,7 @@ void MainComponent::resized()
 
     constexpr int topPanelGap = 2;
     top.removeFromLeft(topPanelGap);
-    auto patch = top.removeFromLeft(300).reduced(panelPad + 8, panelPad);
+    auto patch = top.removeFromLeft(300).reduced(5, panelPad);
     patch.translate(0, 4);
     const auto gridCell = [](const juce::Rectangle<int>& row, const int column, const int span = 1)
     {
@@ -2775,25 +3637,31 @@ void MainComponent::resized()
     top.removeFromLeft(topPanelGap);
     auto controlsPanel = top.reduced(panelPad, 0);
     const auto controlsPanelBounds = controlsPanel;
-    constexpr int voicePanelWidth = 138;
-    constexpr int minimumKnobGroupWidth = 118;
-    const int sharedKnobGroupWidth = juce::jmax(minimumKnobGroupWidth,
-                                                (controlsPanel.getWidth() - voicePanelWidth) / 3);
-    auto voice = controlsPanel.removeFromLeft(voicePanelWidth);
-    auto peg = controlsPanel.removeFromLeft(juce::jmin(sharedKnobGroupWidth, controlsPanel.getWidth()));
-    auto lfo = controlsPanel.removeFromLeft(juce::jmin(sharedKnobGroupWidth, controlsPanel.getWidth()));
-    auto effects = controlsPanel;
+    // The ALG/FB, pitch-EG and LFO controls form one seven-column grid.
+    // Keeping a single column width prevents the group boundaries from
+    // introducing visibly different knob spacing.
+    constexpr int voiceGraphWidth = 96;
+    const int commonKnobColumnWidth = juce::jmax(knobCellWidth,
+                                                 (controlsPanel.getWidth() - voiceGraphWidth) / 7);
+    const int voicePanelWidth = voiceGraphWidth + commonKnobColumnWidth;
+    auto voice = controlsPanel.removeFromLeft(juce::jmin(voicePanelWidth, controlsPanel.getWidth()));
+    auto lfo = controlsPanel.removeFromLeft(juce::jmin(commonKnobColumnWidth * 3,
+                                                       controlsPanel.getWidth()));
+    auto peg = controlsPanel;
 
     constexpr int controlHeaderHeight = 24;
-    auto lfoTop = juce::Rectangle<int>(lfo.getX() + 8,
+    auto lfoTop = juce::Rectangle<int>(lfo.getX() + 4,
                                        controlsPanelBounds.getY() + 3,
-                                       juce::jmin(254, controlsPanelBounds.getRight() - lfo.getX() - 8),
+                                       lfo.getWidth() - 8,
                                        controlHeaderHeight);
-    lfoWaveLabel.setBounds(lfoTop.removeFromLeft(58));
-    auto lfoWaveSelectArea = lfoTop.removeFromLeft(112);
-    lfoWaveSelect.setBounds(lfoWaveSelectArea.withTrimmedRight(8).withSizeKeepingCentre(104, topControlHeight));
-    lfoTop.removeFromLeft(8);
-    lfoSyncButton.setBounds(lfoTop.removeFromLeft(76).withSizeKeepingCentre(76, topControlHeight));
+    lfoWaveLabel.setBounds(lfoTop.removeFromLeft(28));
+    lfoTop.removeFromLeft(4);
+    lfoWaveSelect.setBounds(lfoTop.removeFromLeft(82).withSizeKeepingCentre(82, topControlHeight));
+    lfoSyncButton.setBounds(juce::Rectangle<int>(lfoWaveSelect.getRight() + 6,
+                                                 controlsPanelBounds.getY() + 3,
+                                                 58,
+                                                 controlHeaderHeight)
+                                .withSizeKeepingCentre(58, topControlHeight));
 
     const int knobRow1Y = controlsPanelBounds.getY() + 36;
     const int knobRow2Y = knobRow1Y + knobCellHeight;
@@ -2807,7 +3675,10 @@ void MainComponent::resized()
 
     pegLeftSeparator.setBounds(peg.getX(), knobRow1Y - 8, 1, peg.getBottom() - (knobRow1Y - 8));
     lfoLeftSeparator.setBounds(lfo.getX(), knobRow1Y - 8, 1, lfo.getBottom() - (knobRow1Y - 8));
-    lfoRightSeparator.setBounds(lfo.getRight() - 1, knobRow1Y - 8, 1, lfo.getBottom() - (knobRow1Y - 8));
+    lfoRightSeparator.setBounds(controlsPanelBounds.getRight() - 1,
+                                knobRow1Y - 8,
+                                1,
+                                controlsPanelBounds.getBottom() - (knobRow1Y - 8));
 
     auto voiceContent = voice.reduced(0, 0);
     const int voiceGraphX = voiceContent.getX() + 8;
@@ -2817,14 +3688,13 @@ void MainComponent::resized()
     pegGraph.setBounds(voiceGraphX, knobRow2Y + 22, 84, 54);
     auto pegContent = peg.reduced(0, 0);
     const int pegTopY = knobRow1Y;
-    const int knobColumnWidth = juce::jmax(knobCellWidth, sharedKnobGroupWidth / 3);
-    const int pegCellWidth = knobColumnWidth;
+    const int pegCellWidth = commonKnobColumnWidth;
     const int pegCellHeight = knobCellHeight;
-    const int voiceKnobX = pegContent.getX() - knobColumnWidth;
-    layoutKnob(juce::Rectangle<int>(voiceKnobX, knobRow1Y, knobColumnWidth, knobCellHeight).reduced(1),
+    const int voiceKnobX = voice.getX() + voiceGraphWidth;
+    layoutKnob(juce::Rectangle<int>(voiceKnobX, knobRow1Y, commonKnobColumnWidth, knobCellHeight).reduced(1),
                algorithmLabel,
                algorithmSlider);
-    layoutKnob(juce::Rectangle<int>(voiceKnobX, knobRow2Y, knobColumnWidth, knobCellHeight).reduced(1),
+    layoutKnob(juce::Rectangle<int>(voiceKnobX, knobRow2Y, commonKnobColumnWidth, knobCellHeight).reduced(1),
                feedbackLabel,
                feedbackSlider);
 
@@ -2850,7 +3720,7 @@ void MainComponent::resized()
     }
 
     auto lfoContent = lfo.reduced(0, 0);
-    const int lfoCellWidth = knobColumnWidth;
+    const int lfoCellWidth = commonKnobColumnWidth;
     std::array<juce::Label*, 6> lfoLabels { &lfoSpeedLabel, &lfoDelayLabel, &lfoPitchDepthLabel, &lfoAmpDepthLabel, &lfoPitchSensitivityLabel, &lfoAmpSensitivityLabel };
     std::array<juce::Slider*, 6> lfoSliders { &lfoSpeedSlider, &lfoDelaySlider, &lfoPitchDepthSlider, &lfoAmpDepthSlider, &lfoPitchSensitivitySlider, &lfoAmpSensitivitySlider };
     for (int row = 0; row < 2; ++row)
@@ -2866,25 +3736,8 @@ void MainComponent::resized()
         }
     }
 
-    auto effectsContent = effects.reduced(0, 0);
-    const int effectsCellWidth = knobColumnWidth;
-    std::array<juce::Label*, 6> effectLabels { &effectReverbLabel, &effectDelayLabel, &effectChorusLabel, &effectSpreadLabel, &effectPanLabel, &effectToneLabel };
-    std::array<juce::Slider*, 6> effectSliders { &effectReverbSlider, &effectDelaySlider, &effectChorusSlider, &effectSpreadSlider, &effectPanSlider, &effectToneSlider };
-    for (int row = 0; row < 2; ++row)
-    {
-        for (int col = 0; col < 3; ++col)
-        {
-            const int index = row * 3 + col;
-            if (index >= static_cast<int>(effectLabels.size()))
-                continue;
-
-            auto cell = juce::Rectangle<int>(effectsContent.getX() + col * effectsCellWidth,
-                                             row == 0 ? knobRow1Y : knobRow2Y,
-                                             effectsCellWidth,
-                                             knobCellHeight).reduced(1);
-            layoutKnob(cell, *effectLabels[static_cast<std::size_t>(index)], *effectSliders[static_cast<std::size_t>(index)]);
-        }
-    }
+    if (fxMixerPanel != nullptr && fxMixerPanel->getBounds().isEmpty())
+        fxMixerPanel->setBounds(getLocalBounds().withSizeKeepingCentre(244, 620));
 
     area.removeFromTop(panelGap);
     const int operatorPanelHeight = area.getHeight() - panelGap - 140;
@@ -2935,27 +3788,34 @@ void MainComponent::loadFactoryVoices()
 {
     voiceLibrary = opaline::makeInitVoiceLibrary();
 
-    const auto factoryXml = juce::parseXML(juce::String::fromUTF8(
-        OpalineBinaryData::factory_opalinelibrary_xml,
-        OpalineBinaryData::factory_opalinelibrary_xmlSize));
-    const bool loadedFactoryLibrary = factoryXml != nullptr
-        && opalineapp::voiceLibraryFromXml(*factoryXml, voiceLibrary);
+    bool loadedFactoryLibrary = false;
+    try
+    {
+        const auto* begin = reinterpret_cast<const std::uint8_t*>(OpalineBinaryData::factory_syx);
+        const std::vector<std::uint8_t> bytes(begin, begin + OpalineBinaryData::factory_syxSize);
+        voiceLibrary.banks[0] = opaline::voiceBankFromSysex(bytes, "Factory");
+        loadedFactoryLibrary = true;
+    }
+    catch (const std::exception&) {}
+
     if (!loadedFactoryLibrary)
     {
-        try
-        {
-            const auto* begin = reinterpret_cast<const std::uint8_t*>(OpalineBinaryData::factory_syx);
-            const std::vector<std::uint8_t> bytes(begin, begin + OpalineBinaryData::factory_syxSize);
-            voiceLibrary.banks[0] = opaline::voiceBankFromSysex(bytes, "Factory");
-        }
-        catch (const std::exception&)
-        {
-            voiceLibrary.banks[0] = opaline::makeInitVoiceBank("Factory");
-        }
+        const auto factoryXml = juce::parseXML(juce::String::fromUTF8(
+            OpalineBinaryData::factory_opalinelibrary_xml,
+            OpalineBinaryData::factory_opalinelibrary_xmlSize));
+        loadedFactoryLibrary = factoryXml != nullptr
+            && opalineapp::voiceLibraryFromXml(*factoryXml, voiceLibrary);
     }
+    if (!loadedFactoryLibrary)
+        voiceLibrary.banks[0] = opaline::makeInitVoiceBank("Factory");
 
+    // Bank 1 is the read-only built-in Factory bank.  Restore user banks and
+    // performance state without allowing an older saved library to replace
+    // the current Factory voices or their per-preset FX settings.
+    const auto builtInFactoryBank = voiceLibrary.banks[0];
     currentVoiceBankIndex = 0;
     restoreSavedVoiceLibraryState();
+    voiceLibrary.banks[0] = builtInFactoryBank;
     populateVoiceBankSelect();
     refreshVoiceLists();
 }
@@ -3324,16 +4184,13 @@ void MainComponent::syncUiFromPatch()
     pegLevel2Slider.setValue(currentPatch.pitchEnvelope.level2, juce::dontSendNotification);
     pegLevel3Slider.setValue(currentPatch.pitchEnvelope.level3, juce::dontSendNotification);
     pegGraph.setEnvelope(currentPatch.pitchEnvelope);
-    effectReverbSlider.setValue(std::round(std::sqrt(static_cast<double>(currentPatch.effects.reverb)
-                                                     * static_cast<double>(currentPatch.effects.mix))),
-                                juce::dontSendNotification);
-    effectSpreadSlider.setValue(currentPatch.effects.spread, juce::dontSendNotification);
-    effectPanSlider.setValue(currentPatch.effects.pan, juce::dontSendNotification);
-    effectToneSlider.setValue(currentPatch.effects.tone, juce::dontSendNotification);
-    effectChorusSlider.setValue(currentPatch.effects.chorus, juce::dontSendNotification);
-    effectDelaySlider.setValue(std::round(std::sqrt(static_cast<double>(currentPatch.effects.delay)
-                                                    * static_cast<double>(currentPatch.effects.echoMix))),
-                               juce::dontSendNotification);
+    effectReverbSlider.setValue(currentPatch.effects.reverb, juce::dontSendNotification);
+    effectPanRateSlider.setValue(currentPatch.effects.panRate, juce::dontSendNotification);
+    effectPanSlider.setValue(currentPatch.effects.panDepth, juce::dontSendNotification);
+    effectPanModeSelect.setSelectedId(currentPatch.effects.panMode + 1, juce::dontSendNotification);
+    effectToneSlider.setValue(currentPatch.effects.echoMix, juce::dontSendNotification);
+    effectChorusSlider.setValue(currentPatch.effects.mix, juce::dontSendNotification);
+    effectDelaySlider.setValue(currentPatch.effects.delay, juce::dontSendNotification);
     syncingUi = false;
 
     refreshLcd();
@@ -3361,13 +4218,14 @@ void MainComponent::updatePatchFromGlobalControls()
     currentPatch.pitchEnvelope.level3 = static_cast<int>(pegLevel3Slider.getValue());
     pegGraph.setEnvelope(currentPatch.pitchEnvelope);
     currentPatch.effects.reverb = static_cast<int>(effectReverbSlider.getValue());
-    currentPatch.effects.mix = currentPatch.effects.reverb;
-    currentPatch.effects.spread = static_cast<int>(effectSpreadSlider.getValue());
-    currentPatch.effects.pan = static_cast<int>(effectPanSlider.getValue());
-    currentPatch.effects.tone = static_cast<int>(effectToneSlider.getValue());
-    currentPatch.effects.chorus = static_cast<int>(effectChorusSlider.getValue());
+    currentPatch.effects.mix = static_cast<int>(effectChorusSlider.getValue());
+    currentPatch.effects.panRate = static_cast<int>(effectPanRateSlider.getValue());
+    currentPatch.effects.panDepth = static_cast<int>(effectPanSlider.getValue());
+    currentPatch.effects.panMode = effectPanModeSelect.getSelectedItemIndex();
+    currentPatch.effects.echoMix = static_cast<int>(effectToneSlider.getValue());
+    currentPatch.effects.chorus = currentPatch.effects.panMode == 4
+        ? currentPatch.effects.panDepth : 0;
     currentPatch.effects.delay = static_cast<int>(effectDelaySlider.getValue());
-    currentPatch.effects.echoMix = currentPatch.effects.delay;
     refreshAlgorithmAndRoles();
 }
 
@@ -4619,6 +5477,13 @@ void MainComponent::setExternalScopeSamples(const std::array<float, 4096>& sampl
     scope.setSamples(samples);
 }
 
+void MainComponent::setExternalFxMeterLevels(const std::array<float, 3>& levels) noexcept
+{
+    fxMeterA.store(levels[0], std::memory_order_relaxed);
+    fxMeterB.store(levels[1], std::memory_order_relaxed);
+    fxMeterFinal.store(levels[2], std::memory_order_relaxed);
+}
+
 void MainComponent::setExternalVoiceWaveform(const std::array<float, 256>& waveform,
                                              const float level,
                                              const double frequency)
@@ -4774,6 +5639,12 @@ void MainComponent::comboBoxChanged(juce::ComboBox* comboBoxThatHasChanged)
         applyPatchToEngine();
         refreshStatus();
     }
+    else if (comboBoxThatHasChanged == &effectPanModeSelect && !syncingUi)
+    {
+        updatePatchFromGlobalControls();
+        applyPatchToEngine(false, true);
+        refreshStatus();
+    }
     else if (comboBoxThatHasChanged == &audioOutputSelect)
     {
         saveAudioOutputSelection();
@@ -4883,6 +5754,14 @@ void MainComponent::buttonClicked(juce::Button* button)
         effectsEnabled = effectsEnableButton.getToggleState();
         applyPatchToEngine(false, true);
         statusLabel.setText(effectsEnabled ? "Effects on" : "Effects off", juce::dontSendNotification);
+    }
+    else if (button == &fxMixerButton)
+    {
+        if (fxMixerPanel != nullptr)
+        {
+            fxMixerPanel->setVisible(true);
+            fxMixerPanel->toFront(true);
+        }
     }
     else if (button == &engineModelButton)
     {

@@ -31,14 +31,14 @@ Opaline FM uses FM synthesis, but it is not a chip emulator and does not attempt
 
 ## Downloads
 
-The current public release is **v1.0.15**. Download Windows and macOS installers from the [v1.0.15 release page](https://github.com/Hidecade/OpalineFM/releases/tag/v1.0.15).
+The current public release is **v1.0.16**. Download Windows and macOS installers from the [v1.0.16 release page](https://github.com/Hidecade/OpalineFM/releases/tag/v1.0.16).
 
 Choose the package for the format you need:
 
-- `OpalineFM-Standalone-1.0.15-macOS.pkg`: standalone app. Use this if you want to play Opaline FM without a DAW.
-- `OpalineFM-AU-1.0.15-macOS.pkg`: Audio Unit instrument for Logic Pro, GarageBand, and AU hosts.
-- `OpalineFM-VST3-1.0.15-macOS.pkg`: VST3 instrument installer for VST3-compatible DAWs.
-- `OpalineFM-1.0.15-Windows-x64-Setup.exe`: combined standalone application and VST3 installer for 64-bit Windows.
+- `OpalineFM-Standalone-1.0.16-macOS.pkg`: standalone app. Use this if you want to play Opaline FM without a DAW.
+- `OpalineFM-AU-1.0.16-macOS.pkg`: Audio Unit instrument for Logic Pro, GarageBand, and AU hosts.
+- `OpalineFM-VST3-1.0.16-macOS.pkg`: VST3 instrument installer for VST3-compatible DAWs.
+- `OpalineFM-1.0.16-Windows-x64-Setup.exe`: combined standalone application and VST3 installer for 64-bit Windows.
 
 The macOS packages are signed and notarized. The Windows installers are currently unsigned, so Windows may display a publisher warning during installation.
 
@@ -184,7 +184,7 @@ In the standalone application, press **WAV** to begin recording. The button chan
 
 ### Windows Standalone and VST3
 
-Run `OpalineFM-1.0.15-Windows-x64-Setup.exe` and select the components you need.
+Run `OpalineFM-1.0.16-Windows-x64-Setup.exe` and select the components you need.
 The installer adds the standalone application and places the plug-in in the standard system VST3 directory:
 
 ```text
@@ -197,9 +197,9 @@ Restart the DAW or rescan VST3 plug-ins after installation. The Windows installe
 
 Run the signed and notarized macOS package for the build you want:
 
-- `OpalineFM-Standalone-1.0.15-macOS.pkg`
-- `OpalineFM-VST3-1.0.15-macOS.pkg`
-- `OpalineFM-AU-1.0.15-macOS.pkg`
+- `OpalineFM-Standalone-1.0.16-macOS.pkg`
+- `OpalineFM-VST3-1.0.16-macOS.pkg`
+- `OpalineFM-AU-1.0.16-macOS.pkg`
 
 The packages install to the standard macOS application and plug-in locations:
 
@@ -241,7 +241,7 @@ cmake --build --preset plugin-au-macos-debug
 Windows development installers require Inno Setup 6 or 7:
 
 ```powershell
-.\scripts\build-windows-installers.ps1 -Version 1.0.15
+.\scripts\build-windows-installers.ps1 -Version 1.0.16
 ```
 
 The combined installer is written to `dist/`.

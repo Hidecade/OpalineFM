@@ -113,7 +113,13 @@ void setEffects(Voice& voice,
                 const int chorus,
                 const int tone)
 {
-    voice.patch.effects = { reverb, reverbMix, delayMix, tone, chorus, delay };
+    voice.patch.effects = {};
+    voice.patch.effects.reverb = reverb;
+    voice.patch.effects.mix = reverbMix;
+    voice.patch.effects.echoMix = delayMix;
+    voice.patch.effects.tone = tone;
+    voice.patch.effects.chorus = chorus;
+    voice.patch.effects.delay = delay;
     voice.effectsEnabled = reverbMix > 0 || delayMix > 0 || chorus > 0 || tone != 50;
 }
 

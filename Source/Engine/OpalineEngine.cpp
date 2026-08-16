@@ -12,7 +12,6 @@ namespace
 constexpr double kOutputGain = 0.38;
 constexpr double kLimiterThreshold = 0.86;
 constexpr double kLimiterCeiling = 0.96;
-constexpr double kMaxDelaySeconds = 0.8;
 constexpr double kMaxChorusSeconds = 0.04;
 
 double portamentoSecondsForValue(const int value)
@@ -41,8 +40,7 @@ void OpalineEngine::prepare(const double sampleRate, const int maxVoices)
     maxVoiceCount = clampInt(maxVoices, 1, 32);
 
     // Rebuild effect buffers when the sample rate changes.
-    delayBufferLeft.assign(static_cast<std::size_t>(std::ceil(currentSampleRate * kMaxDelaySeconds)) + 4, 0.0);
-    delayBufferRight.assign(delayBufferLeft.size(), 0.0);
+    stereoDelay.prepare(currentSampleRate);
     chorusBufferLeft.assign(static_cast<std::size_t>(std::ceil(currentSampleRate * kMaxChorusSeconds)) + 4, 0.0);
     chorusBufferRight.assign(chorusBufferLeft.size(), 0.0);
     static constexpr std::array<double, 4> kReverbTimes { 0.0473, 0.0599, 0.0731, 0.0897 };
@@ -228,8 +226,7 @@ void OpalineEngine::panic()
 
 void OpalineEngine::resetEffects()
 {
-    std::fill(delayBufferLeft.begin(), delayBufferLeft.end(), 0.0);
-    std::fill(delayBufferRight.begin(), delayBufferRight.end(), 0.0);
+    stereoDelay.reset();
     std::fill(chorusBufferLeft.begin(), chorusBufferLeft.end(), 0.0);
     std::fill(chorusBufferRight.begin(), chorusBufferRight.end(), 0.0);
     for (auto& buffer : reverbBufferLeft)
@@ -239,11 +236,11 @@ void OpalineEngine::resetEffects()
     reverbDampingLeft.fill(0.0);
     reverbDampingRight.fill(0.0);
     reverbWriteIndices.fill(0);
-    delayWriteIndex = 0;
     chorusWriteIndex = 0;
     chorusPhase = 0.0;
-    toneLeft = 0.0;
-    toneRight = 0.0;
+    autoPanPhase = 0.0;
+    autoPanHeldRandom = 0.0;
+    autoPanRandomState = 0x714ac3d9U;
 }
 
 void OpalineEngine::updateEffectParameters()
@@ -253,35 +250,37 @@ void OpalineEngine::updateEffectParameters()
     const double legacyReverbMix = static_cast<double>(fx.mix) / 99.0;
     const double delayTime = static_cast<double>(fx.delay) / 99.0;
     const double legacyDelayMix = static_cast<double>(fx.echoMix) / 99.0;
-    // New edits keep each legacy pair equal, making the one-knob response
-    // linear. The geometric blend preserves the intent of older presets.
-    effectReverb = std::sqrt(reverbCharacter * legacyReverbMix);
-    effectReverbMix = effectReverb;
-    effectEchoMix = std::sqrt(delayTime * legacyDelayMix);
+    effectReverb = fx.reverbMode == 0 ? 0.0 : reverbCharacter;
+    effectReverbMix = fx.reverbMode == 0 ? 0.0 : legacyReverbMix;
+    effectEchoMix = legacyDelayMix;
     effectTone = static_cast<double>(fx.tone) / 99.0;
-    effectChorus = static_cast<double>(fx.chorus) / 99.0;
-    effectDelay = effectEchoMix;
-    effectSpread = static_cast<double>(fx.spread) / 99.0;
-    effectPan = (static_cast<double>(fx.pan) - 50.0) / 49.0;
-    effectPan = clampDouble(effectPan, -1.0, 1.0);
+    autoPanMode = fx.panMode;
+    effectChorus = autoPanMode == 4 ? static_cast<double>(fx.chorus) / 99.0 : 0.0;
+    effectDelay = delayTime;
+    // Aureline AutoPan: a sine LFO sweeps an equal-power pan law around the
+    // stereo centre. The logarithmic rate range is 0.05--20 Hz.
+    const double normalizedPanRate = static_cast<double>(fx.panRate) / 99.0;
+    autoPanRateHz = 0.05 * std::pow(400.0, normalizedPanRate);
+    autoPanDepth = autoPanMode == 4 ? 0.0 : static_cast<double>(fx.panDepth) / 99.0;
 
-    const double wetAmount = clampDouble(effectReverbMix + effectEchoMix * 0.75 + effectChorus * 0.25, 0.0, 1.0);
+    const double wetAmount = clampDouble(effectReverbMix + effectChorus * 0.25, 0.0, 1.0);
     effectDryGain = 1.0 - wetAmount * 0.55;
     effectReverbWetGain = effectReverbMix * (0.18 + effectReverb * 0.82);
-    effectEchoWetGain = effectEchoMix * (0.18 + effectDelay * 0.82);
+    effectEchoWetGain = effectEchoMix;
     effectReverbFeedback = 0.48 + effectReverb * 0.40;
     effectReverbDamping = 0.08 + effectTone * 0.30;
-    effectDelaySamples = effectDelay * 0.52 * currentSampleRate;
-    effectDelayFeedback = effectDelaySamples > 1.0 ? 0.10 + effectDelay * 0.50 : 0.0;
-
-    const double cutoff = 900.0 + effectTone * 11200.0;
-    const double toneCoeff = 1.0 - std::exp(-2.0 * kPi * cutoff / currentSampleRate);
-    effectToneCoeff = clampDouble(toneCoeff, 0.0, 1.0);
+    stereoDelayParams.mode = static_cast<StereoDelayMode>(fx.delayMode);
+    stereoDelayParams.timeSeconds = 0.01 + effectDelay * 1.99;
+    stereoDelayParams.spread = 0.75;
+    stereoDelayParams.feedback = effectDelay > 0.0
+        ? 0.10 + effectDelay * 0.50 : 0.0;
+    stereoDelayParams.tone = effectTone;
+    stereoDelayParams.mix = effectEchoMix;
     effectChorusPhaseIncrement = (0.18 + effectChorus * 0.58) / currentSampleRate;
     effectChorusDelay = effectChorus <= 0.001 ? 0.0 : 0.006 + effectChorus * 0.012;
     effectChorusDepth = effectChorus * 0.006;
     effectWetParametersZero = effectReverb <= 0.0
-        && fx.chorus == 0
+        && effectChorus <= 0.0
         && effectDelay <= 0.0;
     effectOutputDryOnly = effectReverbWetGain == 0.0
         && effectEchoWetGain == 0.0
@@ -308,26 +307,52 @@ double OpalineEngine::readDelay(const std::vector<double>& buffer, const int wri
 
 StereoSample OpalineEngine::processEffects(const double inputLeft, const double inputRight)
 {
-    const auto applyPan = [this](double left, double right)
+    const auto applyAutoPan = [this](double left, double right)
     {
-        if (effectPan < 0.0)
-            right *= 1.0 + effectPan;
-        else
-            left *= 1.0 - effectPan;
-        return std::array<double, 2> { left, right };
+        if (autoPanDepth <= 0.0)
+            return std::array<double, 2> { left, right };
+
+        const double oldPhase = autoPanPhase;
+        autoPanPhase += autoPanRateHz / currentSampleRate;
+        if (autoPanPhase >= 1.0)
+            autoPanPhase -= std::floor(autoPanPhase);
+        double wave = 0.0;
+        switch (autoPanMode)
+        {
+            case 1: wave = 1.0 - 4.0 * std::abs(autoPanPhase - 0.5); break;
+            case 2: wave = autoPanPhase < 0.5 ? 1.0 : -1.0; break;
+            case 3:
+                if (autoPanPhase < oldPhase)
+                {
+                    autoPanRandomState ^= autoPanRandomState << 13;
+                    autoPanRandomState ^= autoPanRandomState >> 17;
+                    autoPanRandomState ^= autoPanRandomState << 5;
+                    autoPanHeldRandom = static_cast<double>(autoPanRandomState & 0xffffU)
+                        / 32767.5 - 1.0;
+                }
+                wave = autoPanHeldRandom;
+                break;
+            case 0:
+            default: wave = std::sin(2.0 * kPi * autoPanPhase); break;
+        }
+        const double pan = wave * autoPanDepth;
+        const auto angle = (pan + 1.0) * 0.78539816339744830962;
+        return std::array<double, 2> {
+            left * std::cos(angle) * 1.4142135623730951,
+            right * std::sin(angle) * 1.4142135623730951
+        };
     };
 
     if (!effectsEnabled)
     {
-        const auto panned = applyPan(inputLeft, inputRight);
-        lastLeft += clampDouble(panned[0] - lastLeft, -0.42, 0.42);
-        lastRight += clampDouble(panned[1] - lastRight, -0.42, 0.42);
+        lastLeft += clampDouble(inputLeft - lastLeft, -0.42, 0.42);
+        lastRight += clampDouble(inputRight - lastRight, -0.42, 0.42);
         return { static_cast<float>(lastLeft), static_cast<float>(lastRight) };
     }
 
     if (effectWetParametersZero)
     {
-        const auto panned = applyPan(inputLeft, inputRight);
+        const auto panned = applyAutoPan(inputLeft, inputRight);
         const double limitedLeft = softLimit(panned[0]);
         const double limitedRight = softLimit(panned[1]);
         lastLeft += clampDouble(limitedLeft - lastLeft, -0.42, 0.42);
@@ -394,20 +419,6 @@ StereoSample OpalineEngine::processEffects(const double inputLeft, const double 
         : (reverbTapsRight[0] - reverbTapsRight[1]
            + reverbTapsRight[2] + reverbTapsRight[3]) * 0.32 * effectReverb;
 
-    const double wetInLeft = inputLeft + reverbOutLeft * 0.35;
-    const double wetInRight = inputRight + reverbOutRight * 0.35;
-    const double delayedLeft = effectDelaySamples > 1.0 ? readDelay(delayBufferLeft, delayWriteIndex, effectDelaySamples) : 0.0;
-    const double delayedRight = effectDelaySamples > 1.0 ? readDelay(delayBufferRight, delayWriteIndex, effectDelaySamples) : 0.0;
-    if (!delayBufferLeft.empty())
-    {
-        delayBufferLeft[static_cast<std::size_t>(delayWriteIndex)] = wetInLeft + toneRight * effectDelayFeedback;
-        delayBufferRight[static_cast<std::size_t>(delayWriteIndex)] = wetInRight + toneLeft * effectDelayFeedback;
-        delayWriteIndex = (delayWriteIndex + 1) % static_cast<int>(delayBufferLeft.size());
-    }
-
-    toneLeft += (delayedLeft - toneLeft) * effectToneCoeff;
-    toneRight += (delayedRight - toneRight) * effectToneCoeff;
-
     chorusPhase += effectChorusPhaseIncrement;
     if (chorusPhase >= 1.0)
         chorusPhase -= std::floor(chorusPhase);
@@ -431,11 +442,16 @@ StereoSample OpalineEngine::processEffects(const double inputLeft, const double 
 
     double left = effectOutputDryOnly ? inputLeft
         : inputLeft * effectDryGain + reverbOutLeft * effectReverbWetGain
-            + toneLeft * effectEchoWetGain + chorusLeft * effectChorus * 0.34;
+            + chorusLeft * effectChorus * 0.34;
     double right = effectOutputDryOnly ? inputRight
         : inputRight * effectDryGain + reverbOutRight * effectReverbWetGain
-            + toneRight * effectEchoWetGain + chorusRight * effectChorus * 0.34;
-    const auto panned = applyPan(left, right);
+            + chorusRight * effectChorus * 0.34;
+    const auto delayed = stereoDelay.process(
+        { static_cast<float>(left), static_cast<float>(right) },
+        stereoDelayParams);
+    left = delayed.left;
+    right = delayed.right;
+    const auto panned = applyAutoPan(left, right);
     left = panned[0];
     right = panned[1];
     const double limitedLeft = softLimit(left);
@@ -461,11 +477,8 @@ StereoSample OpalineEngine::renderSample()
         const double voiceSample =
             voice.render(patch, pitchBend, pitchBendRange, modWheel, modWheelPitchRange,
                          modWheelAmpRange, globalLfoAge, renderModel);
-        const double voicePan = voice.getStereoPosition() * effectSpread;
-        const double leftGain = voicePan > 0.0 ? 1.0 - voicePan : 1.0;
-        const double rightGain = voicePan < 0.0 ? 1.0 + voicePan : 1.0;
-        mixedLeft += voiceSample * leftGain;
-        mixedRight += voiceSample * rightGain;
+        mixedLeft += voiceSample;
+        mixedRight += voiceSample;
         if (voice.note() == lastPlayedNote)
         {
             scopeVoiceSample = voiceSample * kOutputGain;
@@ -482,8 +495,10 @@ StereoSample OpalineEngine::renderSample()
     voices.resize(activeVoiceCount);
     updateVoiceScope(scopeVoiceSample, scopeVoiceFrequency, scopeVoiceActive);
 
-    const double outputLeft = softLimit(mixedLeft * kOutputGain);
-    const double outputRight = softLimit(mixedRight * kOutputGain);
+    const double channelGain = patch.effects.muted ? 0.0
+        : static_cast<double>(patch.effects.volume) / 99.0;
+    const double outputLeft = softLimit(mixedLeft * kOutputGain * channelGain);
+    const double outputRight = softLimit(mixedRight * kOutputGain * channelGain);
     return processEffects(outputLeft, outputRight);
 }
 

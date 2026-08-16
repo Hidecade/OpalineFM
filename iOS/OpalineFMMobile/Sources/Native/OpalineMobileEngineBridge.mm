@@ -61,9 +61,15 @@ enum class PatchParameterId
     chorus,
     reverbMix,
     delayMix,
-    spread,
-    pan,
-    tone
+    panRate,
+    panDepth,
+    panMode,
+    delayMode,
+    reverbMode,
+    tone,
+    volume,
+    muted,
+    soloed
 };
 
 enum class OperatorParameterId
@@ -158,7 +164,15 @@ bool patchesEqual(const opaline::OpalinePatch& lhs, const opaline::OpalinePatch&
         || lhs.effects.echoMix != rhs.effects.echoMix
         || lhs.effects.tone != rhs.effects.tone
         || lhs.effects.chorus != rhs.effects.chorus
-        || lhs.effects.delay != rhs.effects.delay)
+        || lhs.effects.delay != rhs.effects.delay
+        || lhs.effects.panRate != rhs.effects.panRate
+        || lhs.effects.panDepth != rhs.effects.panDepth
+        || lhs.effects.panMode != rhs.effects.panMode
+        || lhs.effects.delayMode != rhs.effects.delayMode
+        || lhs.effects.reverbMode != rhs.effects.reverbMode
+        || lhs.effects.volume != rhs.effects.volume
+        || lhs.effects.muted != rhs.effects.muted
+        || lhs.effects.soloed != rhs.effects.soloed)
     {
         return false;
     }
@@ -313,9 +327,15 @@ static PatchParameterId patchParameterId(NSString* parameter)
     if ([parameter isEqualToString:@"fx.chorus"]) return PatchParameterId::chorus;
     if ([parameter isEqualToString:@"fx.revmix"]) return PatchParameterId::reverbMix;
     if ([parameter isEqualToString:@"fx.dlymix"]) return PatchParameterId::delayMix;
-    if ([parameter isEqualToString:@"fx.spread"]) return PatchParameterId::spread;
-    if ([parameter isEqualToString:@"fx.pan"]) return PatchParameterId::pan;
+    if ([parameter isEqualToString:@"fx.panrate"]) return PatchParameterId::panRate;
+    if ([parameter isEqualToString:@"fx.pandepth"]) return PatchParameterId::panDepth;
+    if ([parameter isEqualToString:@"fx.panmode"]) return PatchParameterId::panMode;
+    if ([parameter isEqualToString:@"fx.delaymode"]) return PatchParameterId::delayMode;
+    if ([parameter isEqualToString:@"fx.reverbmode"]) return PatchParameterId::reverbMode;
     if ([parameter isEqualToString:@"fx.tone"]) return PatchParameterId::tone;
+    if ([parameter isEqualToString:@"fx.volume"]) return PatchParameterId::volume;
+    if ([parameter isEqualToString:@"fx.muted"]) return PatchParameterId::muted;
+    if ([parameter isEqualToString:@"fx.soloed"]) return PatchParameterId::soloed;
     return PatchParameterId::invalid;
 }
 
@@ -337,33 +357,26 @@ static OperatorParameterId operatorParameterId(NSString* parameter)
 
 static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
 {
+    NSString* path = [NSBundle.mainBundle pathForResource:@"factory" ofType:@"syx"];
+    NSData* data = path != nil ? [NSData dataWithContentsOfFile:path] : nil;
+    if (data != nil && data.length > 0)
+    {
+        const auto* bytes = static_cast<const std::uint8_t*>(data.bytes);
+        std::vector<std::uint8_t> sysex(bytes, bytes + data.length);
+        try
+        {
+            bank = opaline::voiceBankFromSysex(sysex, "Factory");
+            return true;
+        }
+        catch (...) {}
+    }
+
     NSURL* libraryURL = [NSBundle.mainBundle URLForResource:@"factory.opalinelibrary" withExtension:@"xml"];
     NSData* libraryData = libraryURL != nil ? [NSData dataWithContentsOfURL:libraryURL] : nil;
     opaline::OpalineVoiceLibrary factoryLibrary;
-    if (opaline::mobile::voiceLibraryFromXMLData(libraryData, factoryLibrary))
-    {
-        bank = std::move(factoryLibrary.banks[0]);
-        return true;
-    }
-
-    NSString* path = [NSBundle.mainBundle pathForResource:@"factory" ofType:@"syx"];
-    if (path == nil)
+    if (!opaline::mobile::voiceLibraryFromXMLData(libraryData, factoryLibrary))
         return false;
-
-    NSData* data = [NSData dataWithContentsOfFile:path];
-    if (data == nil || data.length == 0)
-        return false;
-
-    const auto* bytes = static_cast<const std::uint8_t*>(data.bytes);
-    std::vector<std::uint8_t> sysex(bytes, bytes + data.length);
-    try
-    {
-        bank = opaline::voiceBankFromSysex(sysex, "Factory");
-    }
-    catch (...)
-    {
-        bank = opaline::makeInitVoiceBank("Factory");
-    }
+    bank = std::move(factoryLibrary.banks[0]);
     return true;
 }
 
@@ -599,7 +612,15 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
                 << "\" delay=\"" << effects.delay
                 << "\" echoMix=\"" << effects.echoMix
                 << "\" chorus=\"" << effects.chorus
-                << "\" tone=\"" << effects.tone << "\"/>\n";
+                << "\" tone=\"" << effects.tone
+                << "\" volume=\"" << effects.volume
+                << "\" muted=\"" << (effects.muted ? 1 : 0)
+                << "\" soloed=\"" << (effects.soloed ? 1 : 0)
+                << "\" panRate=\"" << effects.panRate
+                << "\" panDepth=\"" << effects.panDepth
+                << "\" panMode=\"" << effects.panMode
+                << "\" delayMode=\"" << effects.delayMode
+                << "\" reverbMode=\"" << effects.reverbMode << "\"/>\n";
             xml << "    </Voice>\n";
         }
         xml << "  </Bank>\n";
@@ -678,9 +699,15 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
     xml << "    <Parameter key=\"fx.chorus\" value=\"" << patchSnapshot.effects.chorus << "\"/>\n";
     xml << "    <Parameter key=\"fx.revmix\" value=\"" << patchSnapshot.effects.mix << "\"/>\n";
     xml << "    <Parameter key=\"fx.dlymix\" value=\"" << patchSnapshot.effects.echoMix << "\"/>\n";
-    xml << "    <Parameter key=\"fx.spread\" value=\"" << patchSnapshot.effects.spread << "\"/>\n";
-    xml << "    <Parameter key=\"fx.pan\" value=\"" << patchSnapshot.effects.pan << "\"/>\n";
+    xml << "    <Parameter key=\"fx.panrate\" value=\"" << patchSnapshot.effects.panRate << "\"/>\n";
+    xml << "    <Parameter key=\"fx.pandepth\" value=\"" << patchSnapshot.effects.panDepth << "\"/>\n";
+    xml << "    <Parameter key=\"fx.panmode\" value=\"" << patchSnapshot.effects.panMode << "\"/>\n";
+    xml << "    <Parameter key=\"fx.delaymode\" value=\"" << patchSnapshot.effects.delayMode << "\"/>\n";
+    xml << "    <Parameter key=\"fx.reverbmode\" value=\"" << patchSnapshot.effects.reverbMode << "\"/>\n";
     xml << "    <Parameter key=\"fx.tone\" value=\"" << patchSnapshot.effects.tone << "\"/>\n";
+    xml << "    <Parameter key=\"fx.volume\" value=\"" << patchSnapshot.effects.volume << "\"/>\n";
+    xml << "    <Parameter key=\"fx.muted\" value=\"" << (patchSnapshot.effects.muted ? 1 : 0) << "\"/>\n";
+    xml << "    <Parameter key=\"fx.soloed\" value=\"" << (patchSnapshot.effects.soloed ? 1 : 0) << "\"/>\n";
     xml << "    <Parameter key=\"fx.enabled\" value=\"" << (effectsEnabledSnapshot ? 1 : 0) << "\"/>\n";
 
     for (int opIndex = 0; opIndex < opaline::kOperatorCount; ++opIndex)
@@ -770,12 +797,24 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
             patch.effects.mix = clamp(value, 0, 99);
         else if ([key isEqualToString:@"fx.dlymix"])
             patch.effects.echoMix = clamp(value, 0, 99);
-        else if ([key isEqualToString:@"fx.spread"])
-            patch.effects.spread = clamp(value, 0, 99);
-        else if ([key isEqualToString:@"fx.pan"])
-            patch.effects.pan = clamp(value, 0, 99);
+        else if ([key isEqualToString:@"fx.panrate"])
+            patch.effects.panRate = clamp(value, 0, 99);
+        else if ([key isEqualToString:@"fx.pandepth"])
+            patch.effects.panDepth = clamp(value, 0, 99);
+        else if ([key isEqualToString:@"fx.panmode"])
+            patch.effects.panMode = clamp(value, 0, 4);
+        else if ([key isEqualToString:@"fx.delaymode"])
+            patch.effects.delayMode = clamp(value, 0, 3);
+        else if ([key isEqualToString:@"fx.reverbmode"])
+            patch.effects.reverbMode = clamp(value, 0, 3);
         else if ([key isEqualToString:@"fx.tone"])
             patch.effects.tone = clamp(value, 0, 99);
+        else if ([key isEqualToString:@"fx.volume"])
+            patch.effects.volume = clamp(value, 0, 99);
+        else if ([key isEqualToString:@"fx.muted"])
+            patch.effects.muted = value != 0;
+        else if ([key isEqualToString:@"fx.soloed"])
+            patch.effects.soloed = value != 0;
         else if ([key isEqualToString:@"fx.enabled"])
             importedEffectsEnabled = value != 0;
     };
@@ -981,16 +1020,20 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
     snapshot[@"lfo.ams"] = @(patch.lfo.ampSensitivity);
     snapshot[@"lfo.wave"] = @(patch.lfo.wave);
     snapshot[@"lfo.sync"] = @(patch.lfo.sync ? 1 : 0);
-    snapshot[@"fx.reverb"] = @(static_cast<int>(std::lround(std::sqrt(static_cast<double>(patch.effects.reverb)
-                                                                      * static_cast<double>(patch.effects.mix)))));
-    snapshot[@"fx.delay"] = @(static_cast<int>(std::lround(std::sqrt(static_cast<double>(patch.effects.delay)
-                                                                     * static_cast<double>(patch.effects.echoMix)))));
+    snapshot[@"fx.reverb"] = @(patch.effects.reverb);
+    snapshot[@"fx.delay"] = @(patch.effects.delay);
     snapshot[@"fx.chorus"] = @(patch.effects.chorus);
     snapshot[@"fx.revmix"] = @(patch.effects.mix);
     snapshot[@"fx.dlymix"] = @(patch.effects.echoMix);
-    snapshot[@"fx.spread"] = @(patch.effects.spread);
-    snapshot[@"fx.pan"] = @(patch.effects.pan);
+    snapshot[@"fx.panrate"] = @(patch.effects.panRate);
+    snapshot[@"fx.pandepth"] = @(patch.effects.panDepth);
+    snapshot[@"fx.panmode"] = @(patch.effects.panMode);
+    snapshot[@"fx.delaymode"] = @(patch.effects.delayMode);
+    snapshot[@"fx.reverbmode"] = @(patch.effects.reverbMode);
     snapshot[@"fx.tone"] = @(patch.effects.tone);
+    snapshot[@"fx.volume"] = @(patch.effects.volume);
+    snapshot[@"fx.muted"] = @(patch.effects.muted ? 1 : 0);
+    snapshot[@"fx.soloed"] = @(patch.effects.soloed ? 1 : 0);
     snapshot[@"fx.enabled"] = @(effectsEnabledSnapshot ? 1 : 0);
 
     for (int opIndex = 0; opIndex < opaline::kOperatorCount; ++opIndex)
@@ -1057,20 +1100,26 @@ static bool readBundledFactoryBank(opaline::OpalineVoiceBank& bank)
         case PatchParameterId::lfoAmpSensitivity: currentPatch.lfo.ampSensitivity = clamp(value, 0, 3); break;
         case PatchParameterId::lfoWave: currentPatch.lfo.wave = clamp(value, 0, 3); break;
         case PatchParameterId::lfoSync: currentPatch.lfo.sync = value != 0; break;
-        case PatchParameterId::reverb:
-            currentPatch.effects.reverb = clamp(value, 0, 99);
-            currentPatch.effects.mix = currentPatch.effects.reverb;
-            break;
-        case PatchParameterId::delay:
-            currentPatch.effects.delay = clamp(value, 0, 99);
-            currentPatch.effects.echoMix = currentPatch.effects.delay;
-            break;
+        case PatchParameterId::reverb: currentPatch.effects.reverb = clamp(value, 0, 99); break;
+        case PatchParameterId::delay: currentPatch.effects.delay = clamp(value, 0, 99); break;
         case PatchParameterId::chorus: currentPatch.effects.chorus = clamp(value, 0, 99); break;
         case PatchParameterId::reverbMix: currentPatch.effects.mix = clamp(value, 0, 99); break;
         case PatchParameterId::delayMix: currentPatch.effects.echoMix = clamp(value, 0, 99); break;
-        case PatchParameterId::spread: currentPatch.effects.spread = clamp(value, 0, 99); break;
-        case PatchParameterId::pan: currentPatch.effects.pan = clamp(value, 0, 99); break;
+        case PatchParameterId::panRate: currentPatch.effects.panRate = clamp(value, 0, 99); break;
+        case PatchParameterId::panDepth:
+            currentPatch.effects.panDepth = clamp(value, 0, 99);
+            currentPatch.effects.chorus = currentPatch.effects.panMode == 4 ? currentPatch.effects.panDepth : 0;
+            break;
+        case PatchParameterId::panMode:
+            currentPatch.effects.panMode = clamp(value, 0, 4);
+            currentPatch.effects.chorus = currentPatch.effects.panMode == 4 ? currentPatch.effects.panDepth : 0;
+            break;
+        case PatchParameterId::delayMode: currentPatch.effects.delayMode = clamp(value, 0, 3); break;
+        case PatchParameterId::reverbMode: currentPatch.effects.reverbMode = clamp(value, 0, 3); break;
         case PatchParameterId::tone: currentPatch.effects.tone = clamp(value, 0, 99); break;
+        case PatchParameterId::volume: currentPatch.effects.volume = clamp(value, 0, 99); break;
+        case PatchParameterId::muted: currentPatch.effects.muted = value != 0; break;
+        case PatchParameterId::soloed: currentPatch.effects.soloed = value != 0; break;
         case PatchParameterId::invalid: break;
     }
     currentPatch = opaline::normalizePatch(currentPatch);

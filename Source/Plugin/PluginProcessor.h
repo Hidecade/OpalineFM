@@ -60,6 +60,7 @@ public:
     std::array<float, 256> getVoiceScopeWaveform() const;
     float getVoiceScopeLevel() const;
     double getVoiceScopeFrequency() const;
+    std::array<float, 3> getFxMeterLevels() const noexcept;
     void setScopeCaptureEnabled(bool enabled) noexcept;
     void startWavRecording();
     void stopWavRecording();
@@ -143,8 +144,9 @@ private:
         std::atomic<float>* effectTone = nullptr;
         std::atomic<float>* effectChorus = nullptr;
         std::atomic<float>* effectDelay = nullptr;
-        std::atomic<float>* effectSpread = nullptr;
-        std::atomic<float>* effectPan = nullptr;
+        std::atomic<float>* effectPanRate = nullptr;
+        std::atomic<float>* effectPanDepth = nullptr;
+        std::atomic<float>* effectPanMode = nullptr;
         std::array<OperatorParameterPointers, opaline::kOperatorCount> operators {};
     };
 
@@ -189,6 +191,7 @@ private:
     mutable std::array<float, opaline::RealtimeScopeBuffer::historySize> scopeHistory {};
     mutable std::size_t scopeHistoryWriteIndex = 0;
     std::atomic<bool> scopeCaptureEnabled { false };
+    std::array<std::atomic<float>, 3> fxMeterLevels {};
     opaline::RealtimeAudioRecorder wavRecorder;
     opaline::RealtimeCommandQueue<RealtimeCommand, 1024> realtimeCommands;
     std::atomic<bool> realtimeCommandOverflowed { false };

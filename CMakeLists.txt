@@ -38,6 +38,7 @@ else()
 endif()
 
 add_library(opaline_engine STATIC
+    Source/DSP/OpalineStereoDelay.cpp
     Source/Engine/ChipVoiceImport.cpp
     Source/Engine/OpalineChipEnvelope.cpp
     Source/Engine/OpalineEnvelope.cpp

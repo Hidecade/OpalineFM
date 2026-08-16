@@ -2,6 +2,7 @@
 
 #include "Engine/OpalineTypes.h"
 #include "Engine/OpalineVoice.h"
+#include "DSP/OpalineStereoDelay.h"
 
 #include <array>
 #include <atomic>
@@ -49,8 +50,8 @@ private:
 
     OpalinePatch patch;
     std::vector<OpalineVoice> voices;
-    std::vector<double> delayBufferLeft;
-    std::vector<double> delayBufferRight;
+    OpalineStereoDelay stereoDelay;
+    StereoDelayParams stereoDelayParams;
     std::vector<double> chorusBufferLeft;
     std::vector<double> chorusBufferRight;
     std::array<std::vector<double>, 4> reverbBufferLeft;
@@ -58,7 +59,6 @@ private:
     std::array<double, 4> reverbDampingLeft {};
     std::array<double, 4> reverbDampingRight {};
     std::array<int, 4> reverbWriteIndices {};
-    int delayWriteIndex = 0;
     int chorusWriteIndex = 0;
     double currentSampleRate = 44100.0;
     int maxVoiceCount = kDefaultMaxVoices;
@@ -87,8 +87,6 @@ private:
     std::atomic<float> publishedScopeLevel { 0.0f };
     std::atomic<double> publishedScopeFrequency { 261.625565 };
     double chorusPhase = 0.0;
-    double toneLeft = 0.0;
-    double toneRight = 0.0;
     double lastLeft = 0.0;
     double lastRight = 0.0;
     double effectReverb = 0.0;
@@ -97,16 +95,17 @@ private:
     double effectTone = 0.0;
     double effectChorus = 0.0;
     double effectDelay = 0.0;
-    double effectSpread = 0.0;
-    double effectPan = 0.0;
+    double autoPanRateHz = 0.5;
+    double autoPanDepth = 0.0;
+    double autoPanPhase = 0.0;
+    double autoPanHeldRandom = 0.0;
+    std::uint32_t autoPanRandomState = 0x714ac3d9U;
+    int autoPanMode = 0;
     double effectDryGain = 1.0;
     double effectReverbWetGain = 0.0;
     double effectEchoWetGain = 0.0;
     double effectReverbFeedback = 0.48;
     double effectReverbDamping = 0.08;
-    double effectDelaySamples = 0.0;
-    double effectDelayFeedback = 0.0;
-    double effectToneCoeff = 0.0;
     double effectChorusPhaseIncrement = 0.0;
     double effectChorusDelay = 0.0;
     double effectChorusDepth = 0.0;

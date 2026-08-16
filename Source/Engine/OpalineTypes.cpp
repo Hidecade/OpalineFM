@@ -42,14 +42,18 @@ OpalinePatch normalizePatch(const OpalinePatch& patch)
     normalized.pitchEnvelope.level2 = clampInt(normalized.pitchEnvelope.level2, 0, 99);
     normalized.pitchEnvelope.level3 = clampInt(normalized.pitchEnvelope.level3, 0, 99);
 
+    normalized.effects.volume = clampInt(normalized.effects.volume, 0, 99);
     normalized.effects.reverb = clampInt(normalized.effects.reverb, 0, 99);
     normalized.effects.mix = clampInt(normalized.effects.mix, 0, 99);
     normalized.effects.echoMix = clampInt(normalized.effects.echoMix, 0, 99);
     normalized.effects.tone = clampInt(normalized.effects.tone, 0, 99);
     normalized.effects.chorus = clampInt(normalized.effects.chorus, 0, 99);
     normalized.effects.delay = clampInt(normalized.effects.delay, 0, 99);
-    normalized.effects.spread = clampInt(normalized.effects.spread, 0, 99);
-    normalized.effects.pan = clampInt(normalized.effects.pan, 0, 99);
+    normalized.effects.panRate = clampInt(normalized.effects.panRate, 0, 99);
+    normalized.effects.panDepth = clampInt(normalized.effects.panDepth, 0, 99);
+    normalized.effects.panMode = clampInt(normalized.effects.panMode, 0, 4);
+    normalized.effects.delayMode = clampInt(normalized.effects.delayMode, 0, 3);
+    normalized.effects.reverbMode = clampInt(normalized.effects.reverbMode, 0, 3);
 
     for (auto& op : normalized.operators)
     {

@@ -31,14 +31,14 @@ Opaline FMはFM音源方式を採用していますが、チップエミュレ�
 
 ## ダウンロード
 
-現在の公開リリースは**v1.0.15**です。Windows版とmacOS版は [v1.0.15 Release](https://github.com/Hidecade/OpalineFM/releases/tag/v1.0.15) からダウンロードできます。
+現在の公開リリースは**v1.0.16**です。Windows版とmacOS版は [v1.0.16 Release](https://github.com/Hidecade/OpalineFM/releases/tag/v1.0.16) からダウンロードできます。
 
 使いたい形式に合わせて選んでください。
 
-- `OpalineFM-Standalone-1.0.15-macOS.pkg`: 単体アプリとして使う場合。DAWなしでOpaline FMを演奏できます。
-- `OpalineFM-AU-1.0.15-macOS.pkg`: Logic Pro、GarageBand、AU対応DAWで使う場合。
-- `OpalineFM-VST3-1.0.15-macOS.pkg`: VST3対応DAWで使う場合。
-- `OpalineFM-1.0.15-Windows-x64-Setup.exe`: 64-bit Windows用Standalone／VST3統合インストーラー。
+- `OpalineFM-Standalone-1.0.16-macOS.pkg`: 単体アプリとして使う場合。DAWなしでOpaline FMを演奏できます。
+- `OpalineFM-AU-1.0.16-macOS.pkg`: Logic Pro、GarageBand、AU対応DAWで使う場合。
+- `OpalineFM-VST3-1.0.16-macOS.pkg`: VST3対応DAWで使う場合。
+- `OpalineFM-1.0.16-Windows-x64-Setup.exe`: 64-bit Windows用Standalone／VST3統合インストーラー。
 
 macOS版は署名・公証済みです。Windows版は現在未署名のため、インストール時に発行元の警告が表示される場合があります。
 
@@ -184,7 +184,7 @@ Opaline FMは単一の公開レンダリングエンジンを使用します。�
 
 ### Windows Standalone、VST3
 
-`OpalineFM-1.0.15-Windows-x64-Setup.exe`を実行し、必要なコンポーネントを選択します。
+`OpalineFM-1.0.16-Windows-x64-Setup.exe`を実行し、必要なコンポーネントを選択します。
 
 Standalone版はOpaline FMアプリを追加します。VST3版は標準のシステムVST3フォルダーへプラグインを配置します。
 
@@ -198,9 +198,9 @@ C:\Program Files\Common Files\VST3\Opaline FM.vst3
 
 使用する形式の署名・公証済みmacOSパッケージを実行します。
 
-- `OpalineFM-Standalone-1.0.15-macOS.pkg`
-- `OpalineFM-VST3-1.0.15-macOS.pkg`
-- `OpalineFM-AU-1.0.15-macOS.pkg`
+- `OpalineFM-Standalone-1.0.16-macOS.pkg`
+- `OpalineFM-VST3-1.0.16-macOS.pkg`
+- `OpalineFM-AU-1.0.16-macOS.pkg`
 
 各パッケージは標準のmacOSアプリ/プラグイン場所へインストールします。
 
@@ -242,7 +242,7 @@ cmake --build --preset plugin-au-macos-debug
 Windows開発用インストーラーにはInno Setup 6または7が必要です。
 
 ```powershell
-.\scripts\build-windows-installers.ps1 -Version 1.0.15
+.\scripts\build-windows-installers.ps1 -Version 1.0.16
 ```
 
 統合インストーラーは`dist/`へ出力されます。

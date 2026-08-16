@@ -41,8 +41,9 @@ constexpr const char* effectEchoMix = "effectEchoMix";
 constexpr const char* effectTone = "effectTone";
 constexpr const char* effectChorus = "effectChorus";
 constexpr const char* effectDelay = "effectDelay";
-constexpr const char* effectSpread = "effectSpread";
-constexpr const char* effectPan = "effectPan";
+constexpr const char* effectPanRate = "effectPanRate";
+constexpr const char* effectPanDepth = "effectPanDepth";
+constexpr const char* effectPanMode = "effectPanMode";
 } // namespace param_ids
 
 double pitchWheelToUnitBend(const int pitchWheelValue)
@@ -182,8 +183,9 @@ void OpalineAudioProcessor::cacheParameterPointers()
     parameterPointers.effectTone = get(param_ids::effectTone);
     parameterPointers.effectChorus = get(param_ids::effectChorus);
     parameterPointers.effectDelay = get(param_ids::effectDelay);
-    parameterPointers.effectSpread = get(param_ids::effectSpread);
-    parameterPointers.effectPan = get(param_ids::effectPan);
+    parameterPointers.effectPanRate = get(param_ids::effectPanRate);
+    parameterPointers.effectPanDepth = get(param_ids::effectPanDepth);
+    parameterPointers.effectPanMode = get(param_ids::effectPanMode);
 
     for (int opIndex = 0; opIndex < opaline::kOperatorCount; ++opIndex)
     {
@@ -267,8 +269,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout OpalineAudioProcessor::creat
     params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::effectTone, "Tone", intRange(0.0f, 99.0f), 50.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::effectChorus, "Chorus", intRange(0.0f, 99.0f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::effectDelay, "Delay", intRange(0.0f, 99.0f), 0.0f));
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::effectSpread, "Spread", intRange(0.0f, 99.0f), 0.0f));
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::effectPan, "Pan", intRange(0.0f, 99.0f), 50.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::effectPanRate, "Pan Rate", intRange(0.0f, 99.0f), 25.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(param_ids::effectPanDepth, "Pan Depth", intRange(0.0f, 99.0f), 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(param_ids::effectPanMode, "Pan Wave", juce::StringArray { "Sine", "Triangle", "Square", "Random", "Chorus" }, 0));
 
     for (int op = 0; op < opaline::kOperatorCount; ++op)
     {
@@ -314,12 +317,20 @@ void OpalineAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
     const bool renderPerformanceB = audioState.performance.mode != opalineapp::PerformanceMode::Single;
     const float gain = audioState.masterVolume;
     const float balance = static_cast<float>(juce::jlimit(-100, 100, audioState.performance.abBalance)) / 100.0f;
-    const float gainA = balance >= 0.0f ? 1.0f : 1.0f + balance;
-    const float gainB = balance <= 0.0f ? 1.0f : 1.0f - balance;
+    float gainA = balance >= 0.0f ? 1.0f : 1.0f + balance;
+    float gainB = balance <= 0.0f ? 1.0f : 1.0f - balance;
+    const bool soloA = audioState.patch.effects.soloed;
+    const bool soloB = renderPerformanceB
+        && patchForVoiceIndex(audioState.performance.voiceBIndex, audioState).effects.soloed;
+    if (soloA && !soloB) gainB = 0.0f;
+    if (soloB && !soloA) gainA = 0.0f;
     const float mixGain = audioState.performance.mode == opalineapp::PerformanceMode::Dual ? 0.50f : 0.82f;
 
     auto midi = midiMessages.cbegin();
     const auto midiEnd = midiMessages.cend();
+    float peakA = 0.0f;
+    float peakB = 0.0f;
+    float peakFinal = 0.0f;
     for (int sample = 0; sample < numSamples; ++sample)
     {
         while (midi != midiEnd && (*midi).samplePosition <= sample)
@@ -330,9 +341,10 @@ void OpalineAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
 
         const auto outputA = engine.renderSample();
         auto output = outputA;
+        opaline::StereoSample outputB {};
         if (renderPerformanceB)
         {
-            const auto outputB = performanceEngineB.renderSample();
+            outputB = performanceEngineB.renderSample();
             output.left = (outputA.left * gainA + outputB.left * gainB) * mixGain;
             output.right = (outputA.right * gainA + outputB.right * gainB) * mixGain;
         }
@@ -342,7 +354,15 @@ void OpalineAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
             leftOutput[sample] = left;
         if (rightOutput != nullptr)
             rightOutput[sample] = right;
+        peakA = juce::jmax(peakA, static_cast<float>(juce::jmax(std::abs(outputA.left),
+                                                                std::abs(outputA.right)) * gain));
+        peakB = juce::jmax(peakB, static_cast<float>(juce::jmax(std::abs(outputB.left),
+                                                                std::abs(outputB.right)) * gain));
+        peakFinal = juce::jmax(peakFinal, juce::jmax(std::abs(left), std::abs(right)));
     }
+    fxMeterLevels[0].store(peakA, std::memory_order_relaxed);
+    fxMeterLevels[1].store(renderPerformanceB ? peakB : 0.0f, std::memory_order_relaxed);
+    fxMeterLevels[2].store(peakFinal, std::memory_order_relaxed);
 
     if (leftOutput != nullptr)
     {
@@ -353,6 +373,13 @@ void OpalineAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
     }
 
     midiMessages.clear();
+}
+
+std::array<float, 3> OpalineAudioProcessor::getFxMeterLevels() const noexcept
+{
+    return { fxMeterLevels[0].load(std::memory_order_relaxed),
+             fxMeterLevels[1].load(std::memory_order_relaxed),
+             fxMeterLevels[2].load(std::memory_order_relaxed) };
 }
 
 juce::AudioProcessorEditor* OpalineAudioProcessor::createEditor()
@@ -821,8 +848,9 @@ void OpalineAudioProcessor::applyParametersToState(opalineapp::SynthState& targe
         patch.effects.tone = parameterInt(parameterPointers.effectTone, patch.effects.tone);
         patch.effects.chorus = parameterInt(parameterPointers.effectChorus, patch.effects.chorus);
         patch.effects.delay = parameterInt(parameterPointers.effectDelay, patch.effects.delay);
-        patch.effects.spread = parameterInt(parameterPointers.effectSpread, patch.effects.spread);
-        patch.effects.pan = parameterInt(parameterPointers.effectPan, patch.effects.pan);
+        patch.effects.panRate = parameterInt(parameterPointers.effectPanRate, patch.effects.panRate);
+        patch.effects.panDepth = parameterInt(parameterPointers.effectPanDepth, patch.effects.panDepth);
+        patch.effects.panMode = parameterInt(parameterPointers.effectPanMode, patch.effects.panMode);
 
         for (int opIndex = 0; opIndex < opaline::kOperatorCount; ++opIndex)
         {
@@ -970,8 +998,9 @@ void OpalineAudioProcessor::syncParametersFromState()
     setApvtsParameter(parameters, param_ids::effectTone, static_cast<float>(state.patch.effects.tone));
     setApvtsParameter(parameters, param_ids::effectChorus, static_cast<float>(state.patch.effects.chorus));
     setApvtsParameter(parameters, param_ids::effectDelay, static_cast<float>(state.patch.effects.delay));
-    setApvtsParameter(parameters, param_ids::effectSpread, static_cast<float>(state.patch.effects.spread));
-    setApvtsParameter(parameters, param_ids::effectPan, static_cast<float>(state.patch.effects.pan));
+    setApvtsParameter(parameters, param_ids::effectPanRate, static_cast<float>(state.patch.effects.panRate));
+    setApvtsParameter(parameters, param_ids::effectPanDepth, static_cast<float>(state.patch.effects.panDepth));
+    setApvtsParameter(parameters, param_ids::effectPanMode, static_cast<float>(state.patch.effects.panMode));
 
     for (int opIndex = 0; opIndex < opaline::kOperatorCount; ++opIndex)
     {
@@ -996,24 +1025,26 @@ void OpalineAudioProcessor::loadFactoryPrograms()
 {
     factoryPrograms.clear();
     auto library = opaline::makeInitVoiceLibrary();
-    const auto factoryXml = juce::parseXML(juce::String::fromUTF8(
-        OpalineBinaryData::factory_opalinelibrary_xml,
-        OpalineBinaryData::factory_opalinelibrary_xmlSize));
-    const bool loadedFactoryLibrary = factoryXml != nullptr
-        && opalineapp::voiceLibraryFromXml(*factoryXml, library);
+    bool loadedFactoryLibrary = false;
+    try
+    {
+        const auto* begin = reinterpret_cast<const std::uint8_t*>(OpalineBinaryData::factory_syx);
+        const std::vector<std::uint8_t> bytes(begin, begin + OpalineBinaryData::factory_syxSize);
+        library.banks[0] = opaline::voiceBankFromSysex(bytes, "Factory");
+        loadedFactoryLibrary = true;
+    }
+    catch (const std::exception&) {}
+
     if (!loadedFactoryLibrary)
     {
-        try
-        {
-            const auto* begin = reinterpret_cast<const std::uint8_t*>(OpalineBinaryData::factory_syx);
-            const std::vector<std::uint8_t> bytes(begin, begin + OpalineBinaryData::factory_syxSize);
-            library.banks[0] = opaline::voiceBankFromSysex(bytes, "Factory");
-        }
-        catch (const std::exception&)
-        {
-            library.banks[0] = opaline::makeInitVoiceBank("Factory");
-        }
+        const auto factoryXml = juce::parseXML(juce::String::fromUTF8(
+            OpalineBinaryData::factory_opalinelibrary_xml,
+            OpalineBinaryData::factory_opalinelibrary_xmlSize));
+        loadedFactoryLibrary = factoryXml != nullptr
+            && opalineapp::voiceLibraryFromXml(*factoryXml, library);
     }
+    if (!loadedFactoryLibrary)
+        library.banks[0] = opaline::makeInitVoiceBank("Factory");
 
     factoryPrograms.reserve(opaline::kOpalineVoiceBankSize);
     for (const auto& voice : library.banks[0].voices)

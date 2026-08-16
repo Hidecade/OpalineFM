@@ -122,7 +122,8 @@ void validateRoundTrip(const juce::XmlElement& xml,
             || actual.patch.effects.delay != expected.patch.effects.delay
             || actual.patch.effects.echoMix != expected.patch.effects.echoMix
             || actual.patch.effects.chorus != expected.patch.effects.chorus
-            || actual.patch.effects.tone != expected.patch.effects.tone)
+            || actual.patch.effects.tone != expected.patch.effects.tone
+            || actual.patch.effects.reverbMode != expected.patch.effects.reverbMode)
         {
             throw std::runtime_error("Factory XML round trip failed at voice " + std::to_string(i + 1));
         }
@@ -139,13 +140,38 @@ int main(int argc, char** argv)
         const auto assets = root.getChildFile("assets");
         const auto input = assets.getChildFile("factory_v1.syx");
         const auto output = assets.getChildFile("factory.opalinelibrary.xml");
-        const auto bank = opaline::voiceBankFromSysex(readBinary(input), "factory");
+        opaline::OpalineVoiceBank bank;
+        if (argc >= 3)
+        {
+            const auto settingsFile = juce::File(juce::String::fromUTF8(argv[2]));
+            const auto settingsXml = juce::parseXML(settingsFile);
+            if (settingsXml == nullptr)
+                throw std::runtime_error("Could not parse " + settingsFile.getFullPathName().toStdString());
+
+            const auto* value = settingsXml->getChildByAttribute("name", "voiceLibraryXml");
+            const auto* libraryXml = value != nullptr ? value->getChildByName("compatibleVoiceLibrary") : nullptr;
+            opaline::OpalineVoiceLibrary savedLibrary;
+            if (libraryXml == nullptr || !opalineapp::voiceLibraryFromXml(*libraryXml, savedLibrary))
+                throw std::runtime_error("Saved Bank 1 could not be decoded.");
+            bank = savedLibrary.banks[0];
+        }
+        else
+        {
+            bank = opaline::voiceBankFromSysex(readBinary(input), "Factory");
+        }
+        bank.name = "Factory";
 
         auto library = opaline::makeInitVoiceLibrary();
         library.banks[0] = bank;
         const int correctedVelocityParameters = applyMinimumVelocityResponse(library.banks[0]);
         for (int i = 0; i < opaline::kOpalineVoiceBankSize; ++i)
-            applyEffects(library.banks[0].voices[static_cast<std::size_t>(i)], kFactoryEffects[static_cast<std::size_t>(i)]);
+        {
+            auto& voice = library.banks[0].voices[static_cast<std::size_t>(i)];
+            if (argc < 3)
+                applyEffects(voice, kFactoryEffects[static_cast<std::size_t>(i)]);
+            if (voice.patch.effects.reverbMode == 0)
+                voice.patch.effects.reverbMode = 2;
+        }
 
         auto xml = opalineapp::voiceLibraryToXml(library);
         xml->setAttribute("source", "factory.syx");

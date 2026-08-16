@@ -20,14 +20,20 @@ juce::ValueTree voiceToValueTree(const opaline::OpalinePatchWithMetadata& voice,
     const auto effects = opaline::normalizePatch(voice.patch).effects;
     juce::ValueTree effectsTree { "Effects" };
     effectsTree.setProperty("enabled", voice.effectsEnabled, nullptr);
+    effectsTree.setProperty("volume", effects.volume, nullptr);
+    effectsTree.setProperty("muted", effects.muted, nullptr);
+    effectsTree.setProperty("soloed", effects.soloed, nullptr);
     effectsTree.setProperty("reverb", effects.reverb, nullptr);
     effectsTree.setProperty("mix", effects.mix, nullptr);
     effectsTree.setProperty("delay", effects.delay, nullptr);
     effectsTree.setProperty("echoMix", effects.echoMix, nullptr);
     effectsTree.setProperty("chorus", effects.chorus, nullptr);
     effectsTree.setProperty("tone", effects.tone, nullptr);
-    effectsTree.setProperty("spread", effects.spread, nullptr);
-    effectsTree.setProperty("pan", effects.pan, nullptr);
+    effectsTree.setProperty("panRate", effects.panRate, nullptr);
+    effectsTree.setProperty("panDepth", effects.panDepth, nullptr);
+    effectsTree.setProperty("panMode", effects.panMode, nullptr);
+    effectsTree.setProperty("delayMode", effects.delayMode, nullptr);
+    effectsTree.setProperty("reverbMode", effects.reverbMode, nullptr);
     tree.addChild(effectsTree, -1, nullptr);
     return tree;
 }
@@ -103,14 +109,21 @@ bool voiceLibraryFromXml(const juce::XmlElement& xml, opaline::OpalineVoiceLibra
             if (effectsTree.isValid())
             {
                 voice.effectsEnabled = static_cast<bool>(effectsTree.getProperty("enabled", true));
+                voice.patch.effects.volume = static_cast<int>(effectsTree.getProperty("volume", 80));
+                voice.patch.effects.muted = static_cast<bool>(effectsTree.getProperty("muted", false));
+                voice.patch.effects.soloed = static_cast<bool>(effectsTree.getProperty("soloed", false));
                 voice.patch.effects.reverb = static_cast<int>(effectsTree.getProperty("reverb", 0));
                 voice.patch.effects.mix = static_cast<int>(effectsTree.getProperty("mix", 0));
                 voice.patch.effects.delay = static_cast<int>(effectsTree.getProperty("delay", 0));
                 voice.patch.effects.echoMix = static_cast<int>(effectsTree.getProperty("echoMix", 0));
                 voice.patch.effects.chorus = static_cast<int>(effectsTree.getProperty("chorus", 0));
                 voice.patch.effects.tone = static_cast<int>(effectsTree.getProperty("tone", 50));
-                voice.patch.effects.spread = static_cast<int>(effectsTree.getProperty("spread", 0));
-                voice.patch.effects.pan = static_cast<int>(effectsTree.getProperty("pan", 50));
+                voice.patch.effects.panRate = static_cast<int>(effectsTree.getProperty("panRate", 25));
+                voice.patch.effects.panDepth = static_cast<int>(effectsTree.getProperty("panDepth", 0));
+                voice.patch.effects.panMode = static_cast<int>(effectsTree.getProperty("panMode", 0));
+                voice.patch.effects.delayMode = static_cast<int>(effectsTree.getProperty("delayMode", 1));
+                voice.patch.effects.reverbMode = static_cast<int>(
+                    effectsTree.getProperty("reverbMode", voice.patch.effects.reverbMode));
                 voice.patch = opaline::normalizePatch(voice.patch);
             }
             bank.voices[static_cast<std::size_t>(voiceIndex)] = voice;

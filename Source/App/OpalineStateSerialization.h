@@ -122,14 +122,20 @@ inline juce::ValueTree patchToValueTree(const opaline::OpalinePatch& patch)
     tree.addChild(pitchEnvelope, -1, nullptr);
 
     juce::ValueTree effects { state_ids::effects };
+    effects.setProperty("volume", patch.effects.volume, nullptr);
+    effects.setProperty("muted", patch.effects.muted, nullptr);
+    effects.setProperty("soloed", patch.effects.soloed, nullptr);
     effects.setProperty("reverb", patch.effects.reverb, nullptr);
     effects.setProperty("mix", patch.effects.mix, nullptr);
     effects.setProperty("echoMix", patch.effects.echoMix, nullptr);
     effects.setProperty("tone", patch.effects.tone, nullptr);
     effects.setProperty("chorus", patch.effects.chorus, nullptr);
     effects.setProperty("delay", patch.effects.delay, nullptr);
-    effects.setProperty("spread", patch.effects.spread, nullptr);
-    effects.setProperty("pan", patch.effects.pan, nullptr);
+    effects.setProperty("panRate", patch.effects.panRate, nullptr);
+    effects.setProperty("panDepth", patch.effects.panDepth, nullptr);
+    effects.setProperty("panMode", patch.effects.panMode, nullptr);
+    effects.setProperty("delayMode", patch.effects.delayMode, nullptr);
+    effects.setProperty("reverbMode", patch.effects.reverbMode, nullptr);
     tree.addChild(effects, -1, nullptr);
 
     for (int i = 0; i < opaline::kOperatorCount; ++i)
@@ -175,14 +181,20 @@ inline opaline::OpalinePatch patchFromValueTree(const juce::ValueTree& tree, con
     const auto effects = tree.getChildWithName(state_ids::effects);
     if (effects.isValid())
     {
+        patch.effects.volume = readInt(effects, "volume", patch.effects.volume);
+        patch.effects.muted = readBool(effects, "muted", patch.effects.muted);
+        patch.effects.soloed = readBool(effects, "soloed", patch.effects.soloed);
         patch.effects.reverb = readInt(effects, "reverb", patch.effects.reverb);
         patch.effects.mix = readInt(effects, "mix", patch.effects.mix);
         patch.effects.echoMix = readInt(effects, "echoMix", patch.effects.mix);
         patch.effects.tone = readInt(effects, "tone", patch.effects.tone);
         patch.effects.chorus = readInt(effects, "chorus", patch.effects.chorus);
         patch.effects.delay = readInt(effects, "delay", patch.effects.delay);
-        patch.effects.spread = readInt(effects, "spread", patch.effects.spread);
-        patch.effects.pan = readInt(effects, "pan", patch.effects.pan);
+        patch.effects.panRate = readInt(effects, "panRate", patch.effects.panRate);
+        patch.effects.panDepth = readInt(effects, "panDepth", patch.effects.panDepth);
+        patch.effects.panMode = readInt(effects, "panMode", patch.effects.panMode);
+        patch.effects.delayMode = readInt(effects, "delayMode", patch.effects.delayMode);
+        patch.effects.reverbMode = readInt(effects, "reverbMode", patch.effects.reverbMode);
     }
 
     for (int childIndex = 0; childIndex < tree.getNumChildren(); ++childIndex)

@@ -67,6 +67,7 @@ public:
     void setExternalMidiNoteState(const std::array<int, 128>& velocities);
     void setExternalControllerState(double pitchBend, double modWheel);
     void setExternalScopeSamples(const std::array<float, 4096>& samples, double sampleRate);
+    void setExternalFxMeterLevels(const std::array<float, 3>& levels) noexcept;
     void setExternalVoiceWaveform(const std::array<float, 256>& waveform,
                                   float level,
                                   double frequency);
@@ -113,6 +114,11 @@ private:
                             juce::TextButton& button,
                             bool shouldDrawButtonAsHighlighted,
                             bool shouldDrawButtonAsDown) override;
+        void drawComboBox(juce::Graphics& g, int width, int height,
+                          bool isButtonDown, int buttonX, int buttonY,
+                          int buttonWidth, int buttonHeight,
+                          juce::ComboBox& box) override;
+        void positionComboBoxText(juce::ComboBox& box, juce::Label& label) override;
         void drawToggleButton(juce::Graphics& g,
                               juce::ToggleButton& button,
                               bool shouldDrawButtonAsHighlighted,
@@ -137,6 +143,62 @@ private:
     {
     public:
         void paint(juce::Graphics& g) override;
+    };
+
+    class FxMixerPanel final : public juce::Component,
+                               private juce::Timer
+    {
+    public:
+        FxMixerPanel(const std::array<juce::Slider*, 6>& sliders,
+                     const std::array<juce::Label*, 6>& labels,
+                     juce::ComboBox& panMode,
+                     MainComponent& owner,
+                     juce::LookAndFeel& lookAndFeel);
+        ~FxMixerPanel() override;
+        void paint(juce::Graphics& g) override;
+        void resized() override;
+        void mouseDown(const juce::MouseEvent& event) override;
+        void mouseDrag(const juce::MouseEvent& event) override;
+        void mouseUp(const juce::MouseEvent& event) override;
+
+        std::function<void()> onClose;
+        std::function<std::array<float, 3>()> levelProvider;
+
+    private:
+        void timerCallback() override;
+        void drawMeters(juce::Graphics& g);
+        void selectOrSwapUnit(int effect);
+        void selectOrSwapUnitB(int effect);
+        std::array<juce::Slider*, 6> effectSliders;
+        std::array<juce::Label*, 6> effectLabels;
+        juce::ComboBox& panModeSelect;
+        MainComponent& main;
+        juce::ComboBox delayModeSelect;
+        juce::ComboBox reverbModeSelect;
+        juce::TextButton muteButton { "MUTE" };
+        juce::TextButton soloButton { "SOLO" };
+        juce::TextButton panButton { "PAN" };
+        juce::TextButton delayButton { "DELAY" };
+        juce::TextButton reverbButton { "REVERB" };
+        juce::Slider masterVolume;
+        juce::Slider channelVolume;
+        std::array<juce::Slider, 6> effectSlidersB;
+        std::array<juce::ComboBox, 3> modeSelectB;
+        std::array<juce::TextButton, 5> buttonsB {{
+            juce::TextButton("MUTE"), juce::TextButton("SOLO"),
+            juce::TextButton("PAN"), juce::TextButton("DELAY"),
+            juce::TextButton("REVERB") }};
+        juce::Slider channelVolumeB;
+        juce::TextButton closeButton { "CLOSE" };
+        bool draggingPanel = false;
+        juce::Point<int> dragStartScreen;
+        juce::Point<int> dragStartPosition;
+        std::array<float, 3> displayedLevels {};
+        bool refreshing = false;
+        std::array<int, 3> effectOrder {{ 0, 1, 2 }};
+        int selectedEffect = -1;
+        std::array<int, 3> effectOrderB {{ 0, 1, 2 }};
+        int selectedEffectB = -1;
     };
 
     class AlgorithmComponent final : public juce::Component
@@ -256,9 +318,17 @@ private:
     private:
         int noteForPosition(juce::Point<int> position) const;
         void updateHeldNote(int note);
+        int firstVisibleNote() const;
+        int maximumScrollSemitones() const;
+        juce::Rectangle<float> playableBounds() const;
+        juce::Rectangle<float> scrollBarBounds() const;
 
         MainComponent& owner;
         int heldNote = -1;
+        int scrollSemitones = 0;
+        int scrollStartSemitones = 0;
+        int scrollStartX = 0;
+        bool scrolling = false;
     };
 
     using PerformanceMode = opalineapp::PerformanceMode;
@@ -457,6 +527,7 @@ private:
     juce::TextButton voiceExportButton { "VOICE EXPORT" };
     juce::TextButton midiTestButton { "MIDI KEY TEST" };
     juce::TextButton effectsEnableButton { "EFFECT" };
+    juce::TextButton fxMixerButton { "FX MIXER" };
     juce::TextButton loadVoiceBankButton { "Load" };
     juce::TextButton saveVoiceBankButton { "Save" };
     juce::TextButton exportVoiceLibraryButton { "Export" };
@@ -486,11 +557,12 @@ private:
     StepWheelSlider pegLevel2Slider;
     StepWheelSlider pegLevel3Slider;
     StepWheelSlider effectReverbSlider;
-    StepWheelSlider effectSpreadSlider;
+    StepWheelSlider effectPanRateSlider;
     StepWheelSlider effectPanSlider;
     StepWheelSlider effectToneSlider;
     StepWheelSlider effectChorusSlider;
     StepWheelSlider effectDelaySlider;
+    juce::ComboBox effectPanModeSelect;
     juce::Slider pitchWheelSlider;
     juce::Slider modWheelSlider;
     StepWheelSlider pitchBendRangeSlider;
@@ -524,11 +596,12 @@ private:
     juce::Label pegLevel2Label;
     juce::Label pegLevel3Label;
     juce::Label effectReverbLabel;
-    juce::Label effectSpreadLabel;
+    juce::Label effectPanRateLabel;
     juce::Label effectPanLabel;
     juce::Label effectToneLabel;
     juce::Label effectChorusLabel;
     juce::Label effectDelayLabel;
+    std::unique_ptr<FxMixerPanel> fxMixerPanel;
     juce::Label pitchWheelLabel;
     juce::Label modWheelLabel;
     juce::Label pitchBendRangeLabel;
@@ -548,6 +621,9 @@ private:
 
     opaline::OpalineEngine engine;
     opaline::OpalineEngine performanceEngineB;
+    std::atomic<float> fxMeterA { 0.0f };
+    std::atomic<float> fxMeterB { 0.0f };
+    std::atomic<float> fxMeterFinal { 0.0f };
     opaline::OpalinePatch currentPatch;
     opaline::OpalinePatchWithMetadata copiedVoice;
     juce::String currentVoiceName { "INIT VOICE" };

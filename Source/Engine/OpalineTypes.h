@@ -56,14 +56,20 @@ struct OpalinePitchEnvelopeParams
 
 struct OpalineEffects
 {
+    int volume = 80;
+    bool muted = false;
+    bool soloed = false;
     int reverb = 0;
     int mix = 0;
     int echoMix = 0;
     int tone = 50;
     int chorus = 0;
     int delay = 0;
-    int spread = 0;
-    int pan = 50;
+    int panRate = 25;
+    int panDepth = 0;
+    int panMode = 0;
+    int delayMode = 1;
+    int reverbMode = 2;
 };
 
 struct OpalinePatch

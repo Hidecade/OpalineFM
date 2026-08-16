@@ -12,8 +12,6 @@ struct EditView: View {
     var body: some View {
         GeometryReader { proxy in
             VStack(spacing: 10) {
-                editHeader
-
                 HStack(alignment: .top, spacing: 8) {
                     tabBar
                         .frame(width: EditLayout.tabWidth)
@@ -29,6 +27,8 @@ struct EditView: View {
                     .frame(maxHeight: .infinity)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                editHeader
             }
             .padding(8)
             .frame(width: proxy.size.width, height: proxy.size.height)
@@ -62,18 +62,20 @@ struct EditView: View {
     private var editHeader: some View {
         HStack(spacing: 8) {
             playEditSwitch
-                .frame(width: 132, height: 28)
+                .frame(width: EditLayout.tabWidth, height: 28)
 
-            Spacer(minLength: 0)
+            HStack(spacing: 8) {
+                AuditionKeyRow()
+                    .frame(width: 336, height: 52)
 
-            AuditionKeyRow()
-                .frame(width: 336, height: 52)
-
-            EditScopeView(samples: synth.scopeSamples,
-                          cycles: synth.displayedWaveformCycles)
-                .frame(minWidth: 120, maxWidth: 220)
-                .frame(height: 52)
+                EditScopeView(samples: synth.scopeSamples,
+                              cycles: synth.displayedWaveformCycles)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 52)
+            }
+            .frame(width: EditLayout.totalPanelWidth)
         }
+        .frame(width: EditLayout.tabWidth + EditLayout.panelGap + EditLayout.totalPanelWidth)
         .frame(height: 56)
     }
 
@@ -764,29 +766,71 @@ private struct LfoPitchEgEditPage: View {
 private struct FxEditPage: View {
     @EnvironmentObject private var synth: MobileSynthModel
     @Binding var values: [String: Int]
+    @State private var activePicker: FxPicker?
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            EditPanel(title: "FX") {
-                VStack(alignment: .leading, spacing: 10) {
-                    Button(fxEnabled ? "FX ON" : "FX OFF") {
-                        let enabled = !fxEnabled
-                        values["fx.enabled"] = enabled ? 1 : 0
-                        synth.setEffectsEnabled(enabled)
-                    }
-                    .buttonStyle(EditPanelButtonStyle(active: fxEnabled))
-                    .frame(width: 86, height: 28)
+        ZStack {
+            HStack(alignment: .top, spacing: 8) {
+                EditPanel(title: "FX") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 8) {
+                            Button(fxEnabled ? "FX ON" : "FX OFF") {
+                                let enabled = !fxEnabled
+                                values["fx.enabled"] = enabled ? 1 : 0
+                                synth.setEffectsEnabled(enabled)
+                            }
+                            .buttonStyle(EditPanelButtonStyle(active: fxEnabled))
 
-                    LazyVGrid(columns: Array(repeating: GridItem(.fixed(74), spacing: 8), count: 3), spacing: 8) {
-                        ForEach(fxParameters, id: \.title) { parameter in
-                            EditKnob(title: parameter.title, value: binding(parameter.key), range: parameter.range, defaultValue: EditParameterDefaults.values[parameter.key])
+                            Button("MUTE") { toggle("fx.muted") }
+                                .buttonStyle(EditPanelButtonStyle(active: isOn("fx.muted")))
+                            Button("SOLO") { toggle("fx.soloed") }
+                                .buttonStyle(EditPanelButtonStyle(active: isOn("fx.soloed")))
+                        }
+                        .frame(height: 28)
+
+                        HStack(alignment: .top, spacing: 8) {
+                            ForEach(FxPicker.allCases, id: \.self) { picker in
+                                VStack(spacing: 7) {
+                                    Button { activePicker = picker } label: {
+                                        DropdownLook(text: selectedText(for: picker))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .frame(width: 160, height: 36)
+
+                                    HStack(spacing: 6) {
+                                        ForEach(picker.parameters, id: \.key) { parameter in
+                                            EditKnob(title: parameter.title, value: binding(parameter.key), range: parameter.range, defaultValue: EditParameterDefaults.values[parameter.key])
+                                        }
+                                    }
+                                }
+                                .frame(width: 160)
+                            }
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(width: EditLayout.totalPanelWidth)
+                .frame(height: EditLayout.panelHeight)
             }
-            .frame(width: EditLayout.totalPanelWidth)
-            .frame(height: EditLayout.panelHeight)
+
+            if let activePicker {
+                Color.black.opacity(0.34)
+                    .contentShape(Rectangle())
+                    .onTapGesture { self.activePicker = nil }
+
+                EditOptionPickerPanel(
+                    title: activePicker.title,
+                    options: activePicker.options,
+                    selectedIndex: value(activePicker.key),
+                    onSelect: { index in
+                        binding(activePicker.key).wrappedValue = index
+                        self.activePicker = nil
+                    },
+                    onClose: { self.activePicker = nil }
+                )
+                .frame(width: 270, height: pickerHeight(activePicker))
+                .zIndex(2)
+            }
         }
         .frame(width: EditLayout.totalPanelWidth, alignment: .topLeading)
         .frame(maxHeight: .infinity, alignment: .top)
@@ -806,15 +850,62 @@ private struct FxEditPage: View {
         (values["fx.enabled"] ?? 1) != 0
     }
 
-    private var fxParameters: [EditParameter] {
-        [
-            .init(title: "Reverb", key: "fx.reverb", range: 0...99),
-            .init(title: "Delay", key: "fx.delay", range: 0...99),
-            .init(title: "Chorus", key: "fx.chorus", range: 0...99),
-            .init(title: "Spread", key: "fx.spread", range: 0...99),
-            .init(title: "Pan", key: "fx.pan", range: 0...99),
-            .init(title: "Tone", key: "fx.tone", range: 0...99)
-        ]
+    private func value(_ key: String) -> Int { values[key] ?? EditParameterDefaults.values[key] ?? 0 }
+
+    private func selectedText(for picker: FxPicker) -> String {
+        let index = value(picker.key)
+        return picker.options.indices.contains(index) ? picker.options[index] : picker.options[0]
+    }
+
+    private func pickerHeight(_ picker: FxPicker) -> CGFloat {
+        CGFloat(48 + picker.options.count * 33)
+    }
+
+    private func isOn(_ key: String) -> Bool { (values[key] ?? 0) != 0 }
+
+    private func toggle(_ key: String) {
+        let value = isOn(key) ? 0 : 1
+        values[key] = value
+        synth.setEditValue(key, value)
+    }
+}
+
+private enum FxPicker: CaseIterable {
+    case pan, delay, reverb
+
+    var title: String {
+        switch self {
+        case .pan: return "AUTO PAN"
+        case .delay: return "DELAY"
+        case .reverb: return "REVERB"
+        }
+    }
+
+    var key: String {
+        switch self {
+        case .pan: return "fx.panmode"
+        case .delay: return "fx.delaymode"
+        case .reverb: return "fx.reverbmode"
+        }
+    }
+
+    var options: [String] {
+        switch self {
+        case .pan: return ["SINE", "TRIANGLE", "SQUARE", "RANDOM", "CHORUS"]
+        case .delay: return ["OFF", "STEREO", "PING PONG", "ECHO"]
+        case .reverb: return ["OFF", "ROOM", "HALL", "PLATE"]
+        }
+    }
+
+    var parameters: [EditParameter] {
+        switch self {
+        case .pan:
+            return [.init(title: "RATE", key: "fx.panrate", range: 0...99), .init(title: "DEPTH", key: "fx.pandepth", range: 0...99)]
+        case .delay:
+            return [.init(title: "TIME", key: "fx.delay", range: 0...99), .init(title: "MIX", key: "fx.dlymix", range: 0...99)]
+        case .reverb:
+            return [.init(title: "SIZE", key: "fx.reverb", range: 0...99), .init(title: "MIX", key: "fx.revmix", range: 0...99)]
+        }
     }
 }
 
@@ -1909,7 +2000,9 @@ private enum EditParameterDefaults {
         "pr1": 99, "pr2": 99, "pr3": 99,
         "pl1": 50, "pl2": 50, "pl3": 50,
         "lfo.speed": 35, "lfo.delay": 0, "lfo.pmd": 0, "lfo.amd": 0, "lfo.pms": 0, "lfo.ams": 0,
-        "fx.enabled": 1, "fx.reverb": 0, "fx.delay": 0, "fx.chorus": 0, "fx.spread": 0, "fx.pan": 50, "fx.tone": 50,
+        "fx.enabled": 1, "fx.reverb": 0, "fx.delay": 0, "fx.revmix": 0, "fx.dlymix": 0,
+        "fx.panrate": 25, "fx.pandepth": 0, "fx.panmode": 0, "fx.delaymode": 1, "fx.reverbmode": 2,
+        "fx.volume": 80, "fx.muted": 0, "fx.soloed": 0,
         "ar": 20, "d1r": 9, "d1l": 12, "d2r": 1, "rr": 5,
         "ratio": 4, "detune": 0, "level": 99, "ratesc": 2, "levelsc": 1, "vel": 0
     ]

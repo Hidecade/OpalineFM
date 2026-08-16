@@ -104,6 +104,7 @@ void OpalineAudioProcessorEditor::timerCallback()
     mainComponent.setExternalControllerState(audioProcessor.getCurrentPitchBend(),
                                              audioProcessor.getCurrentModWheel());
     mainComponent.setExternalScopeSamples(audioProcessor.getScopeSamples(), audioProcessor.getSampleRate());
+    mainComponent.setExternalFxMeterLevels(audioProcessor.getFxMeterLevels());
     mainComponent.setExternalVoiceWaveform(audioProcessor.getVoiceScopeWaveform(),
                                            audioProcessor.getVoiceScopeLevel(),
                                            audioProcessor.getVoiceScopeFrequency());
